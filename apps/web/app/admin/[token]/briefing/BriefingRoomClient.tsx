@@ -688,70 +688,109 @@ function StageRail({
 }
 
 /**
- * THE HEAT NUMBER IS THE CODE (owner 2026-08-15: "use session number as the
- * pass… lets do the heat number in the room").
+ * THE STAFF MEMBER'S OWN ID IS THE CODE (owner 2026-09-03: "when they go to type
+ * in the briefing code for video instead of session number you would instead use
+ * an employee ID and then use that to link the name to that session for all
+ * steps after").
  *
- * The ask began as a fixed staff PIN and the owner replaced it with something
- * better on both counts. A shared 14501 is a number that gets written on the wall
- * beside the tablet within a fortnight, is the same in both rooms, is the same
- * next season, and is one more thing to remember at 9pm. The heat number is none
- * of those: it is DIFFERENT FOR EVERY GROUP, it expires the moment they leave,
- * and there is nothing to memorise because it is printed on this very screen in
- * 46px type.
+ * ── WHAT THIS REPLACED, AND WHAT IT COST ────────────────────────────────────
  *
- * IT IS NOT A SECRET AND MUST NOT BE TREATED AS ONE — the number is displayed
- * deliberately (owner: "show the heat number on the screen"). This is the
- * type-the-name-to-delete gesture: it costs nothing if you are the person running
- * this room and looking at it, and it is not something a hand brushing past or a
- * child playing with a wall tablet produces. Actual authentication is the admin
- * token in the URL, gated by middleware.
+ * The answer used to be the HEAT NUMBER, printed on this very screen in 46px
+ * type. That was chosen over a fixed staff PIN because a shared 14501 gets
+ * written on the wall beside the tablet within a fortnight, is the same in both
+ * rooms and the same next season. The heat number had none of those problems: it
+ * differed for every group and expired the moment they left.
  *
- * AND IT MAKES THE STAFF MEMBER READ THE ROOM BEFORE ACTING, which is the quiet
- * second benefit: you cannot send Session 60 to holding while thinking about
- * Session 59, because the digits you type have to match the group in front of you.
+ * It also had a second benefit that this version DOES NOT KEEP, and the loss is
+ * deliberate rather than overlooked: typing the heat number forced you to read
+ * the room before acting, so you could not send Session 60 to holding while
+ * thinking about Session 59. A punch ID is the same digits every time, so that
+ * check is gone. What is bought with it is the thing the operation actually
+ * needs — every press now says WHO made it, and the group carries that name
+ * through holding, the pit and the boards.
+ *
+ * IT IS STILL NOT A SECRET AND MUST NOT BE TREATED AS ONE. This is the
+ * type-the-name-to-delete gesture wearing a second hat: it costs nothing if you
+ * are the person running this room, and a hand brushing past does not produce a
+ * valid employee. Actual authentication is the admin token in the URL, gated by
+ * middleware. The SERVER resolves the ID to a person; this screen only ever
+ * sends digits and is never told a name it did not ask about.
  *
  * THE ACTION IS HELD, NOT RE-DERIVED. The caller hands over a closure that runs
- * only on a match, so there is no path where the prompt is dismissed and
+ * only on a pass, so there is no path where the prompt is dismissed and
  * something fires anyway.
  *
- * NO HEAT NUMBER, NO PUZZLE. A session that arrived without one (it is nullable
- * all the way from Pandora) falls back to a plain confirm — a control that cannot
- * be operated is worse than one that merely asks twice.
+ * VARIABLE LENGTH, SO THERE IS AN OK KEY. Punch IDs are not a fixed width, which
+ * means the old "the last digit decides" trick — no Enter to hunt for with a
+ * group waiting — cannot survive. The dots count up as you type instead of
+ * showing how many are expected, and OK is a full-width target you cannot miss.
+ *
+ * FAIL OPEN WHEN THE LOOKUP CANNOT RUN. If 7shifts is unreachable on a cold
+ * cache the verify returns `unavailable`, and the press goes through
+ * unattributed. A room that cannot start its film because an HR API is down is a
+ * worse failure than a missing name on a board — the same posture the heat-number
+ * version took for a session that arrived without a number.
  */
-function HeatPrompt({
+function StaffPrompt({
   label,
-  heatNumber,
+  token,
   onPass,
   onCancel,
 }: {
   /** What is about to happen — "Start video". Named so the prompt can never be
    *  mistaken for a generic unlock of the whole screen. */
   label: string;
-  /** The group in the room. Null ⇒ confirm-only, see the header. */
-  heatNumber: number | null;
-  onPass: () => void;
+  token: string;
+  /** Called with the VERIFIED punch ID, or null when the lookup was unavailable. */
+  onPass: (punchId: string | null) => void;
   onCancel: () => void;
 }) {
   const [entry, setEntry] = useState("");
-  const [wrong, setWrong] = useState(false);
-  const code = heatNumber != null ? String(heatNumber) : "";
+  const [wrong, setWrong] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
 
   const press = (digit: string) => {
-    if (!code || entry.length >= code.length) return;
-    const next = entry + digit;
-    setWrong(false);
-    if (next.length < code.length) {
-      setEntry(next);
-      return;
-    }
-    // The last digit decides — no Enter key to find with a group waiting.
-    // Nothing is remembered on success: the next press asks again.
-    if (next === code) {
+    if (checking || entry.length >= 24) return;
+    setWrong(null);
+    setEntry(entry + digit);
+  };
+
+  const submit = async () => {
+    if (checking || !entry) return;
+    setChecking(true);
+    setWrong(null);
+    try {
+      const res = await fetch(`/api/admin/staff/verify?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ punchId: entry }),
+      });
+      const json = (await res.json()) as { ok?: boolean; reason?: string };
+      if (json.ok) {
+        const passed = entry;
+        setEntry("");
+        onPass(passed);
+        return;
+      }
+      // NOT A REFUSAL — see the header. Let them through with no name attached.
+      if (json.reason === "unavailable") {
+        setEntry("");
+        onPass(null);
+        return;
+      }
       setEntry("");
-      onPass();
-    } else {
+      setWrong(
+        json.reason === "ambiguous"
+          ? "That ID matches two people — see a manager"
+          : "Not a valid ID — try again",
+      );
+    } catch {
+      // The tablet could not reach US, which is a different failure from 7shifts
+      // being down and one a retry usually fixes. Do not let it through.
       setEntry("");
-      setWrong(true);
+      setWrong("Could not check that ID — try again");
+    } finally {
+      setChecking(false);
     }
   };
 
@@ -768,7 +807,7 @@ function HeatPrompt({
       className="brc-lb"
       role="dialog"
       aria-modal="true"
-      aria-label={`Enter the staff code to ${label.toLowerCase()}`}
+      aria-label={`Enter your employee ID to ${label.toLowerCase()}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -795,11 +834,11 @@ function HeatPrompt({
           border: `1px solid ${PORTAL_DARK.border}`,
         }}
       >
-        {/* THE PROMPT NEVER NAMES ITS OWN ANSWER (owner 2026-08-15: "don't say
-            enter the heat number"). Staff know what the code is; a caption
-            spelling it out would hand it to every guest who glanced at the
-            tablet, and the number is on the wall behind it. So this asks for "the
-            code" and says no more. */}
+        {/* THIS ONE DOES NAME ITS ANSWER, unlike the heat-number version it
+            replaced. That prompt stayed vague because saying "enter the heat
+            number" would have handed the trick to any guest who glanced at the
+            tablet. An employee ID is not on the wall to be read, so being
+            explicit costs nothing and saves the new starter a question. */}
         <div style={{ textAlign: "center" }}>
           <p
             style={{
@@ -809,93 +848,109 @@ function HeatPrompt({
               color: PORTAL_DARK.muted,
             }}
           >
-            STAFF CODE
+            YOUR EMPLOYEE ID
           </p>
           <p style={{ fontSize: 24, fontWeight: 800, marginTop: 4 }}>{label}</p>
         </div>
 
-        {/* NO HEAT NUMBER ⇒ NO PUZZLE. A confirm button, not a locked screen —
-            see the header. */}
-        {!code ? (
+        {/* DOTS, NOT DIGITS — an ID typed in 46px on a wall tablet is an ID the
+            room can read over your shoulder. They COUNT UP rather than showing a
+            total: a punch ID has no fixed length, so there is no "of 4" to
+            promise, and a fixed row of empty circles would silently imply one. */}
+        <div
+          className={wrong ? "brc-shake" : undefined}
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: 13,
+            minHeight: 22,
+          }}
+          aria-live="polite"
+          aria-label={`${entry.length} digit${entry.length === 1 ? "" : "s"} entered`}
+        >
+          {entry.length === 0 ? (
+            <span style={{ fontSize: 14, fontWeight: 700, color: PORTAL_DARK.muted }}>
+              Type your ID, then OK
+            </span>
+          ) : (
+            Array.from({ length: entry.length }, (_, i) => (
+              <span
+                key={i}
+                style={{
+                  width: 17,
+                  height: 17,
+                  borderRadius: "50%",
+                  background: INK,
+                  border: `2px solid ${wrong ? AMBER : INK}`,
+                }}
+              />
+            ))
+          )}
+        </div>
+
+        <p
+          style={{
+            textAlign: "center",
+            minHeight: 20,
+            fontSize: 14,
+            fontWeight: 700,
+            color: wrong ? AMBER : "transparent",
+          }}
+          role="status"
+        >
+          {wrong ?? "."}
+        </p>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 11 }}>
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
+            <button
+              key={d}
+              type="button"
+              className="brc-key"
+              disabled={checking}
+              onClick={() => press(d)}
+            >
+              {d}
+            </button>
+          ))}
           <button
             type="button"
-            className="brc-btn"
-            style={{ background: GREEN, borderColor: GREEN, color: "#062012", minHeight: 82 }}
-            onClick={onPass}
+            className="brc-key brc-key-quiet"
+            onClick={onCancel}
+            aria-label="Cancel"
           >
-            Confirm
+            Cancel
           </button>
-        ) : (
-          <>
-            {/* DOTS, NOT DIGITS. Echoing what is typed would print the answer
-                directly beneath the number it was copied from, which is the one
-                thing that would teach a watching guest the trick. The dots still
-                say how many digits are expected — the only thing the keypad
-                cannot say for itself. */}
-            <div
-              className={wrong ? "brc-shake" : undefined}
-              style={{ display: "flex", justifyContent: "center", gap: 13, minHeight: 22 }}
-              aria-live="polite"
-              aria-label={`${entry.length} of ${code.length} digits entered`}
-            >
-              {Array.from({ length: code.length }, (_, i) => (
-                <span
-                  key={i}
-                  style={{
-                    width: 17,
-                    height: 17,
-                    borderRadius: "50%",
-                    background: i < entry.length ? INK : "transparent",
-                    border: `2px solid ${wrong ? AMBER : i < entry.length ? INK : PORTAL_DARK.border}`,
-                  }}
-                />
-              ))}
-            </div>
+          <button type="button" className="brc-key" disabled={checking} onClick={() => press("0")}>
+            0
+          </button>
+          <button
+            type="button"
+            className="brc-key brc-key-quiet"
+            disabled={checking}
+            onClick={() => {
+              setEntry("");
+              setWrong(null);
+            }}
+            aria-label="Clear what I typed"
+          >
+            <IconBackspace size={24} stroke={2.2} aria-hidden />
+          </button>
+        </div>
 
-            <p
-              style={{
-                textAlign: "center",
-                minHeight: 20,
-                fontSize: 14,
-                fontWeight: 700,
-                color: wrong ? AMBER : "transparent",
-              }}
-              role="status"
-            >
-              {wrong ? "Wrong code — try again" : "."}
-            </p>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 11 }}>
-              {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
-                <button key={d} type="button" className="brc-key" onClick={() => press(d)}>
-                  {d}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="brc-key brc-key-quiet"
-                onClick={onCancel}
-                aria-label="Cancel"
-              >
-                Cancel
-              </button>
-              <button type="button" className="brc-key" onClick={() => press("0")}>
-                0
-              </button>
-              <button
-                type="button"
-                className="brc-key brc-key-quiet"
-                onClick={() => {
-                  setEntry("");
-                  setWrong(false);
-                }}
-                aria-label="Clear what I typed"
-              >
-                <IconBackspace size={24} stroke={2.2} aria-hidden />
-              </button>
-            </div>
-          </>
-        )}
+        {/* FULL WIDTH, because it is the one key that did not exist before and
+            the hand reaching for it has a group waiting. Inert until something
+            is typed, so an empty press cannot read as a rejection. */}
+        <button
+          type="button"
+          className="brc-btn"
+          style={{ background: GREEN, borderColor: GREEN, color: "#062012", minHeight: 76 }}
+          disabled={checking || !entry}
+          onClick={() => void submit()}
+        >
+          {checking ? <span className="brc-spin" aria-hidden /> : "OK"}
+        </button>
       </div>
     </div>
   );
@@ -971,18 +1026,15 @@ export default function BriefingRoomClient({
   const [challenge, setChallenge] = useState<{
     label: string;
     run: () => void;
-    /**
-     * WHICH HEAT NUMBER UNLOCKS IT. Carried per action rather than read off the
-     * room, because the pull is about a group who are NOT in the room yet: its
-     * code is the incoming heat, and the room's own number is either absent (it
-     * is empty) or belongs to somebody else entirely.
-     */
-    code: number | null;
+    /* NO `code` FIELD ANY MORE (2026-09-03). It carried which heat number
+       unlocked the action, which mattered because the pull is about a group who
+       are NOT in the room yet — its code was the incoming heat, not the room's.
+       The answer is now the presser's own employee ID, which is the same
+       whatever group it is about, so there is nothing left to carry. */
   } | null>(null);
   // Plain, not useCallback: the React Compiler memoizes it correctly on its own,
   // and a hand-written [] dep list here is one it refuses to preserve.
-  const ask = (label: string, code: number | null, run: () => void) =>
-    setChallenge({ label, code, run });
+  const ask = (label: string, run: () => void) => setChallenge({ label, run });
 
   /**
    * WHICH TRACK THIS ROOM IS WATCHING FOR ITS NEXT GROUP.
@@ -1792,16 +1844,7 @@ ${film}
                     }}
                     disabled={!pull.ok || control.busy}
                     aria-busy={pending === `send:${room}`}
-                    onClick={() =>
-                      ask(
-                        `Pull to the ${room} room`,
-                        // THE CODE IS THE INCOMING HEAT, not the room's own — the
-                        // room is empty, so there is no other number it could
-                        // mean, and this one is printed above the overlay.
-                        incomingRace.heatNumber,
-                        onPull,
-                      )
-                    }
+                    onClick={() => ask(`Pull to the ${room} room`, onPull)}
                   >
                     {pending === `send:${room}` ? (
                       <span className="brc-spin" aria-hidden />
@@ -1869,6 +1912,23 @@ ${film}
                   {state.raceType && (
                     <span style={{ color: accent, fontWeight: 700, fontSize: 34 }}>
                       {state.raceType}
+                    </span>
+                  )}
+                  {/* WHOSE GROUP THIS IS. Beside the race type, quieter and
+                      smaller — it is a receipt, not a headline. Its real job is
+                      to close the loop on the ID that was just typed: you press
+                      Start video, the film rolls, and the room now says your
+                      name, so a mistyped-but-valid ID is visible immediately
+                      rather than at payroll. */}
+                  {roomStatus?.host && (
+                    <span
+                      style={{
+                        color: PORTAL_DARK.muted,
+                        fontWeight: 700,
+                        fontSize: 22,
+                      }}
+                    >
+                      · {roomStatus.host}
                     </span>
                   )}
                 </p>
@@ -1957,7 +2017,7 @@ ${film}
                   style={{ background: GREEN, borderColor: GREEN, color: "#062012" }}
                   disabled={control.busy || holdMs > 0}
                   aria-busy={pending === startKey}
-                  onClick={() => ask("Start video", state.heatNumber, () => onStart(false))}
+                  onClick={() => ask("Start video", () => onStart(false))}
                 >
                   {pending === startKey ? (
                     <span className="brc-spin" aria-hidden />
@@ -1972,7 +2032,7 @@ ${film}
                   className="brc-btn brc-btn-ghost"
                   disabled={control.busy}
                   aria-busy={pending === startKey}
-                  onClick={() => ask("Play the video again", state.heatNumber, () => onStart(true))}
+                  onClick={() => ask("Play the video again", () => onStart(true))}
                 >
                   {pending === startKey ? (
                     <span className="brc-spin" aria-hidden />
@@ -2132,7 +2192,7 @@ ${film}
             aria-busy={pending === `holding:${room}`}
             onClick={() => {
               if (!state) return;
-              ask("Send to holding", state.heatNumber, () =>
+              ask("Send to holding", () =>
                 sendToHoldingCb({
                   room,
                   track: state.track,
@@ -2219,10 +2279,21 @@ ${film}
       )}
 
       {challenge && (
-        <HeatPrompt
+        <StaffPrompt
           label={challenge.label}
-          heatNumber={challenge.code}
-          onPass={() => {
+          token={token}
+          onPass={(punchId) => {
+            /**
+             * SET BEFORE THE ACTION RUNS, and it must be a ref on the other end
+             * (see BriefingControl.setActingPunchId): `challenge.run()` fires in
+             * this same tick, so a state update would not be visible to the POST
+             * it triggers and the press would go out unattributed.
+             *
+             * Null when the lookup was unavailable — recorded as "nobody", which
+             * is honest, rather than leaving the previous presser's ID standing
+             * and signing this group with the wrong name.
+             */
+            control.setActingPunchId(punchId);
             // Closed BEFORE the action runs, so the screen is already back on the
             // room when the button's own spinner appears.
             setChallenge(null);

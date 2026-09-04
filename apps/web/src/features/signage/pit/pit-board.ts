@@ -185,6 +185,16 @@ export interface PitBoardInfo {
     briefedAtMs: number | null;
     /** Staff sent them to the seats. */
     inHolding: boolean;
+    /**
+     * THE STAFF MEMBER RUNNING THIS GROUP — first name only (owner
+     * 2026-09-03), claimed when they identified themselves at the briefing
+     * tablet and carried on the session from there.
+     *
+     * Null is ordinary, not an error: a group briefed before this shipped, a
+     * send made from the desk board (which has no prompt), or 7shifts being
+     * unreachable at the press. The board simply shows no name.
+     */
+    host: string | null;
     /** Their own green flag has been seen — the board is about to roll. */
     startedAtMs: number | null;
     /** When this group's PRE-RACE PA cue played (pit/audio.server.ts), null

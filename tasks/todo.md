@@ -1,5 +1,54 @@
 # Open Tasks
 
+## Pit staff rotation: employee ID on the briefing prompt (2026-09-03)
+
+Owner: staff rotate through the pit, one person follows a group. The briefing tablet's
+"staff code" becomes the presser's 7shifts PUNCH ID instead of the heat number, and that
+name rides the session through every later step, shown beside race type.
+
+- [x] 7shifts client `~/lib/api/sevenshifts.ts` — serial paced queue (150 ms gap), 403-is-retryable
+      (their Cloudflare returns a managed challenge as a 403 + `cf-mitigated`, not a 401/429),
+      pinned browser UA, `x-api-version: 2022-05-01`, cursor pagination, 15 s per-attempt timeout.
+- [x] **THERE IS NO `punch_id` FILTER.** Verified against the v2 List Users reference 2026-09-03:
+      only `modified_since`/`location_id`/`department_id`/`role_id`/`status`/`name`/`sort_by`/
+      `cursor`/`limit`. `punch_id` is a RESPONSE field, and there is no by-punch-id sibling to
+      `GET /users/{id}`. So a punch ID can only be resolved by listing and matching locally —
+      hence the Redis index; nothing pages 7shifts on a keypress.
+- [x] `features/staff/` — `punch-index.ts` (pure: active check, `preferred_first_name || first_name`,
+      punch->person map, COLLISIONS EXCLUDED not resolved), `service.ts` (`verifyPunchId`: hit = 2
+      small Redis reads; miss on a fresh index = honest "unknown" with no API call; miss on a stale
+      index = one lock-guarded rebuild then re-check, so a new hire is typeable within the minute;
+      `unavailable` != `unknown` so callers can degrade), `session-host.ts` (NX = FIRST PRESS WINS).
+- [x] `POST /api/admin/staff/verify` — always 200; the body answers "who is this", the status
+      answers "did the lookup run". First name only over the wire.
+- [x] `StaffPrompt` (was `HeatPrompt`): variable-length entry + an OK key (the old "last digit
+      decides" trick cannot survive an unknown length), running dot count, server-side resolve.
+      All four gated presses (pull / start / restart / send-to-holding) carry the punch ID;
+      `setActingPunchId` writes a REF because the prompt fires the action in the same tick.
+- [x] Durable: `briefing_assignments.staff_user_id` + `staff_first_name` (ALTER, nullable —
+      the table is live and an unattributed send is legitimate). Keyed on the 7shifts USER id,
+      never the punch ID, which gets reissued.
+- [x] Displayed beside race type: pit board scene (`PitBoardInfo.session.host`), briefing tablet
+      (`BriefingRoomStatus.host`, joined at read time via one `mget` — no second source of truth).
+- [x] Gates: tsc clean, eslint 0 errors + **0 new warnings** (baseline-diffed), vitest 6506 green
+      (40 new across punch-index / service / session-host).
+
+**Deliberate trade, flagged to the owner:** the heat-number code forced staff to read the room
+before acting (you could not send Session 60 while thinking about 59). A punch ID is the same
+digits every time, so that check is gone — bought for knowing WHO ran every group.
+
+Owed before this is live:
+- [ ] **Rotate the 7shifts token.** It is committed in the portal repo at `.env.example:43`,
+      `7SHIFTS_INTEGRATION.md:10,50,116`, `DEPLOYMENT.md:64,150`. Then set
+      `SEVEN_SHIFTS_API_TOKEN` (+ optional `SEVEN_SHIFTS_COMPANY_ID`, default 265994) on Vercel.
+- [ ] Live smoke: a real punch ID at a briefing tablet -> name on the tablet, then on the pit board
+      after send-to-holding; a wrong ID shakes; check the `briefing_assignments` row carries both
+      staff columns.
+- [ ] Owner call: is the roster company-wide (as built, per "use any employee in 7shifts") or
+      should it scope to the Karting department / FastTrax 467486? Scoping re-introduces the
+      "forgot to clock in, stuck at the prompt with a group in the room" failure.
+- [ ] No reassign action yet — first press wins for the night. Decide if staff need a hand-over.
+
 ## Hide Kids Bowl Free off-season (2026-09-01) — worktree `kbf-offseason-hide`
 
 Owner: "Disable / hide Kids Bowl Free from booking sites." Scope confirmed with owner:

@@ -18,6 +18,9 @@ import {
   setCalledRace,
 } from "~/features/signage/briefing/called-override.server";
 import { readBriefingRoom } from "~/features/signage/briefing/state.server";
+import { verifyPunchId } from "~/features/staff/service";
+import { assignSessionHost } from "~/features/staff/session-host";
+import type { StaffIdentity } from "~/features/staff/punch-index";
 import { setAutoHoldingEnabled } from "~/features/signage/briefing/auto-holding.server";
 import {
   CHECKIN_WINDOW_MAX_MINS,
@@ -175,6 +178,9 @@ export async function POST(req: NextRequest) {
     fallbackMs?: number | string;
     maxPlays?: number | string;
     lingerAfterMs?: number | string;
+    /** The presser's employee punch ID, resolved to a person below. Absent from
+     *  the desk board, which has no staff prompt. */
+    punchId?: string;
   };
   try {
     body = await req.json();
@@ -560,6 +566,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   }
 
+  /**
+   * WHO IS PRESSING — resolved HERE, from the punch ID they typed, and never
+   * taken from the client as a name.
+   *
+   * The tablet sends digits; this server turns digits into a person. That
+   * ordering is the whole point: a board tab left open across a deploy, or a
+   * hand-rolled POST, can assert `punchId: "9999"` and get nothing, but it can
+   * never assert `firstName: "Alex"` onto somebody else's group.
+   *
+   * NULL IS A NORMAL ANSWER. An unknown ID, or 7shifts unreachable, yields no
+   * staff and the action still runs — the prompt has already decided whether to
+   * let the press through (see StaffPrompt's fail-open path), and a briefing
+   * room must never be blocked by an HR API. What we lose is a name on a board,
+   * which is the right thing to lose.
+   */
+  const acting: StaffIdentity | null =
+    typeof body.punchId === "string" && body.punchId.trim()
+      ? await verifyPunchId(body.punchId).then((r) => (r.ok ? r.staff : null))
+      : null;
+
   const room = parseBriefingRoom(body.room);
   if (!room) return NextResponse.json({ error: "room must be red or blue" }, { status: 400 });
 
@@ -594,6 +620,21 @@ export async function POST(req: NextRequest) {
       heatNumber: Number.isInteger(body.heatNumber) ? (body.heatNumber as number) : null,
       raceType: typeof body.raceType === "string" ? body.raceType : null,
     });
+
+    /**
+     * CLAIMED ONLY ON A SEND THAT ACTUALLY HAPPENED.
+     *
+     * This runs after the result, not before it, because the guard below
+     * refuses far more often than it looks: holding already occupied, or a
+     * concurrent send on a Mega night. Claiming first would let a REFUSED press
+     * take the group — the presser walks away having done nothing, and the name
+     * on the wall for the rest of the night is theirs instead of whoever
+     * actually seated the grid. Attribution follows the action, never the
+     * attempt.
+     *
+     * Still NX inside, so it defers to whoever pulled them into the room.
+     */
+    if (acting && result.ok) await assignSessionHost(sessionId, acting);
     // A refusal is not a server fault — it is the guard doing its job — but it
     // must not read as success, or the page will say "sent to holding" for a
     // press that deliberately did nothing.
@@ -606,7 +647,7 @@ export async function POST(req: NextRequest) {
   // Phase two of a send, and also "play it again" — the same operation either
   // way, so one action rather than two that could drift (see startBriefing).
   if (action === "start" || action === "restart") {
-    const result = await startBriefing(room);
+    const result = await startBriefing(room, acting);
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   }
 
@@ -633,6 +674,7 @@ export async function POST(req: NextRequest) {
       sessionId,
       heatNumber: Number.isInteger(body.heatNumber) ? (body.heatNumber as number) : null,
       raceType: typeof body.raceType === "string" ? body.raceType : null,
+      staff: acting,
       // NO TIER FROM THE CLIENT (owner 2026-08-16). The check-in board used to
       // send a staff-picked film here; blocking that in the UI alone would not
       // hold — a board tab left open across a deploy keeps posting the old body

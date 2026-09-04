@@ -54,6 +54,24 @@ async function ensureSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS briefing_assignments_day_idx
       ON briefing_assignments (venue, business_day, room, sent_at DESC)
   `;
+  /**
+   * WHO RAN THE GROUP (2026-09-03). Added by ALTER rather than in the CREATE
+   * above, because the table is long since live — the CREATE only ever runs on
+   * a fresh database.
+   *
+   * NULLABLE ON PURPOSE, and it will stay that way: every row written before
+   * this existed has no staff member, and a send can still legitimately go
+   * unattributed when 7shifts is unreachable (see the prompt's fail-open path).
+   * A NOT NULL here would turn an outage into a refused briefing.
+   *
+   * `staff_user_id` is the 7shifts USER id, not the punch ID — punch IDs are
+   * reissued when someone leaves, so a report joining on one would attribute
+   * last season's races to this season's new hire. The first name is
+   * denormalised beside it because that is what screens show, and resolving it
+   * later would mean a 7shifts call per historical row.
+   */
+  await q`ALTER TABLE briefing_assignments ADD COLUMN IF NOT EXISTS staff_user_id INTEGER`;
+  await q`ALTER TABLE briefing_assignments ADD COLUMN IF NOT EXISTS staff_first_name TEXT`;
   schemaReady = true;
 }
 
@@ -69,6 +87,10 @@ export interface BriefingAssignment {
   tier: BriefingTier | null;
   mode: string;
   sentAt: string;
+  /** 7shifts user id of the staff member running this group. Null pre-2026-09-03. */
+  staffUserId: number | null;
+  /** Their first name — the only part any screen shows. */
+  staffFirstName: string | null;
 }
 
 function toRow(r: Record<string, unknown>): BriefingAssignment {
@@ -85,6 +107,8 @@ function toRow(r: Record<string, unknown>): BriefingAssignment {
     tier: r.tier == null ? null : (String(r.tier) as BriefingTier),
     mode: String(r.mode),
     sentAt: String(r.sent_at),
+    staffUserId: r.staff_user_id == null ? null : Number(r.staff_user_id),
+    staffFirstName: r.staff_first_name == null ? null : String(r.staff_first_name),
   };
 }
 
@@ -99,16 +123,21 @@ export async function recordBriefingAssignment(args: {
   raceType: string | null;
   tier: BriefingTier | null;
   mode: string;
+  /** Who ran it. Null when 7shifts could not name them — never a reason to refuse. */
+  staffUserId?: number | null;
+  staffFirstName?: string | null;
 }): Promise<void> {
   if (!isDbConfigured()) return;
   await ensureSchema();
   const q = sql();
   await q`
     INSERT INTO briefing_assignments
-      (venue, business_day, room, track, session_id, heat_number, race_type, tier, mode)
+      (venue, business_day, room, track, session_id, heat_number, race_type, tier, mode,
+       staff_user_id, staff_first_name)
     VALUES
       (${args.venue}, ${args.businessDay}, ${args.room}, ${args.track}, ${args.sessionId},
-       ${args.heatNumber}, ${args.raceType}, ${args.tier}, ${args.mode})
+       ${args.heatNumber}, ${args.raceType}, ${args.tier}, ${args.mode},
+       ${args.staffUserId ?? null}, ${args.staffFirstName ?? null})
   `;
 }
 
@@ -121,7 +150,8 @@ export async function listBriefingAssignments(
   await ensureSchema();
   const q = sql();
   const rows = (await q`
-    SELECT id, venue, business_day, room, track, session_id, heat_number, race_type, tier, mode, sent_at
+    SELECT id, venue, business_day, room, track, session_id, heat_number, race_type, tier, mode,
+           sent_at, staff_user_id, staff_first_name
     FROM briefing_assignments
     WHERE venue = ${venue} AND business_day = ${businessDay}
     ORDER BY sent_at DESC

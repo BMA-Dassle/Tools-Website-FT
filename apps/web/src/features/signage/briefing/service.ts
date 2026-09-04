@@ -45,6 +45,8 @@ import { GREETING_TIMING_DEFAULTS, type GreetingTiming } from "./return-greeting
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
 import { cameraPreviewMode, type CameraPreviewMode } from "./camera-preview-setting.server";
 import { readTimingFeedStatus, type TimingFeedStatus } from "~/features/racing/timing-feed.server";
+import { assignSessionHost, readSessionHosts } from "~/features/staff/session-host";
+import type { StaffIdentity } from "~/features/staff/punch-index";
 import { readRaceFinishedMarker } from "./race-finish.server";
 import { GROUP_OUT_WINDOW_MS, type GroupOut } from "./room-return";
 import {
@@ -82,6 +84,14 @@ export interface SendBriefingArgs {
   /* NO `tier` FIELD (owner 2026-08-16). It was the staff override, set by three
      buttons on the check-in board; the film is derived from `raceType` below and
      there is no longer any way to ask for a different one. */
+  /**
+   * WHO IS RUNNING THIS GROUP — resolved from the punch ID they typed at the
+   * prompt, by the ROUTE, never asserted by the client (see the route's note).
+   *
+   * Optional, and null is a normal value: 7shifts being unreachable must cost
+   * an attribution, never a briefing.
+   */
+  staff?: StaffIdentity | null;
 }
 
 export type SendBriefingResult =
@@ -198,7 +208,14 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
     raceType: args.raceType,
     tier,
     mode: "timeline",
+    staffUserId: args.staff?.userId ?? null,
+    staffFirstName: args.staff?.firstName ?? null,
   });
+
+  // THE DISPLAY COPY, after the row — same Neon-before-Redis rule as everything
+  // else here. First press wins, so a re-send into the same room by somebody
+  // else does not take the group off whoever pulled them in.
+  if (args.staff) await assignSessionHost(args.sessionId, args.staff);
 
   if (displaced && displaced.sessionId && displaced.sessionId !== args.sessionId) {
     await recordBriefingEvent({
@@ -273,11 +290,25 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
  */
 export async function startBriefing(
   room: BriefingRoom,
+  /** Who pressed it. Claims the group when the send did not — see below. */
+  staff?: StaffIdentity | null,
 ): Promise<{ ok: boolean; error?: string; hasVideo?: boolean; photoSaved?: boolean }> {
   const current = await readBriefingRoom(VENUE, room);
   if (!current) {
     return { ok: false, error: "nothing is assigned to that room — send a session first" };
   }
+
+  /**
+   * A SEND IS NOT ALWAYS THE FIRST PRESS. A group can reach a room without one
+   * — the desk sends from the check-in board, or auto-holding moves them —
+   * and then the tablet's Start video is the first time anybody identifies
+   * themselves. Claiming here too means the host is whoever actually ran the
+   * room, not merely whoever happened to use the newer screen.
+   *
+   * Still first-press-wins (assignSessionHost is NX), so pressing Play it again
+   * cannot hand the group to a passing manager.
+   */
+  if (staff && current.sessionId) await assignSessionHost(current.sessionId, staff);
 
   const assets = await loadSignageAssetsSafe();
   // Re-resolved at Start too: the film may have been uploaded (or removed) while
@@ -459,6 +490,15 @@ export interface BriefingRoomStatus {
    * Null once nobody is outstanding, so the board can say FREE and mean it.
    */
   groupOut: GroupOut | null;
+  /**
+   * THE STAFF MEMBER RUNNING THE GROUP IN THIS ROOM — first name only.
+   *
+   * JOINED AT READ TIME from the session host key rather than stored on the room
+   * state, so there is one answer to "who has this group" and the room cannot
+   * drift from the pit board. Null when nobody has identified themselves for
+   * this session (a desk send, or 7shifts unreachable at the press).
+   */
+  host: string | null;
 }
 
 /**
@@ -769,6 +809,12 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     sessionsBriefed(assignments.map((a) => a.sessionId)),
   ]);
 
+  // ONE mget for both rooms — a per-room read here would be two Redis calls on
+  // a five-second poll for a field that is usually null.
+  const roomHosts: Record<string, { firstName: string }> = await readSessionHosts(
+    BRIEFING_ROOMS.map((room) => rooms[room]?.sessionId ?? null),
+  ).catch(() => ({}));
+
   const roomStatuses = BRIEFING_ROOMS.map((room, i): BriefingRoomStatus => {
     const state = rooms[room];
     const timeline = briefingTimelineAt(state, now);
@@ -778,6 +824,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
       phase: timeline.phase,
       nextInMs: timeline.nextInMs,
       groupOut: groupsOut[i] ?? null,
+      host: state?.sessionId ? (roomHosts[state.sessionId]?.firstName ?? null) : null,
     };
   });
 

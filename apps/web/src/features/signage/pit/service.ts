@@ -23,6 +23,7 @@ import { sessionBriefed } from "../briefing/state.server";
 import { isLockedPlace, participantCheckedIn } from "../checkin-progress";
 import { sessionRoster } from "../service/checkin-progress";
 import type { TrackKey } from "../track";
+import { readSessionHost } from "~/features/staff/session-host";
 import { readCueStamp } from "./audio.server";
 import { readPitLane } from "./lane.server";
 import type { BackToBackTarget } from "./back-to-back";
@@ -137,12 +138,15 @@ export async function buildPitBoard(
   if (!display) return empty;
   const { sessionId, heatNumber, raceType, inHolding } = display;
 
-  const [briefed, startedAtMs, preStamp, rows, cameras] = await Promise.all([
+  const [briefed, startedAtMs, preStamp, rows, cameras, host] = await Promise.all([
     sessionBriefed(sessionId).catch(() => null),
     readRaceStartedMarker(sessionId).catch(() => null),
     readCueStamp("pre", sessionId).catch(() => null),
     sessionRoster(sessionId, nowMs).catch(() => null),
     listAssignmentsForSession(sessionId).catch(() => []),
+    // Rides the same fan-out as everything else, so naming the staff member on
+    // the wall costs no extra round trip on the 15s build.
+    readSessionHost(sessionId).catch(() => null),
   ]);
 
   const session: NonNullable<PitBoardInfo["session"]> = {
@@ -152,6 +156,7 @@ export async function buildPitBoard(
     briefedRoom: briefed?.room ?? null,
     briefedAtMs: briefed?.atMs ?? null,
     inHolding,
+    host: host?.firstName ?? null,
     startedAtMs,
     preRaceAtMs: preStamp?.atMs ?? null,
     preRaceDurationS: preStamp?.durationS ?? null,

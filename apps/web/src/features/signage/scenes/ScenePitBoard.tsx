@@ -630,7 +630,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
                     ? `Session ${showSession.heatNumber}`
                     : "Next session"}
                 </div>
-                {showSession.raceType && (
+                {(showSession.raceType || showSession.host) && (
                   <div
                     className="tv-display"
                     style={{
@@ -643,6 +643,25 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
                     }}
                   >
                     {showSession.raceType}
+                    {/* THE STAFF MEMBER, ON THE SAME LINE AS THE RACE TYPE
+                        (owner 2026-09-03: "the same way we show race type we
+                        should be showing employee name assigned to the race").
+
+                        Dimmer than the type and behind a separator, because the
+                        marshal reading this wall from ten feet needs the race
+                        type first; the name answers "who do I ask about this
+                        group", which is a question you walk closer to ask.
+
+                        FIRST NAME ONLY, and it arrives that way — the surname is
+                        never sent to a screen (see the verify route). */}
+                    {showSession.host && (
+                      <>
+                        {showSession.raceType && (
+                          <span style={{ opacity: 0.4, margin: "0 10px" }}>·</span>
+                        )}
+                        <span style={{ color: "rgba(245,236,238,0.55)" }}>{showSession.host}</span>
+                      </>
+                    )}
                   </div>
                 )}
               </>

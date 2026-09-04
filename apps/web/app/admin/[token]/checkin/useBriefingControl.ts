@@ -47,6 +47,9 @@ export interface RoomStatus {
    *  an idle room claiming to be FREE while its group is still on track. See
    *  ~/features/signage/briefing/room-return.ts. */
   groupOut: GroupOut | null;
+  /** Staff member running the group in this room, first name only. Optional so a
+   *  station on the previous deploy simply shows no name rather than throwing. */
+  host?: string | null;
 }
 
 export interface Assignment {
@@ -157,6 +160,24 @@ export interface BriefingControl {
    * its own spinner while the others merely go inert.
    */
   pending: string | null;
+  /**
+   * WHO IS OPERATING THIS TABLET — the punch ID last verified at the staff
+   * prompt, sent with every action so the server can resolve it to a name.
+   *
+   * A SETTER RATHER THAN A PARAMETER on each action, because the prompt holds a
+   * closure it did not build (see BriefingRoomClient's `ask`) and threading an
+   * argument through would mean changing every action's signature to carry
+   * something none of them use themselves.
+   *
+   * WRITES A REF, NOT STATE, and that is load-bearing: the prompt sets this and
+   * runs the held action in the SAME tick, so a state update — which lands next
+   * render — would post the previous presser's ID, or none at all on the first
+   * press of the night.
+   *
+   * The desk board never calls it, so its presses carry no ID and record no
+   * name, exactly as before.
+   */
+  setActingPunchId: (punchId: string | null) => void;
   /* THE FILM OVERRIDE IS GONE (owner 2026-08-16). `tierOverride` /
      `setTierOverride` used to live here, per ROOM, so a Mega day's two rooms
      could differ. Nothing picks a film at the desk any more — the session's race
@@ -374,6 +395,12 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   const [openPanel, setOpenPanel] = useState<BoardPanel | null>(null);
   const [waitTimes, setWaitTimes] = useState<WaitTimesBoard | null>(null);
   const [waitTimesWeek, setWaitTimesWeek] = useState<WaitTimesBoard | null>(null);
+  /** See BriefingControl.setActingPunchId — a ref because the prompt sets it and
+   *  fires the action in the same tick. */
+  const actingPunchId = useRef<string | null>(null);
+  const setActingPunchId = useCallback((punchId: string | null) => {
+    actingPunchId.current = punchId;
+  }, []);
 
   const loadBoard = useCallback(
     async (signal?: AbortSignal) => {
@@ -411,7 +438,10 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
         const res = await fetch(`/api/admin/briefing?token=${encodeURIComponent(token)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          // The punch ID rides along on every action; the SERVER turns it into a
+          // name. Undefined when this station has no prompt (the desk board),
+          // which posts exactly the body it always did.
+          body: JSON.stringify({ ...body, punchId: actingPunchId.current ?? undefined }),
         });
         const json = (await res.json()) as {
           error?: string;
@@ -738,6 +768,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     note,
     busy,
     pending,
+    setActingPunchId,
     expandedCamera,
     setExpandedCamera,
     openPanel,
