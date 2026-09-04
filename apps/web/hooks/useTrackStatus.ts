@@ -48,6 +48,9 @@ export type CurrentRace = {
   scheduledStart: string; // ISO — the heat's scheduled start time (matches booked heatStart)
   calledAt: string; // ISO — when BMI fired the SessionAboutToStart notification
   sessionId: number;
+  /** Staff member running this group, first name only. Null until somebody has
+   *  identified themselves for it — a called heat normally has nobody yet. */
+  host?: string | null;
 };
 
 export type CurrentRaces = {

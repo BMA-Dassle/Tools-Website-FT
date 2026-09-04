@@ -200,6 +200,8 @@ interface CheckinResponse {
     raceType: string | null;
     heatNumber: number | null;
     scheduledStart: string | null;
+    /** Staff member running this heat, first name only. Null until claimed. */
+    host?: string | null;
   };
   currentlyCheckingIn: boolean;
   /**
@@ -253,8 +255,8 @@ function summariseDryRun(json: unknown, ok: boolean, wallMs: number): string {
   const who = r.guest ? `${r.guest.firstName} ${r.guest.lastName}`.trim() : "nobody matched";
   const heat = r.session?.track
     ? `${r.session.track}${r.session.raceType ? ` ${r.session.raceType}` : ""}${
-        r.session.heatNumber ? ` heat ${r.session.heatNumber}` : ""
-      }`
+        r.session.host ? ` · ${r.session.host}` : ""
+      }${r.session.heatNumber ? ` heat ${r.session.heatNumber}` : ""}`
     : "no heat";
 
   const verdict = r.currentlyCheckingIn
@@ -1157,7 +1159,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             <p className="text-black font-bold text-lg uppercase">Not checking in yet</p>
             {lastResult.session.track && (
               <p className="text-black/80 text-base font-semibold mt-1">
-                Their session: {lastResult.session.track} {lastResult.session.raceType}{" "}
+                Their session: {lastResult.session.track} {lastResult.session.raceType}
+                {lastResult.session.host ? ` · ${lastResult.session.host}` : ""}{" "}
                 {lastResult.session.heatNumber ? `Heat ${lastResult.session.heatNumber}` : ""}
                 {lastResult.session.scheduledStart && (
                   <>
@@ -1370,7 +1373,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 className="font-bold uppercase text-center mt-2"
                 style={{ fontSize: "clamp(28px, 6vw, 44px)", color: getTrackTextColor() }}
               >
-                {lastResult.session.track} {lastResult.session.raceType}{" "}
+                {lastResult.session.track} {lastResult.session.raceType}
+                {lastResult.session.host ? ` · ${lastResult.session.host}` : ""}{" "}
                 {lastResult.session.heatNumber ? `Heat ${lastResult.session.heatNumber}` : ""}
               </p>
             )}

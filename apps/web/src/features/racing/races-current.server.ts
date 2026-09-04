@@ -1,3 +1,4 @@
+import { readSessionHosts } from "~/features/staff/session-host";
 import "server-only";
 
 /**
@@ -50,6 +51,13 @@ export type CurrentRace = {
   scheduledStart?: string;
   calledAt: string;
   sessionId: number;
+  /**
+   * Staff member running this group, first name only. Stamped by
+   * `loadAllFromRedis`, never stored on the carry — the host is claimed at a
+   * press and lives on its own key, so writing it here would be a second copy
+   * that could go stale behind a re-call.
+   */
+  host?: string | null;
 };
 
 export type CurrentRaces = Record<TrackKey, CurrentRace | null>;
@@ -119,7 +127,29 @@ export async function loadAllFromRedis(): Promise<CurrentRaces> {
     loadRace("red"),
     loadRace("mega"),
   ]);
-  return { blue, red, mega };
+  const races = { blue, red, mega };
+
+  /**
+   * WHO IS RUNNING EACH CALLED HEAT (owner 2026-09-03) — one `mget` for all
+   * three tracks, on top of the three GETs above.
+   *
+   * Usually null and that is correct: a heat is CALLED before anybody has
+   * pressed anything for it, and the host is claimed at the first press. It
+   * fills in the moment somebody pulls them to a room, which is exactly when
+   * the desk starts wanting to know.
+   */
+  try {
+    const hosts = await readSessionHosts(
+      Object.values(races).map((r) => (r ? String(r.sessionId) : null)),
+    );
+    for (const race of Object.values(races)) {
+      if (race) race.host = hosts[String(race.sessionId)]?.firstName ?? null;
+    }
+  } catch {
+    /* a nameless board is the board we shipped for a year */
+  }
+
+  return races;
 }
 
 /**

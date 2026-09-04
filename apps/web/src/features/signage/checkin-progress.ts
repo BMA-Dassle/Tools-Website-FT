@@ -37,6 +37,9 @@ export interface CheckinProgressSession {
   sessionId: string;
   checkedIn: number;
   total: number;
+  /** Staff member running this group, first name only (owner 2026-09-03).
+   *  Joined by the feed builder; null until somebody has claimed the heat. */
+  host?: string | null;
   /**
    * Staff have already sent this heat to a briefing room.
    *

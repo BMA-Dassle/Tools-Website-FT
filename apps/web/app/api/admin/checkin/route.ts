@@ -1,3 +1,4 @@
+import { readSessionHost } from "~/features/staff/session-host";
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { parseCheckinQr } from "@/lib/qr-checkin";
@@ -1265,13 +1266,18 @@ async function runCheckinScan(req: NextRequest): Promise<NextResponse> {
         "flags",
         Promise.all([vipPromise, birthdayPromise, backToBackPromise]),
       );
+      const sessionHost = sessionId
+        ? await readSessionHost(String(sessionId))
+            .then((h) => h?.firstName ?? null)
+            .catch(() => null)
+        : null;
       return NextResponse.json({
         success: true,
         alreadyCheckedIn: true,
         guest: guest
           ? { firstName: guest.firstName, lastName: guest.lastName, pictureUrl: null }
           : null,
-        session: { track, raceType, heatNumber, scheduledStart },
+        session: { track, raceType, heatNumber, scheduledStart, host: sessionHost },
         currentlyCheckingIn,
         headsock,
         vip,
@@ -1421,6 +1427,14 @@ async function runCheckinScan(req: NextRequest): Promise<NextResponse> {
     });
   }
 
+  // WHO IS RUNNING THE HEAT the racer just scanned into (owner 2026-09-03) —
+  // one Redis read on the scan path, and null until somebody has claimed it.
+  const scannedHost = sessionId
+    ? await readSessionHost(String(sessionId))
+        .then((h) => h?.firstName ?? null)
+        .catch(() => null)
+    : null;
+
   return NextResponse.json({
     success: true,
     guest: guestResponse,
@@ -1429,6 +1443,7 @@ async function runCheckinScan(req: NextRequest): Promise<NextResponse> {
       raceType,
       heatNumber,
       scheduledStart,
+      host: scannedHost,
     },
     currentlyCheckingIn,
     headsock,

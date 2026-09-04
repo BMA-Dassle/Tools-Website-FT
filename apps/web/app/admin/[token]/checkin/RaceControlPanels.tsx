@@ -1965,6 +1965,9 @@ function RoomColumn({
                 </div>
                 <div style={{ fontSize: 14, color: PORTAL_DARK.muted, marginTop: 2 }}>
                   {race.raceType}
+                  {/* Empty until somebody claims them — a called heat has had no
+                      press yet, which is the honest state to show. */}
+                  {race.host ? ` · ${race.host}` : ""}
                 </div>
               </div>
 

@@ -400,7 +400,13 @@ function CheckInBand({
   late,
 }: {
   trackKey: string;
-  race: { heatNumber: number; raceType: string; calledAt: string; sessionId: number } | null;
+  race: {
+    heatNumber: number;
+    raceType: string;
+    calledAt: string;
+    sessionId: number;
+    host?: string | null;
+  } | null;
   stat: SessionStat | null;
   windowMins: number | undefined;
   /** Which room this heat has already gone to, if any. */
@@ -466,7 +472,9 @@ function CheckInBand({
     );
   }
 
-  const heat = `Session ${race.heatNumber}${race.raceType ? ` · ${race.raceType}` : ""}`;
+  const heat = `Session ${race.heatNumber}${race.raceType ? ` · ${race.raceType}` : ""}${
+    race.host ? ` · ${race.host}` : ""
+  }`;
 
   // Already sent — there is nobody to fetch, so the band goes quiet.
   if (sentToRoom) {

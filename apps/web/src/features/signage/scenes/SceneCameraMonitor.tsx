@@ -815,7 +815,7 @@ function CheckinPanel({
             : "This heat"
         }
         chipColor={TRACK_ACCENTS[track]}
-        content={session.raceType ?? "Race"}
+        content={`${session.raceType ?? "Race"}${session.host ? ` · ${session.host}` : ""}`}
         count={session.checkedIn}
         countOf={session.total}
         countColor={countColor}

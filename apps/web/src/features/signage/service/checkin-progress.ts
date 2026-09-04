@@ -1,3 +1,4 @@
+import { readSessionHost } from "~/features/staff/session-host";
 import "server-only";
 
 /**
@@ -265,18 +266,26 @@ export async function checkinProgress(nowMs: number): Promise<CheckinProgressSes
       // The send marker rides along, so a board can clear its own rail the
       // moment staff send the heat — the same one Redis key the track boards
       // clear on, read once here rather than by each screen.
-      const [counts, briefed] = await Promise.all([
+      const [counts, briefed, host] = await Promise.all([
         sessionCheckinCounts(heat.sessionId, nowMs),
         sessionBriefed(heat.sessionId).catch(() => null),
+        // Rides the same fan-out — naming the staff member costs no extra trip.
+        readSessionHost(heat.sessionId).catch(() => null),
       ]);
       if (!counts || counts.total === 0) return null;
       return {
         ...heat,
+        host: host?.firstName ?? null,
         checkedIn: counts.checkedIn,
         total: counts.total,
         briefed: briefed != null,
       };
     }),
   );
-  return rows.filter((r): r is CheckinProgressSession => r !== null);
+  // A plain narrowing loop, not a type predicate: `host` is optional on the
+  // interface and concrete on the row we build, and a predicate has to be
+  // assignable BOTH ways. The loop says the same thing without the lie.
+  const out: CheckinProgressSession[] = [];
+  for (const r of rows) if (r) out.push(r);
+  return out;
 }
