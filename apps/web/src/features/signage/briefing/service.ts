@@ -811,6 +811,14 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
 
   // ONE mget for both rooms — a per-room read here would be two Redis calls on
   // a five-second poll for a field that is usually null.
+  // sessionId → who ran it, from the durable rows the log is about to be joined
+  // against. Last write wins, which is the same row `listBriefingAssignments`
+  // already orders newest-first.
+  const assignmentHosts = new Map<string, string>();
+  for (const a of assignments) {
+    if (a.staffFirstName) assignmentHosts.set(a.sessionId, a.staffFirstName);
+  }
+
   const roomHosts: Record<string, { firstName: string }> = await readSessionHosts(
     BRIEFING_ROOMS.map((room) => rooms[room]?.sessionId ?? null),
   ).catch(() => ({}));
@@ -842,7 +850,17 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     checkinWindowMins,
     assignments,
     briefedSessions,
-    briefings: foldBriefingLog(events, now),
+    /**
+     * THE LOG, WITH WHO RAN EACH GROUP. The fold is over `briefing_events`,
+     * which record what HAPPENED; the staff member is a fact about the SEND and
+     * lives on `briefing_assignments`. Joined here by sessionId rather than
+     * duplicated into the events table, so there is one place a host is written
+     * and the log cannot disagree with the boards.
+     */
+    briefings: foldBriefingLog(events, now).map((b) => ({
+      ...b,
+      host: assignmentHosts.get(b.sessionId) ?? null,
+    })),
     videos: {
       starter: slot("briefing-video:starter"),
       intermediate: slot("briefing-video:intermediate"),

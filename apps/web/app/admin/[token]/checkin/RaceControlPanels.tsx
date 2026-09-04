@@ -774,6 +774,10 @@ export default function RaceControlPanels({
             >
               <span style={{ minWidth: 38 }}>Room</span>
               <span style={{ minWidth: 88 }}>Session</span>
+              {/* WHO RAN IT (owner 2026-09-03). Beside the session rather than
+                  out at the end, because on this screen the first question of
+                  any row is "whose group was that". */}
+              <span style={{ minWidth: 64 }}>Host</span>
               <span style={{ minWidth: 96 }}>Film</span>
               <span style={{ minWidth: 76 }}>In at</span>
               <span style={{ minWidth: 76 }}>Started</span>
@@ -806,6 +810,12 @@ export default function RaceControlPanels({
                 </span>
                 <span style={{ minWidth: 88, color: INK }}>
                   {b.heatNumber != null ? `Session ${b.heatNumber}` : "—"}
+                </span>
+                {/* A DASH, not a blank: every other cell on this row prints one
+                    when it has nothing, and an empty gap here would read as a
+                    column that failed rather than a group nobody signed for. */}
+                <span style={{ minWidth: 64, color: b.host ? INK : PORTAL_DARK.muted }}>
+                  {b.host ?? "—"}
                 </span>
                 {/* The film question, answered per group: which tier, and did it
                     run to the end. "Never started" is the line a claim turns on,

@@ -50,6 +50,15 @@ export interface BriefingRecord {
   raceType: string | null;
   /** The film that played (or was to play). */
   tier: BriefingTier | null;
+  /**
+   * THE STAFF MEMBER WHO RAN THIS GROUP — first name only (owner 2026-09-03).
+   *
+   * NOT FOLDED FROM THE EVENTS, because it is not an event: it is a fact about
+   * the send, recorded on `briefing_assignments`. `briefingBoardStatus` joins it
+   * on by sessionId after the fold. Null for every group briefed before this
+   * shipped, and for any send nobody identified themselves for.
+   */
+  host: string | null;
   filmUrl: string | null;
   filmMs: number | null;
   /** They walked in. */
@@ -226,6 +235,9 @@ export function foldBriefingLog(events: BriefingEvent[], nowMs: number): Briefin
       heatNumber: sent?.heatNumber ?? first.heatNumber,
       raceType: sent?.raceType ?? first.raceType,
       tier: film?.tier ?? sent?.tier ?? first.tier,
+      // Joined on afterwards by briefingBoardStatus — the events know nothing
+      // about who pressed. Null here keeps the fold pure and total.
+      host: null,
       filmUrl: film?.videoUrl ?? null,
       filmMs,
       sentAtMs,
