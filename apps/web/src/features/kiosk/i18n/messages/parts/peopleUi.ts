@@ -66,13 +66,25 @@ export const peopleUiEn = {
   "peopleUi.addNewPlayer": "Add a new player",
   "peopleUi.signInFindMyPeople": "Sign in — find my people",
 
-  // linked-family suggestions
-  "peopleUi.onThisAccount": "On this account — tap to add",
+  // linked-family suggestions + the family picker sheet (Option A, 2026-09-05)
   "peopleUi.age": "Age {age}",
   "peopleUi.family": "Family",
   "peopleUi.tooYoungSuffix": " · under 7 — too young to race",
   "peopleUi.waiverOnFileSuffix": " · waiver on file",
   "peopleUi.needsWaiverSuffix": " · needs waiver",
+  "peopleUi.family.count":
+    "{n, plural, one {# person on this account} other {# people on this account}}",
+  "peopleUi.family.andMore": "{names} & {n} more",
+  "peopleUi.family.open": "Add family",
+  "peopleUi.family.eyebrow": "On this account",
+  "peopleUi.family.titleRace": "Who’s racing today?",
+  "peopleUi.family.titlePlay": "Who’s playing today?",
+  "peopleUi.family.selectAll": "Select all",
+  "peopleUi.family.clearAll": "Clear all",
+  "peopleUi.family.add": "{n, plural, one {Add # player} other {Add # players}}",
+  "peopleUi.family.selectPrompt": "Tap everyone who’s joining",
+  "peopleUi.family.notToday": "Not today",
+  "peopleUi.family.willSignSuffix": " · will sign waiver next",
 
   // person form (new OR setup)
   "peopleUi.newPlayer": "New player",
@@ -220,13 +232,25 @@ export const peopleUiEs: Record<keyof typeof peopleUiEn, string> = {
   "peopleUi.addNewPlayer": "Agregar un nuevo jugador",
   "peopleUi.signInFindMyPeople": "Iniciar sesión — encontrar a mi gente",
 
-  // linked-family suggestions
-  "peopleUi.onThisAccount": "En esta cuenta — toca para agregar",
+  // linked-family suggestions + the family picker sheet (Option A, 2026-09-05)
   "peopleUi.age": "Edad {age}",
   "peopleUi.family": "Familia",
   "peopleUi.tooYoungSuffix": " · menor de 7 — demasiado joven para correr",
   "peopleUi.waiverOnFileSuffix": " · exención en archivo",
   "peopleUi.needsWaiverSuffix": " · necesita exención",
+  "peopleUi.family.count":
+    "{n, plural, one {# persona en esta cuenta} other {# personas en esta cuenta}}",
+  "peopleUi.family.andMore": "{names} y {n} más",
+  "peopleUi.family.open": "Agregar familia",
+  "peopleUi.family.eyebrow": "En esta cuenta",
+  "peopleUi.family.titleRace": "¿Quién corre hoy?",
+  "peopleUi.family.titlePlay": "¿Quién juega hoy?",
+  "peopleUi.family.selectAll": "Seleccionar todos",
+  "peopleUi.family.clearAll": "Quitar selección",
+  "peopleUi.family.add": "{n, plural, one {Agregar # jugador} other {Agregar # jugadores}}",
+  "peopleUi.family.selectPrompt": "Toca a todos los que participan",
+  "peopleUi.family.notToday": "Hoy no",
+  "peopleUi.family.willSignSuffix": " · firmará la exención después",
 
   // person form (new OR setup)
   "peopleUi.newPlayer": "Nuevo jugador",

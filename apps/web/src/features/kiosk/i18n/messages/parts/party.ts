@@ -50,13 +50,25 @@ export const partyEn = {
   "party.addNewPlayer": "Add a new player",
   "party.signInFindPeople": "Sign in — find my people",
 
-  // Linked-family opt-in suggestions
-  "party.linked.heading": "On this account — tap to add",
+  // Linked-family opt-in suggestions + the family picker sheet (Option A, 2026-09-05)
   "party.linked.age": "Age {age}",
   "party.linked.family": "Family",
   "party.linked.tooYoung": " · under 7 — too young to race",
   "party.linked.waiverOnFile": " · waiver on file",
   "party.linked.needsWaiver": " · needs waiver",
+  "party.linked.count":
+    "{n, plural, one {# person on this account} other {# people on this account}}",
+  "party.linked.andMore": "{names} & {n} more",
+  "party.linked.open": "Add family",
+  "party.linked.eyebrow": "On this account",
+  "party.linked.titleRace": "Who’s racing today?",
+  "party.linked.titlePlay": "Who’s playing today?",
+  "party.linked.selectAll": "Select all",
+  "party.linked.clearAll": "Clear all",
+  "party.linked.add": "{n, plural, one {Add # player} other {Add # players}}",
+  "party.linked.selectPrompt": "Tap everyone who’s joining",
+  "party.linked.notToday": "Not today",
+  "party.linked.willSign": " · will sign waiver next",
 
   // Person form (new / setup)
   "party.form.newPlayer": "New player",
@@ -167,12 +179,24 @@ export const partyEs: Record<keyof typeof partyEn, string> = {
   "party.addNewPlayer": "Agregar un nuevo jugador",
   "party.signInFindPeople": "Inicia sesión — encuentra a tu gente",
 
-  "party.linked.heading": "En esta cuenta — toca para agregar",
   "party.linked.age": "Edad {age}",
   "party.linked.family": "Familia",
   "party.linked.tooYoung": " · menor de 7 — muy pequeño para correr",
   "party.linked.waiverOnFile": " · exención registrada",
   "party.linked.needsWaiver": " · necesita exención",
+  "party.linked.count":
+    "{n, plural, one {# persona en esta cuenta} other {# personas en esta cuenta}}",
+  "party.linked.andMore": "{names} y {n} más",
+  "party.linked.open": "Agregar familia",
+  "party.linked.eyebrow": "En esta cuenta",
+  "party.linked.titleRace": "¿Quién corre hoy?",
+  "party.linked.titlePlay": "¿Quién juega hoy?",
+  "party.linked.selectAll": "Seleccionar todos",
+  "party.linked.clearAll": "Quitar selección",
+  "party.linked.add": "{n, plural, one {Agregar # jugador} other {Agregar # jugadores}}",
+  "party.linked.selectPrompt": "Toca a todos los que participan",
+  "party.linked.notToday": "Hoy no",
+  "party.linked.willSign": " · firmará la exención después",
 
   "party.form.newPlayer": "Nuevo jugador",
   "party.form.setUpName": "Registrar a {name}",
