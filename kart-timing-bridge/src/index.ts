@@ -77,6 +77,7 @@
 
 import WebSocket from "ws";
 import { createHash, randomUUID } from "node:crypto";
+import { parseVenueJson } from "./raw-ids";
 
 const WS_URL = process.env.WS_URL ?? "ws://68.171.192.138:10001";
 const WEBHOOK_URL = required("WEBHOOK_URL");
@@ -491,7 +492,11 @@ async function consumeStream(): Promise<SessionResult> {
 
       let parsed: unknown = raw;
       try {
-        parsed = JSON.parse(raw);
+        // NOT JSON.parse. The venue sends 17-digit PersonIds and RecordVersions,
+        // and a plain parse rounds them into a neighbouring integer while still
+        // PRINTING the original digits — see raw-ids.ts for the proof. Everything
+        // downstream of this line reads ids as strings.
+        parsed = parseVenueJson(raw);
       } catch {
         // Leave as raw string — webhook still gets it
       }

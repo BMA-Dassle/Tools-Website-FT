@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import redis from "@/lib/redis";
+import { parseWithRawIds } from "@ft/db";
 import { handleVenueMessage } from "~/features/signage/briefing/race-finish.server";
 import { updateRaceClocks } from "~/features/racing/race-clock.server";
+import { ingestVenueMessage } from "~/features/racing/driver-view/ingest.server";
+import { VENUE_ID_FIELDS } from "~/features/racing/driver-view/venue-ids";
 import { venueDedupeKey, VENUE_DEDUPE_TTL_SECONDS } from "~/features/racing/venue-dedupe";
 import { handleTrackEvents } from "~/features/racing/track-events.server";
 import { observeVenueCalls } from "~/features/racing/venue-called.server";
@@ -81,7 +84,14 @@ export async function POST(req: NextRequest) {
 
   let body: IncomingPayload;
   try {
-    body = (await req.json()) as IncomingPayload;
+    // NOT req.json(). RaceAdvice carries `PersonId`, and cloud-minted BMI person
+    // ids run 17 digits — past MAX_SAFE_INTEGER, where a double cannot hold every
+    // integer. A plain parse rounds them to a neighbour AND still prints the
+    // original digits, so the corruption is invisible in every log and dump.
+    // Same house rule as every BMI/Pandora read: quote the ids in the raw text
+    // first. The bridge does this too (see its raw-ids.ts); both ends need it,
+    // because either one alone would already have lost the digits.
+    body = parseWithRawIds<IncomingPayload>(await req.text(), VENUE_ID_FIELDS);
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
@@ -219,6 +229,23 @@ export async function POST(req: NextRequest) {
    * say it". See venue-called.server.ts.
    */
   after(() => observeVenueCalls(message, anchorMs));
+
+  /**
+   * THE DRIVER VIEW'S FOLD — kart↔participant bindings, per-kart alert feeds,
+   * and the permanent lap and event rows in Neon.
+   *
+   * Separate from the four around it because it is the only one addressed to a
+   * GUEST rather than to a board or a cron, and the only one that keeps a
+   * permanent record: our race results carry best times and nothing else, and
+   * these rows are every lap and every incident, ordered to the millisecond.
+   *
+   * Takes the bridge's arrival stamp for the same reason the clock does. Runs in
+   * `after()` so the bridge is never held — it forwards sequentially, and a slow
+   * handler delays every message queued behind it. Never throws: a driver view
+   * that misses one alert is a worse screen, a webhook that throws is a dead
+   * feed for the whole building.
+   */
+  after(() => ingestVenueMessage(message, anchorMs));
 
   /**
    * THE ROSTER TOUCH MARK — one INCR per session the venue just mentioned.
