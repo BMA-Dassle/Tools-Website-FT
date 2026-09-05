@@ -106,15 +106,20 @@ describe("currentTakeover", () => {
     expect(currentTakeover(f, T + 5 * 60_000)?.kind).toBe("red");
   });
 
-  it("shows green when the emergency is released, over a pause still standing", () => {
-    // EmergencyOff maps to green: it clears the red AND tells the driver they
-    // may go again. Its window is short, so a pause that really is still on
-    // would reappear afterwards.
-    const f = feed(a("red", 0), a("paused", 2_000), a("green", 60_000));
-    expect(currentTakeover(f, T + 62_000)?.kind).toBe("green");
-    // The green cleared the red outright, and the pause with it — the venue
-    // resumes before it releases the emergency, so that ordering is the norm.
-    expect(currentTakeover(f, T + 70_000)).toBeNull();
+  it("walks the whole emergency the way the venue actually sends it", () => {
+    // EmergencyOn 21:45:41 → SessionPaused 21:45:43 → SessionResumed 21:46:41
+    // → EmergencyOff 21:46:51. Exactly ONE green in that, from the resume; the
+    // release is inline and only clears what is left.
+    const red = a("red", 0);
+    const paused = a("paused", 2_000);
+    const green = a("green", 60_000); // SessionResumed
+    const released = a("recovered", 70_000); // EmergencyOff — inline, not a takeover
+    const f = feed(red, paused, green, released);
+
+    expect(currentTakeover(f, T + 1_000)?.kind).toBe("red");
+    expect(currentTakeover(f, T + 30_000)?.kind).toBe("red"); // pause does not displace it
+    expect(currentTakeover(f, T + 62_000)?.kind).toBe("green"); // the one green
+    expect(currentTakeover(f, T + 75_000)).toBeNull(); // back to the pit board
   });
 
   it("lets a newer red flag win over a standing caution", () => {

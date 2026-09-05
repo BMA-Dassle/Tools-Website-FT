@@ -238,12 +238,18 @@ export function classify(
       return isOurResource || ctx.resourceId === null ? alert("red", rec, ctx, arrivedAtMs) : null;
 
     case "EmergencyOffNotification":
-      // GREEN, not a quiet "recovered". The release of an emergency is the
-      // moment a driver most needs to be told they may go again, and the owner
-      // asked for it explicitly (2026-09-05). It doubles as the thing that
-      // clears the red flag — see CLEARED_BY in standing.ts.
+      // INLINE, not a green takeover — and this was tried the other way round
+      // and reverted the same night (owner 2026-09-05: "we don't need that
+      // green after emergency, it's triggering a double").
+      //
+      // The venue RESUMES BEFORE IT RELEASES: SessionResumed 21:46:41 →
+      // EmergencyOff 21:46:51. The resume is already a green takeover, so
+      // making the release a second one puts two greens on the screen ten
+      // seconds apart for one event. The release still ends the red flag —
+      // `recovered` is in red's clear set in standing.ts — it just does it
+      // quietly, behind the green that has already told the driver to go.
       return isOurResource || ctx.resourceId === null
-        ? alert("green", rec, ctx, arrivedAtMs)
+        ? alert("recovered", rec, ctx, arrivedAtMs)
         : null;
 
     case "SessionPausedNotification":

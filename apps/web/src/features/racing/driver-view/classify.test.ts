@@ -177,6 +177,15 @@ describe("classify — session and track scope", () => {
     const redTrack: RoutingContext = { ...OURS, resourceId: "11208660" };
     expect(classify(EMERGENCY, redTrack, ARRIVED)).toBeNull();
   });
+
+  it("releases an emergency QUIETLY — the resume already showed the green", () => {
+    // The venue resumes before it releases (SessionResumed 21:46:41,
+    // EmergencyOff 21:46:51), so a green here would be the second one on screen
+    // for a single event. Tried and reverted the same night.
+    const off = classify({ ...EMERGENCY, $type: "EmergencyOffNotification" }, OURS, ARRIVED);
+    expect(off?.kind).toBe("recovered");
+    expect(off?.level).toBe("inline");
+  });
 });
 
 describe("readPassing", () => {
