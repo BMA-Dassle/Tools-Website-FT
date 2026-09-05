@@ -170,10 +170,14 @@ export function FlagTakeover({
           <div style={{ ...label, fontSize: fluid(10, 1.5, 14), fontWeight: 700, opacity: 0.78 }}>
             {kicker}
           </div>
+          {/* When race control has written something, the flag NAME yields to
+              it — the name is the category, the note is the reason, and only one
+              of the two can be the biggest thing on a 390px-tall landscape
+              phone without pushing the other off the screen. */}
           <div
             style={{
               ...numeral,
-              fontSize: fluid(40, 10, 96),
+              fontSize: alert.note ? fluid(28, 6.5, 62) : fluid(40, 10, 96),
               fontWeight: 900,
               fontStyle: "italic",
               lineHeight: 0.88,
@@ -187,28 +191,52 @@ export function FlagTakeover({
           <div
             style={{
               fontFamily: font.display,
-              fontSize: fluid(15, 3, 28),
+              fontSize: alert.note ? fluid(13, 2.2, 20) : fluid(15, 3, 28),
               fontWeight: 700,
               lineHeight: 1.15,
-              marginTop: 10,
+              marginTop: alert.note ? 7 : 10,
               textWrap: "pretty",
             }}
           >
             {t(locale, look.bodyKey)}
           </div>
+          {/*
+            THE MARSHAL'S WORDS ARE THE MESSAGE, NOT A FOOTNOTE.
+            On a black-over-white or a disqualification, "Final warning" is the
+            category and this is the actual reason — and it is read by someone
+            driving. It shipped at 16px in a small chip, which the owner called
+            out immediately (2026-09-05). It is now the second-largest thing on
+            the screen after the flag name, in a full-width band that cannot be
+            mistaken for a caption.
+          */}
           {alert.note ? (
             <div
               style={{
-                display: "inline-block",
-                marginTop: 12,
-                padding: "7px 12px",
+                marginTop: fluid(10, 1.8, 18),
+                padding: `${fluid(8, 1.4, 16)} ${fluid(12, 2, 22)}`,
                 background: look.ink,
                 color: look.field,
-                fontSize: fluid(12, 1.8, 16),
-                fontWeight: 600,
+                fontFamily: font.display,
+                fontSize: fluid(20, 4.2, 44),
+                fontWeight: 800,
+                lineHeight: 1.1,
+                letterSpacing: "-0.02em",
+                textWrap: "pretty",
               }}
             >
-              {t(locale, "marshalNote")}: “{alert.note}”
+              <span
+                style={{
+                  ...label,
+                  display: "block",
+                  fontSize: fluid(8, 1.2, 12),
+                  fontWeight: 700,
+                  opacity: 0.65,
+                  marginBottom: 4,
+                }}
+              >
+                {t(locale, "marshalNote")}
+              </span>
+              {alert.note}
             </div>
           ) : null}
         </div>

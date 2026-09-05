@@ -30,12 +30,25 @@
  */
 import type { AlertKind, DriverAlert } from "./types";
 
-/** Auto-clearing takeovers, and how long they stand. */
+/**
+ * Auto-clearing takeovers, and how long they stand.
+ *
+ * THESE ARE MEASURED AGAINST A 2s POLL, and that is why they are not shorter.
+ * The screen only learns about a flag when the next poll returns it, so a 6s
+ * window gave between four and six seconds of actual display — and on the first
+ * live blue flag (2026-09-05) one slow poll ate the whole thing and the driver
+ * saw nothing. A window has to cover several polls AND leave the driver time to
+ * look up from the corner they are in, so the floor here is about five poll
+ * cycles, not one.
+ *
+ * `blackwhite` gets the longest of them because it is the only self-clearing
+ * flag carrying words from race control that the driver has to READ.
+ */
 const SELF_CLEARING_MS: Partial<Record<AlertKind, number>> = {
-  blue: 6_000,
-  green: 5_000,
-  blackwhite: 10_000,
-  aboutToStart: 8_000,
+  blue: 12_000,
+  green: 8_000,
+  blackwhite: 20_000,
+  aboutToStart: 15_000,
 };
 
 /** Takeovers that end only when a specific later alert arrives. */
@@ -50,11 +63,59 @@ const CLEARED_BY: Partial<Record<AlertKind, ReadonlySet<AlertKind>>> = {
 };
 
 /**
+ * WHICH STANDING FLAG WINS — severity first, recency only to break a tie.
+ *
+ * NEWEST-WINS IS WRONG HERE, and the venue's own sequencing proves it. A real
+ * emergency (2026-09-03):
+ *
+ *     21:45:41  EmergencyOn        → red
+ *     21:45:43  SessionPaused      → paused      ← two seconds later
+ *     21:46:41  SessionResumed     → green
+ *     21:46:51  EmergencyOff       → green
+ *
+ * The pause is a CONSEQUENCE of the emergency and always follows it, so a
+ * newest-wins rule would replace "STAY IN YOUR KART" with "Paused" two seconds
+ * after the karts were cut. Red outranks pause, permanently.
+ *
+ * `green` sits high on purpose: it is an announcement with a short window, and
+ * the release of an emergency is exactly the moment a driver must be told they
+ * may go again. It outranks a pause that is still standing; once its window
+ * closes, that pause shows again if the session really is still stopped.
+ */
+const PRIORITY: Record<AlertKind, number> = {
+  red: 100,
+  disqualified: 95,
+  crash: 90,
+  green: 85,
+  chequered: 70,
+  caution: 60,
+  blackwhite: 50,
+  paused: 40,
+  blue: 30,
+  // Inline kinds never reach the comparison; listed so the map stays total and
+  // a new kind cannot be forgotten.
+  personalBest: 0,
+  dayRecord: 0,
+  monthRecord: 0,
+  everRecord: 0,
+  positionUp: 0,
+  recovered: 0,
+  restricted: 0,
+  slowZone: 0,
+  kartReassigned: 0,
+  didNotStart: 0,
+  aboutToStart: 0,
+  finished: 0,
+};
+
+/**
  * The takeover to render, or null for the pit board.
  *
  * @param alerts Newest first — the order the Redis feed returns.
  */
 export function currentTakeover(alerts: readonly DriverAlert[], nowMs: number): DriverAlert | null {
+  const standing: DriverAlert[] = [];
+
   for (let i = 0; i < alerts.length; i++) {
     const a = alerts[i];
     if (a.level !== "takeover") continue;
@@ -87,9 +148,13 @@ export function currentTakeover(alerts: readonly DriverAlert[], nowMs: number): 
 
     // A takeover with no window and nothing to clear it stands until replaced —
     // which is exactly what `disqualified` needs.
-    return a;
+    standing.push(a);
   }
-  return null;
+
+  if (standing.length === 0) return null;
+  // Severity first; the more recent of two equals wins.
+  standing.sort((x, y) => PRIORITY[y.kind] - PRIORITY[x.kind] || y.atMs - x.atMs);
+  return standing[0];
 }
 
 /**

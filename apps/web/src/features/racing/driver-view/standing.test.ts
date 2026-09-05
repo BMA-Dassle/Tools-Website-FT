@@ -44,7 +44,24 @@ describe("currentTakeover", () => {
   it("shows a blue flag, then lets it clear itself", () => {
     const f = feed(a("blue", 0));
     expect(currentTakeover(f, T + 2_000)?.kind).toBe("blue");
-    expect(currentTakeover(f, T + 7_000)).toBeNull();
+    expect(currentTakeover(f, T + 13_000)).toBeNull();
+  });
+
+  it("holds a blue flag across several polls, not one", () => {
+    // The screen only learns of a flag when the next 2s poll returns it. The
+    // first live blue flag was missed entirely at a 6s window (2026-09-05), so
+    // the window has to survive a slow poll and still leave time to look up.
+    const f = feed(a("blue", 0));
+    for (const at of [2_000, 4_000, 6_000, 8_000, 10_000]) {
+      expect(currentTakeover(f, T + at)?.kind, `${at}ms`).toBe("blue");
+    }
+  });
+
+  it("gives a marshal's warning the longest window of the self-clearing flags", () => {
+    // It is the only one carrying words the driver has to read.
+    const f = feed(a("blackwhite", 0, { note: "Contact into turn 3" }));
+    expect(currentTakeover(f, T + 18_000)?.kind).toBe("blackwhite");
+    expect(currentTakeover(f, T + 21_000)).toBeNull();
   });
 
   it("honours the venue's own expiry on a caution", () => {
@@ -77,6 +94,27 @@ describe("currentTakeover", () => {
     const resumed = feed(a("paused", 0), a("green", 60_000));
     // The green itself shows briefly, then the board — but the pause is gone.
     expect(currentTakeover(resumed, T + 70_000)).toBeNull();
+  });
+
+  it("keeps the red flag up when the pause that follows it lands", () => {
+    // The venue's real sequence: EmergencyOn 21:45:41, SessionPaused 21:45:43.
+    // The pause is a CONSEQUENCE of the emergency, so a newest-wins rule would
+    // replace "stay in your kart" with "paused" two seconds after the karts
+    // were cut.
+    const f = feed(a("red", 0), a("paused", 2_000));
+    expect(currentTakeover(f, T + 5_000)?.kind).toBe("red");
+    expect(currentTakeover(f, T + 5 * 60_000)?.kind).toBe("red");
+  });
+
+  it("shows green when the emergency is released, over a pause still standing", () => {
+    // EmergencyOff maps to green: it clears the red AND tells the driver they
+    // may go again. Its window is short, so a pause that really is still on
+    // would reappear afterwards.
+    const f = feed(a("red", 0), a("paused", 2_000), a("green", 60_000));
+    expect(currentTakeover(f, T + 62_000)?.kind).toBe("green");
+    // The green cleared the red outright, and the pause with it — the venue
+    // resumes before it releases the emergency, so that ordering is the norm.
+    expect(currentTakeover(f, T + 70_000)).toBeNull();
   });
 
   it("lets a newer red flag win over a standing caution", () => {

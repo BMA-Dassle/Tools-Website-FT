@@ -238,8 +238,12 @@ export function classify(
       return isOurResource || ctx.resourceId === null ? alert("red", rec, ctx, arrivedAtMs) : null;
 
     case "EmergencyOffNotification":
+      // GREEN, not a quiet "recovered". The release of an emergency is the
+      // moment a driver most needs to be told they may go again, and the owner
+      // asked for it explicitly (2026-09-05). It doubles as the thing that
+      // clears the red flag — see CLEARED_BY in standing.ts.
       return isOurResource || ctx.resourceId === null
-        ? alert("recovered", rec, ctx, arrivedAtMs)
+        ? alert("green", rec, ctx, arrivedAtMs)
         : null;
 
     case "SessionPausedNotification":
