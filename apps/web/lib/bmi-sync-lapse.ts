@@ -40,7 +40,7 @@ export const STAMP_LAPSE_GRACE_MIN = 60;
  * offset on a machine that happens to be in Eastern. (It did: this function's
  * first version, caught by the test below reporting a heat 8h ago instead of 4h.)
  */
-function nyNaiveToUtcMs(naive: string): number | null {
+export function nyNaiveToUtcMs(naive: string): number | null {
   const asUtc = Date.parse(`${naive.slice(0, 19)}Z`);
   if (!Number.isFinite(asUtc)) return null;
   const shownInEt = new Date(asUtc)

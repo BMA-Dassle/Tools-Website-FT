@@ -103,5 +103,36 @@ export async function GET(req: NextRequest) {
       `waiver=${JSON.stringify(waiver)}`,
   );
 
+  /**
+   * PER-ROW DETAIL, not just the tally.
+   *
+   * The summary above says how many rows are waiting; it has never said WHICH, or
+   * why, or whether their heat has even happened yet. That gap is what turned
+   * 2026-09-05 into eight ad-hoc probe scripts to answer a question the sweep knew
+   * the answer to on every tick: the row was twenty minutes early.
+   *
+   * Only the rows that did NOT seat are logged, so a clean tick stays one line and
+   * the noisy ticks are the ones worth reading. `where` is the heat position, which
+   * is the difference between "not late yet" and "should have happened".
+   */
+  if ("outcomes" in checkin && Array.isArray(checkin.outcomes)) {
+    const unresolved = checkin.outcomes.filter(
+      (o) => o.outcome !== "seated" && o.outcome !== "already-linked",
+    );
+    if (unresolved.length > 0) {
+      console.log(
+        `[kiosk-bmi-sync-sweep] unseated (${unresolved.length}): ` +
+          unresolved
+            .slice(0, 20)
+            .map(
+              (o) =>
+                `${o.billId}/${o.person} ${o.outcome}` +
+                `${o.where ? ` [${o.where}]` : ""}${o.detail ? ` — ${o.detail}` : ""}`,
+            )
+            .join(" | "),
+      );
+    }
+  }
+
   return NextResponse.json({ ok: true, dryRun, elapsedMs, checkin, waiver });
 }

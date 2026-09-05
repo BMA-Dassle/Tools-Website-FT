@@ -22,9 +22,19 @@
  *
  * ESCALATION: still waiting after MEMO_AFTER (10 min — ~2× the typical ~6 min
  * lag) → ONE staff memo, worded so nobody hand-seats unless the heat is about
- * to start. Still waiting after TERMINAL_AFTER (60 min) → the row goes
- * 'failed' and exits the sweep. Scoped to TODAY's business date, so the
- * historical failed backlog is never resurrected.
+ * to start.
+ *
+ * GIVING UP IS KEYED TO THE HEAT, NOT A CLOCK (2026-09-05). A row stops being
+ * worth re-driving when its last bound heat has gone (+ SWEEP_HEAT_GRACE_MS),
+ * because only then is there nothing left to seat anyone on. The old flat
+ * 60-minute rule wrote `failed` — the label reserved for a vendor REFUSAL — onto
+ * rows that were merely slow, and `listPendingScheduleRows` excludes `failed`
+ * forever, so nothing ever re-seated them. That is why the grid could not repair
+ * itself; see `classifyRowAge`. The 60-minute rule survives only for a row that
+ * names no heat, where there is no better moment to measure against.
+ *
+ * Scoped to TODAY's business date, so the historical failed backlog is never
+ * resurrected.
  */
 import {
   listPendingScheduleRows,
@@ -33,6 +43,7 @@ import {
 } from "../data/kiosk-checkins-db";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
 import { fetchOfficePerson, appendProjectPrivateNote } from "@/lib/bmi-office-actions";
+import { nyNaiveToUtcMs } from "@/lib/bmi-sync-lapse";
 import { officeProjectIdFromBillId } from "@/lib/bmi-office-ids";
 import { getBowlingReservationByBillId } from "@/lib/bowling-db";
 import { getRaceProductById } from "~/features/booking/service/race-products";
@@ -60,14 +71,96 @@ export function hasSweepMemoMarker(errors: unknown): boolean {
 
 export type RowAgeClass = "retry" | "memo-then-retry" | "terminal";
 
-/** Where this row sits on the patience ladder, from its creation time. */
-export function classifyRowAge(createdAtIso: string, nowMs: number): RowAgeClass {
+/**
+ * Grace past a racer's own heat before seating them stops being worth doing.
+ * Heats routinely run 6-20 min behind, so the heat's clock time is not the
+ * moment the chance is gone.
+ */
+export const SWEEP_HEAT_GRACE_MS = 20 * 60_000;
+
+/**
+ * Where this row sits on the patience ladder.
+ *
+ * A TIMEOUT IS NOT A REFUSAL (2026-09-05). This used to return `terminal` purely
+ * on `age >= 60 min`, and the caller writes that straight to
+ * `schedule_status = 'failed'` — the same label the vendor's real refusals get.
+ * `listPendingScheduleRows` then excludes `failed` forever ("terminal by
+ * definition"), so a racer whose WSync was merely slow was never seated again by
+ * anything.
+ *
+ * That is why the grid could not repair itself, and it is the same shape as the
+ * waiver black hole fixed earlier today: work that was still perfectly doable got
+ * written off because a clock ran out. Measured 2026-09-05: 133 of 806 schedule
+ * rows sit `failed`, and 25 of the 26 stamps that lapsed waiting on the grid had
+ * every racer at `inserted` — their own error text saying
+ * "retryable: person_not_on_project — kiosk-bmi-sync-sweep re-seats", aged out
+ * into terminal an hour later. Meanwhile the stamp that depends on the grid waits
+ * 480 minutes, so for seven of its eight hours nothing was still trying.
+ *
+ * So the question becomes the one that actually matters: IS THERE STILL A HEAT TO
+ * SEAT THEM ON? While the racer's last bound heat is ahead (plus grace), keep
+ * trying — the work is doable and a guest is going to want their seat. Once the
+ * heat has gone, seating them achieves nothing and the row is genuinely finished.
+ *
+ * The 60-minute rule stays as the fallback for a row we cannot date: no bound
+ * heats means no moment to measure against, and retrying forever on an unknowable
+ * row is how a sweep becomes a load generator.
+ */
+export function classifyRowAge(
+  createdAtIso: string,
+  nowMs: number,
+  /** Last bound heat as epoch ms, or null when the row names no heat. */
+  lastHeatMs?: number | null,
+): RowAgeClass {
   const createdMs = Date.parse(createdAtIso);
   if (!Number.isFinite(createdMs)) return "terminal"; // unparseable — don't retry forever
   const age = nowMs - createdMs;
+
+  if (lastHeatMs != null && Number.isFinite(lastHeatMs)) {
+    // The heat is the deadline, not the clock since check-in.
+    if (nowMs > lastHeatMs + SWEEP_HEAT_GRACE_MS) return "terminal";
+    return age >= SWEEP_MEMO_AFTER_MS ? "memo-then-retry" : "retry";
+  }
+
   if (age >= SWEEP_TERMINAL_AFTER_MS) return "terminal";
   if (age >= SWEEP_MEMO_AFTER_MS) return "memo-then-retry";
   return "retry";
+}
+
+/**
+ * The latest heat this row is bound to, as epoch ms — the moment after which
+ * seating it is pointless. Null when the row names no parseable heat.
+ *
+ * `heatId` is a naive center-local `YYYY-MM-DDTHH:MM`, converted by the SAME
+ * helper the stamp's lapse rule uses, deliberately: two copies of a timezone
+ * conversion is how this repo has been bitten before, and these two rails must
+ * agree on when a heat has passed or one will keep seating for a moment the
+ * other has already written off.
+ */
+export function lastBoundHeatMs(boundHeats: unknown): number | null {
+  if (!Array.isArray(boundHeats)) return null;
+  let latest: number | null = null;
+  for (const h of boundHeats as BoundHeat[]) {
+    if (!h || typeof h.heatId !== "string") continue;
+    const ms = nyNaiveToUtcMs(h.heatId);
+    if (ms !== null && (latest === null || ms > latest)) latest = ms;
+  }
+  return latest;
+}
+
+/**
+ * Where a row sits relative to its own heat, in words.
+ *
+ * Every log line about an unseated racer is useless without this. On 2026-09-05 it
+ * took eight ad-hoc probe scripts to establish that a row reading "not on the grid"
+ * was simply twenty minutes early — a fact the sweep knew all along and never said.
+ */
+export function heatPositionLabel(lastHeatMs: number | null, nowMs: number): string {
+  if (lastHeatMs == null) return "no heat named";
+  const mins = Math.round((lastHeatMs - nowMs) / 60_000);
+  if (mins > 0) return `heat in ${mins}m`;
+  if (mins === 0) return "heat now";
+  return `heat ${Math.abs(mins)}m ago`;
 }
 
 interface BoundHeat {
@@ -125,7 +218,15 @@ export interface ScheduleSweepSummary {
   refused: number;
   deferred: number;
   errors: number;
-  outcomes: Array<{ billId: string; person: string; outcome: string; detail?: string }>;
+  outcomes: Array<{
+    billId: string;
+    person: string;
+    outcome: string;
+    /** Heat position — "heat in 20m" / "heat 15m ago" / "no heat named". The
+     *  field that turns "not seated" into "not seated YET" or "genuinely late". */
+    where?: string;
+    detail?: string;
+  }>;
 }
 
 export async function runCheckinScheduleSweep(opts: {
@@ -190,8 +291,20 @@ async function sweepBill(
   // the same centerCode completeCheckin stamps state/memo with.
   const centerCode = "fasttrax";
   const clientKey = group[0]?.center === "naples" ? "headpinznaples" : "headpinzftmyers";
-  const note = (person: string, outcome: string, detail?: string) =>
-    summary.outcomes.push({ billId, person, outcome, ...(detail ? { detail } : {}) });
+  /**
+   * One line per racer per tick. `where` is the heat position, always — an
+   * outcome without it cannot answer the only question anyone asks of this sweep
+   * ("should it have happened by now?"), which is what made 2026-09-05 a
+   * script-writing exercise instead of a log read.
+   */
+  const note = (person: string, outcome: string, detail?: string, where?: string) =>
+    summary.outcomes.push({
+      billId,
+      person,
+      outcome,
+      ...(where ? { where } : {}),
+      ...(detail ? { detail } : {}),
+    });
 
   // Names for the single composed staff memo (one per bill per tick).
   const memoSyncStuck: string[] = [];
@@ -200,7 +313,12 @@ async function sweepBill(
   const markTerminal = async (row: PendingScheduleRow, reason: string): Promise<void> => {
     summary.terminal++;
     memoTerminal.push(row.displayName);
-    note(row.displayName, "terminal", reason);
+    note(
+      row.displayName,
+      "terminal",
+      reason,
+      heatPositionLabel(lastBoundHeatMs(row.boundHeats), nowMs),
+    );
     if (!opts.dryRun) {
       await setCheckinPersonStatus(row.id, {
         scheduleStatus: "failed",
@@ -212,8 +330,14 @@ async function sweepBill(
   // ── Barrier A: attach must exist cloud-side before the seat can ever land ──
   const schedulable: PendingScheduleRow[] = [];
   for (const row of group) {
-    if (classifyRowAge(row.createdAt, nowMs) === "terminal") {
-      await markTerminal(row, "sync timeout (60 min) — seat by hand");
+    const lastHeatMs = lastBoundHeatMs(row.boundHeats);
+    if (classifyRowAge(row.createdAt, nowMs, lastHeatMs) === "terminal") {
+      await markTerminal(
+        row,
+        lastHeatMs == null
+          ? "no heat named and still unseated after 60 min — seat by hand"
+          : "their last heat has gone — there is nothing left to seat them on",
+      );
       continue;
     }
     if (row.bmiAttachStatus === "attached" || !row.personId) {
@@ -225,7 +349,12 @@ async function sweepBill(
     const person = await fetchOfficePerson(row.personId, clientKey);
     if (!person) {
       summary.waitingPersonSync++;
-      note(row.displayName, "waiting-person-sync");
+      note(
+        row.displayName,
+        "waiting-person-sync",
+        undefined,
+        heatPositionLabel(lastBoundHeatMs(row.boundHeats), nowMs),
+      );
       continue; // next tick — the person hasn't crossed local→cloud yet
     }
     if (opts.dryRun) {
@@ -298,9 +427,15 @@ async function sweepBill(
           });
         } else if (waiting) {
           summary.stillWaiting++;
-          note(row.displayName, "still-waiting", waiting.vendorStatus);
+          note(
+            row.displayName,
+            "still-waiting",
+            waiting.vendorStatus,
+            heatPositionLabel(lastBoundHeatMs(row.boundHeats), nowMs),
+          );
           if (
-            classifyRowAge(row.createdAt, nowMs) === "memo-then-retry" &&
+            classifyRowAge(row.createdAt, nowMs, lastBoundHeatMs(row.boundHeats)) ===
+              "memo-then-retry" &&
             !hasSweepMemoMarker(row.errors)
           ) {
             memoSyncStuck.push(row.displayName);
