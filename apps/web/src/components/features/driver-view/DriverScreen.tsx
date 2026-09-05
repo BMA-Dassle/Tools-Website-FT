@@ -27,6 +27,7 @@ import type { DriverAlert, DriverLap, TrackKey } from "~/features/racing/driver-
 import { FlagTakeover } from "./FlagTakeover";
 import { RotateGate } from "./RotateGate";
 import { InlineAlerts } from "./InlineAlerts";
+import { TrackerBrand, TrackerLogo } from "./TrackerBrand";
 import { c, fluid, font, label, numeral, track as trackColor } from "./tokens";
 
 interface ApiState {
@@ -134,7 +135,8 @@ export function DriverScreen({ kart, locale }: { kart: string; locale: Locale })
             textAlign: "center",
           }}
         >
-          <div style={{ ...label, fontSize: fluid(9, 1.5, 13), color: c.inkDim }}>
+          <TrackerBrand />
+          <div style={{ ...label, fontSize: fluid(9, 1.5, 13), color: c.inkDim, marginTop: 8 }}>
             {t(locale, "labelKart")}
           </div>
           <div
@@ -209,6 +211,9 @@ export function DriverScreen({ kart, locale }: { kart: string; locale: Locale })
             borderBottom: `1px solid ${c.hairline}`,
           }}
         >
+          {/* Compact on purpose: this strip also carries the clock, and the two
+              numbers below it are the entire point of the screen. */}
+          <TrackerLogo size="compact" />
           <div style={{ width: 5, height: fluid(18, 3, 28), background: accent }} />
           <span style={{ ...label, fontSize: fluid(9, 1.5, 14), fontWeight: 700 }}>
             {heatName || `${t(locale, "labelKart")} ${kart}`}
@@ -357,6 +362,9 @@ export function DriverScreen({ kart, locale }: { kart: string; locale: Locale })
           </div>
         </div>
 
+        {/* the alert rail — its own band, so nothing is ever covered */}
+        <InlineAlerts alerts={inline} locale={locale} />
+
         {/* the quiet strip */}
         <div
           style={{
@@ -383,8 +391,6 @@ export function DriverScreen({ kart, locale }: { kart: string; locale: Locale })
           />
           <Cell locale={locale} labelKey="labelBest" value={formatLapTime(bestMs)} bordered />
         </div>
-
-        <InlineAlerts alerts={inline} locale={locale} />
       </div>
 
       {takeover ? (

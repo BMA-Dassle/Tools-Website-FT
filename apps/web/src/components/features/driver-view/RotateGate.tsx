@@ -15,6 +15,7 @@
  */
 import { useSyncExternalStore, type ReactNode } from "react";
 import { t, type Locale } from "~/features/racing/driver-view/copy";
+import { PoweredByBmi, TrackerLogo } from "./TrackerBrand";
 import { c, fluid, font, label, numeral } from "./tokens";
 
 const PORTRAIT_QUERY = "(orientation: portrait)";
@@ -65,6 +66,8 @@ export function RotateGate({
         textAlign: "center",
       }}
     >
+      <TrackerLogo />
+
       <svg
         width="112"
         height="112"
@@ -136,6 +139,8 @@ export function RotateGate({
           </div>
         </div>
       </div>
+
+      <PoweredByBmi />
 
       <style>{`
         @keyframes dv-tip {

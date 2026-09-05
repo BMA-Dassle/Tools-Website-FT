@@ -15,6 +15,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { t, type Locale } from "~/features/racing/driver-view/copy";
 import { AddToHomeScreen } from "./AddToHomeScreen";
+import { PoweredByBmi, TrackerLogo } from "./TrackerBrand";
 import { c, fluid, font, label, numeral } from "./tokens";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"] as const;
@@ -56,6 +57,12 @@ export function KartEntry({ locale }: { locale: Locale }) {
           minWidth: 0,
         }}
       >
+        {/* The tracker is chrome-free and, once installed, the only FastTrax
+            surface a guest is looking at — so the mark lives on the screen. */}
+        <div style={{ marginBottom: fluid(10, 1.8, 18) }}>
+          <TrackerLogo />
+        </div>
+
         <h1
           style={{
             fontFamily: font.display,
@@ -126,6 +133,10 @@ export function KartEntry({ locale }: { locale: Locale }) {
             standing still on. On the pit board it would be an interruption. */}
         <div style={{ marginTop: 12, flexShrink: 0 }}>
           <AddToHomeScreen locale={locale} />
+        </div>
+
+        <div style={{ marginTop: fluid(10, 1.6, 16), flexShrink: 0 }}>
+          <PoweredByBmi align="left" />
         </div>
       </div>
 
