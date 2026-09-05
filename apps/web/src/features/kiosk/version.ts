@@ -15,6 +15,22 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.33.1 — SHEETS COVER THE SCREEN AGAIN, AND THE LABELS STOP SHOUTING (owner
+ *         2026-09-05, on glass). Two cascade traps, both mine, both invisible
+ *         to tsc/eslint/tests/a11y because none of them lay anything out:
+ *         (1) `.k-flow-head` / `.k-flow-body` / `.k-z-actions` are all
+ *         `z-index: 2` siblings, so DOM order decides and the action bar
+ *         painted OVER an open sheet — "Book something" stayed tappable
+ *         through it. Both the family picker and the race-history sheet now
+ *         portal to `.kiosk-canvas` (new KioskSheetPortal), the element a
+ *         kiosk `fixed` overlay is meant to anchor to. (2)
+ *         `.kiosk-canvas .k-eyebrow` is unlayered and two classes deep, so it
+ *         beat `text-[17px] text-white/45` and rendered every section label
+ *         and column header at 24px cyan. Spelled out explicitly instead.
+ *         Also: guest race history is now on the BOOKING roster as well as
+ *         Your Crew (owner: "when booking racing we should have that race
+ *         history button too — shared component can be used") — KioskFlow's
+ *         chrome mounts the same provider.
  * 1.33.0 — FAMILY PICKER SHEET (owner 2026-09-05, "Option A" from the reviewed
  *         mockups): a BMI sign-in used to dump every linked family member onto
  *         the people step as a wall of green chips. Family now hangs off the
@@ -1250,7 +1266,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.33.0";
+export const KIOSK_VERSION = "1.33.1";
 
 let bootVersion: string | null = null;
 let captured = false;

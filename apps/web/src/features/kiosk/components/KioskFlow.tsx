@@ -132,6 +132,8 @@ import { setKioskMidnightRollover, todayYmd } from "../service/first-available";
 import { KIOSK_PHOTOS } from "../assets";
 import { useResilientImages } from "../hooks/useResilientImage";
 import { BrandLogo } from "./BrandLogo";
+import { GuestRaceHistoryProvider } from "../race-history/GuestRaceHistory";
+import type { StaffLocation } from "../staff-mode/types";
 
 /** Every full-bleed backdrop photo `chrome`/`backdropPhoto` can show — preloaded
  *  and self-healed together so a flaky-WiFi failure never blanks a step. */
@@ -1781,96 +1783,116 @@ export function KioskFlow({
   // `hideSessionBanner` is for the ONE screen that renders the session strip
   // itself (the category chooser docks it at the bottom) — everywhere else the
   // strip is this top banner.
+  // Guest race history on the booking roster too (owner 2026-09-05: "when
+  // booking racing we should have that race history button too — shared
+  // component can be used"). Mounted on the chrome so every flow screen that
+  // shows a roster gets it; the button itself only renders on a member who
+  // resolved a BMI account, and the sheet portals out to the canvas.
+  // CENTER FIRST, same rule as every other Pandora read here.
+  const raceHistoryLocation: StaffLocation =
+    session.center === "naples"
+      ? "naples"
+      : session.entryBrand === "headpinz"
+        ? "headpinz"
+        : "fasttrax";
+
   const chrome = (
     children: React.ReactNode,
     bg?: string | null,
     opts?: { hideSessionBanner?: boolean },
   ) => (
-    <div className="k-flow">
-      {bg ? (
-        <div
-          // "wizard" = near-solid navy scrim so reused web step bodies (dark
-          // cards) stay readable over the activity photo — the photo reads as a
-          // faint texture; bright photography lives in the cards/heroes.
-          className="k-flow-bg k-ph wizard"
-          style={{ ["--k-img"]: `url(${resolveBackdrop(bg)})` } as React.CSSProperties}
-          aria-hidden="true"
-        />
-      ) : null}
-      <div className="relative z-[2] flex min-h-0 flex-1 flex-col">
-        {opts?.hideSessionBanner ? null : sessionBanner}
-        {children}
-      </div>
-      {utilityStrip}
-      {/* INSIDE chrome deliberately. There are TWELVE `return chrome(...)` paths in
+    <GuestRaceHistoryProvider location={raceHistoryLocation}>
+      <div className="k-flow">
+        {bg ? (
+          <div
+            // "wizard" = near-solid navy scrim so reused web step bodies (dark
+            // cards) stay readable over the activity photo — the photo reads as a
+            // faint texture; bright photography lives in the cards/heroes.
+            className="k-flow-bg k-ph wizard"
+            style={{ ["--k-img"]: `url(${resolveBackdrop(bg)})` } as React.CSSProperties}
+            aria-hidden="true"
+          />
+        ) : null}
+        <div className="relative z-[2] flex min-h-0 flex-1 flex-col">
+          {opts?.hideSessionBanner ? null : sessionBanner}
+          {children}
+        </div>
+        {utilityStrip}
+        {/* INSIDE chrome deliberately. There are TWELVE `return chrome(...)` paths in
           this component, and mounting the console at one of them (the last) meant
           it never rendered for the wizard steps — three smoke runs reported "no
           debug screen" because of it. `chrome` is the single wrapper every path
           shares, so this is the only place it can be mounted once and be true for
           all of them. */}
-      {debugOn && <KioskDebugPanel />}
-      {/* Open the card dispenser BEFORE the guest taps Game Zone, so the
+        {debugOn && <KioskDebugPanel />}
+        {/* Open the card dispenser BEFORE the guest taps Game Zone, so the
           handshake doesn't happen behind a loader they're watching. Mounted in
           `chrome` for the same reason the debug panel is — it's the one wrapper
           every return path shares. Gated OFF while Game Zone is open: that
           screen runs its own dispenser instance, and the reader's busy mutex is
           per instance, so the two must never be live at once (unmounting here
           PARKS the connection, which is exactly what Game Zone then adopts). */}
-      <KioskDispenserPrewarm enabled={!gzOpen} />
-      {/* Before <IdleWatcher/>: the idle "Still there?" sheet is the same
+        <KioskDispenserPrewarm enabled={!gzOpen} />
+        {/* Before <IdleWatcher/>: the idle "Still there?" sheet is the same
           z-[80] — as the later sibling it must paint ON TOP of this confirm. */}
-      {confirmSheet}
-      <IdleWatcher
-        // The merged cart+checkout screen is checkout dwell too (rewards
-        // verify, contact edits) — give it the longer leash.
-        timeoutMs={
-          checkoutActive || (cartActive && mergedCheckout) ? IDLE_CHECKOUT_MS : IDLE_FLOW_MS
-        }
-        // A guest signing in on their PHONE generates no kiosk touches — pause
-        // the watchdog while phones are actively connected. Bounded by
-        // construction: heartbeats expire server-side in ~30s, so an abandoned
-        // phone unpauses within one heartbeat window; an untouched QR with no
-        // phones still idle-resets normally.
-        paused={
-          bookingHeats ||
-          stepBusy ||
-          resetting ||
-          assistActive ||
-          gzBusy ||
-          (mobileJoin.status === "open" && mobileJoin.activeClients > 0)
-        }
-        onReset={() => {
-          clarityEvent("kiosk:idle:reset");
-          closeMobileJoin("idle");
-          void handleStartOver();
-        }}
-      />
-      {assistActive && (
-        <div className="k-assist-overlay">
-          <div className="k-display text-[110px] leading-none text-white">
-            {assistReason === "card-error"
-              ? t("flow.assist.cardError.title")
-              : t("flow.assist.help.title")}
+        {confirmSheet}
+        <IdleWatcher
+          // The merged cart+checkout screen is checkout dwell too (rewards
+          // verify, contact edits) — give it the longer leash.
+          timeoutMs={
+            checkoutActive || (cartActive && mergedCheckout) ? IDLE_CHECKOUT_MS : IDLE_FLOW_MS
+          }
+          // A guest signing in on their PHONE generates no kiosk touches — pause
+          // the watchdog while phones are actively connected. Bounded by
+          // construction: heartbeats expire server-side in ~30s, so an abandoned
+          // phone unpauses within one heartbeat window; an untouched QR with no
+          // phones still idle-resets normally.
+          paused={
+            bookingHeats ||
+            stepBusy ||
+            resetting ||
+            assistActive ||
+            gzBusy ||
+            (mobileJoin.status === "open" && mobileJoin.activeClients > 0)
+          }
+          onReset={() => {
+            clarityEvent("kiosk:idle:reset");
+            closeMobileJoin("idle");
+            void handleStartOver();
+          }}
+        />
+        {assistActive && (
+          <div className="k-assist-overlay">
+            <div className="k-display text-[110px] leading-none text-white">
+              {assistReason === "card-error"
+                ? t("flow.assist.cardError.title")
+                : t("flow.assist.help.title")}
+            </div>
+            <p className="max-w-[26ch] text-[34px] font-semibold text-white/90">
+              {assistReason === "card-error"
+                ? t("flow.assist.cardError.body")
+                : t("flow.assist.help.body")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setAssistActive(false)}
+              className="k-tap h-[112px] rounded-full border-4 border-white bg-white/10 px-[72px] text-[36px] font-extrabold uppercase tracking-widest text-white"
+            >
+              {t("flow.assist.clear")}
+            </button>
           </div>
-          <p className="max-w-[26ch] text-[34px] font-semibold text-white/90">
-            {assistReason === "card-error"
-              ? t("flow.assist.cardError.body")
-              : t("flow.assist.help.body")}
-          </p>
-          <button
-            type="button"
-            onClick={() => setAssistActive(false)}
-            className="k-tap h-[112px] rounded-full border-4 border-white bg-white/10 px-[72px] text-[36px] font-extrabold uppercase tracking-widest text-white"
-          >
-            {t("flow.assist.clear")}
-          </button>
-        </div>
-      )}
-      {resetting && <BrandedLoaderOverlay brand={config.brand} label={t("flow.loader.clearing")} />}
-      {reservationExpired && hasActiveHold && (
-        <ReservationExpiredModal onExtend={handleExtendReservation} onStartOver={handleStartOver} />
-      )}
-    </div>
+        )}
+        {resetting && (
+          <BrandedLoaderOverlay brand={config.brand} label={t("flow.loader.clearing")} />
+        )}
+        {reservationExpired && hasActiveHold && (
+          <ReservationExpiredModal
+            onExtend={handleExtendReservation}
+            onStartOver={handleStartOver}
+          />
+        )}
+      </div>
+    </GuestRaceHistoryProvider>
   );
 
   // ── Checkout upsell (merged flow): discounted Game Zone card page ──

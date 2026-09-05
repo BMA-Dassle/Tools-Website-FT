@@ -57,4 +57,26 @@ describe("guest race history keeps the sheet out of the roster card", () => {
     // The other half of the contract: hosted, and still full-screen.
     expect(functionBody("GuestRaceHistorySheet")).toContain("fixed inset-0");
   });
+
+  it("the sheet portals to the canvas so the action bar cannot sit on top", () => {
+    // `.k-flow-head`, `.k-flow-body` and `.k-z-actions` are all z-index:2
+    // siblings, so an overlay rendered inside the body loses to the action bar
+    // on DOM order whatever its own z-index — "Book something" stayed tappable
+    // through the open sheet (owner, 2026-09-05).
+    expect(
+      functionBody("GuestRaceHistorySheet"),
+      "the overlay must be wrapped in <KioskSheetPortal> to escape .k-flow-body",
+    ).toContain("<KioskSheetPortal>");
+  });
+
+  it("does not label with k-eyebrow, which unlayered css re-sizes to 24px cyan", () => {
+    // `.kiosk-canvas .k-eyebrow` (0,2,0) beats a single-class utility (0,1,0),
+    // so `text-[17px] text-white/45` on it silently rendered 24px cyan and the
+    // section labels shouted over their own data.
+    const labels = /function (?:SectionLabel|Th|Stat)\b/.test(src);
+    expect(labels, "label helpers not found — were they renamed?").toBe(true);
+    for (const name of ["SectionLabel", "Th", "Stat"]) {
+      expect(functionBody(name), `${name} must not use k-eyebrow`).not.toContain("k-eyebrow");
+    }
+  });
 });

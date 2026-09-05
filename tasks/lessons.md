@@ -25,10 +25,23 @@ why: *"so a sheet exists in exactly one place per page and the roster rows never
 know how to draw one."* The guest sheet was built as a self-contained per-card component
 instead, which is how it ended up nested.
 
+**A SECOND, SEPARATE TRAP ON THE SAME SCREEN — the action bar sat ON TOP of the open
+sheet, "Book something" still lit and tappable.** `.k-flow-head`, `.k-flow-body`,
+`.k-z-actions` and `.k-z-util` are all given `position: relative; z-index: 2` by
+kiosk.css. Equal z-index means **document order decides**, and the action bar comes
+after the body — so any `fixed` overlay rendered from a step inside `.k-flow-body` is
+capped by that stacking context and loses, whatever its own z-index says. `z-[78]` was
+never going to win. Staff sheets escape only because `StaffModeSurface` wraps the whole
+`.k-flow`; a step buried in the body has no such vantage point, so it **portals to
+`.kiosk-canvas`** (`components/KioskSheetPortal.tsx`) — the element a kiosk `fixed`
+overlay is meant to anchor to anyway, the canvas being transformed.
+
 **Rules:**
 - A sheet, modal or overlay is **hosted once, above the cards** — by the page or a
   provider — and per-row components only *ask* for it to open. Never render an overlay
   as a sibling of the button that opens it inside a card.
+- An overlay rendered from inside `.k-flow-body` must go through `KioskSheetPortal`, or
+  the header and action bar paint over it. A big z-index does not help.
 - Before adding a `fixed` overlay anywhere, check the ancestor chain for `.k-glass` (or
   any `transform`/`filter`/`backdrop-filter`). If one is there, the overlay is contained.
 - `race-history/guest-race-history.structure.test.ts` pins this for the guest sheet
