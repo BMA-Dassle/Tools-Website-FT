@@ -152,9 +152,51 @@ export const GIVE_UP_MINUTES: Record<SyncKind, number> = {
 
 export const MAX_ATTEMPTS = 40;
 
+/**
+ * MAY THIS KIND BE ABANDONED ON A CLOCK?
+ *
+ * Owner rule 2026-09-05: "it should never completely give up unless reservation is
+ * in past and it cant do anything with it." Patience is not one number, because
+ * the kinds are not one thing:
+ *
+ *  - A WAIVER is a legal record attached to a PERSON, valid for a year. A past
+ *    reservation does not make it worthless — we still owe the vendor record, and
+ *    it is still the evidence behind a chargeback. It must never expire on a clock.
+ *  - A MEMBERSHIP/licence is an entitlement the guest PAID for. Same: it is owed
+ *    until it is granted.
+ *  - The CONFIRMATION STAMP is a signal staff read on the day. Once the visit is
+ *    over it has nothing left to say, so it ends — as `lapsed`, not `parked`, via
+ *    `lapseSyncRow`. That is the "reservation is in past" case, and the only one.
+ *  - `repair-person-details` / `attach-project-person` serve a booking in progress;
+ *    hours later there is nothing left to attach to.
+ *
+ * `false` here does NOT mean "retry forever at full speed" — `backoffSeconds`
+ * stretches a long-haul row to 30-minute checks, so an unfileable waiver costs ~48
+ * probes a day, not 1,440. It means the row stays on the board as OWED instead of
+ * being quietly written off, and ends only when it lands or the barrier proves it
+ * never can (`parkSyncRow`, `impossible`).
+ *
+ * This is what produced the 2026-09-05 backlog on the other rail: work that was
+ * still perfectly doable got abandoned because a vendor outage outlasted a timer.
+ */
+export const CLOCK_GIVE_UP: Record<SyncKind, boolean> = {
+  "repair-person-details": true,
+  "push-waiver-signature": false,
+  "add-membership": false,
+  "attach-project-person": true,
+  "stamp-confirmation-state": true,
+};
+
 /** Escalating backoff, capped: 30s × attempt, max 10 min. The first check is
- *  ~30s because a cloud→local PERSON lands in ~19-32s (measured 2026-08-12). */
+ *  ~30s because a cloud→local PERSON lands in ~19-32s (measured 2026-08-12).
+ *
+ *  PAST `MAX_ATTEMPTS` the row is a long-hauler that only a `CLOCK_GIVE_UP: false`
+ *  kind can reach, and the thing it is waiting for is measured in hours — so the
+ *  cadence stretches to 30 minutes. Checking a down vendor every 10 minutes for a
+ *  week is how the waiver consumer turned a Pandora outage into congestive
+ *  collapse (2026-08-14); it buys nothing and costs the vendor its recovery. */
 export function backoffSeconds(attempts: number): number {
+  if (attempts >= MAX_ATTEMPTS) return 1_800;
   return Math.min(600, 30 * Math.max(1, attempts));
 }
 
@@ -447,7 +489,16 @@ export async function markSyncRetry(
   const countAttempt = opts?.countAttempt ?? true;
   const attempts = row.attempts + (countAttempt ? 1 : 0);
   const expired = row.giveUpAt !== null && Date.parse(row.giveUpAt) <= Date.now();
-  const park = expired || attempts >= MAX_ATTEMPTS;
+  /**
+   * Patience is spent — but that only ENDS the row for a kind that may be
+   * abandoned on a clock. A waiver or a paid membership stays `pending` and keeps
+   * being owed (at the 30-minute long-haul cadence), because the work is still
+   * doable and still owed; see `CLOCK_GIVE_UP`. Without this split, any vendor
+   * outage longer than the deadline silently writes off everything signed during
+   * it — which is exactly the 2026-09-05 incident, on the other rail.
+   */
+  const patienceSpent = expired || attempts >= MAX_ATTEMPTS;
+  const park = patienceSpent && CLOCK_GIVE_UP[row.kind] !== false;
   await q`
     UPDATE bmi_sync_queue
     SET attempts = ${attempts},

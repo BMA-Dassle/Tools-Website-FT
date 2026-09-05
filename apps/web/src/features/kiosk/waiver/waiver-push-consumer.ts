@@ -96,13 +96,34 @@ function barrierRetrySeconds(deliveryCount: number, unreachable: boolean): numbe
 }
 
 /**
- * Give up asking. At ~20 deliveries with the schedule above we are roughly 20
- * minutes past the signature, which is far outside any normal sync window — the
- * cause is a real fault (wrong center, missing person, vendor outage), and
- * quietly retrying for another 23 hours hides it. Acknowledge, and leave the Neon
- * row unsettled so it shows up in the owed list.
+ * Stop asking ON THIS TRANSPORT. At ~20 deliveries with the schedule above we are
+ * roughly 20 minutes past the signature (85 on the unreachable ladder), which is
+ * far outside any normal sync window — the cause is a real fault (wrong center,
+ * missing person, vendor outage), and quietly retrying for another 23 hours hides
+ * it.
+ *
+ * THIS IS NOT "GIVE UP". It used to be, and that was the 2026-09-05 backlog: the
+ * consumer acknowledged the message and returned WITHOUT settling the Neon row,
+ * so 69 signatures sat at `outcome = 'queued'` — byte-identical to a push still in
+ * flight — with the message gone, no `bmi_sync_queue` row behind them, and no cron
+ * over the table. Nothing re-drove them, and 13 guests raced with no waiver record
+ * at BMI. The same hole produced the same backlog on 2026-08-13 and was cleared by
+ * hand (`scripts/sync-redrive-0813.mts`) instead of closed.
+ *
+ * So the last delivery now SETTLES the row `WAIVER_OUTCOME_OWED` in the handler
+ * below, while the message is still in scope. `owed` is a state the board renders
+ * as needing a human (it is neither signed/salvaged/dismissed nor in-flight) AND
+ * `/api/cron/waiver-redrive` picks up and hands to the durable `bmi_sync_queue`
+ * rail — visible and recoverable, which `queued` was neither. A waiver is a legal
+ * record tied to a person and good for a year, so it is worth filing long after
+ * the visit: nothing here may abandon one on a clock. Only `impossible` ends a
+ * signature.
  */
 const MAX_DELIVERIES = 20;
+
+/** The outcome that means "captured, not filed, and still owed" — distinct from
+ *  `queued` (in flight) so the two can never be confused again. */
+export const WAIVER_OUTCOME_OWED = "owed";
 
 /**
  * Build the POST handler for one topic binding. Called once per route file — one
@@ -154,6 +175,32 @@ export function createWaiverPushConsumer() {
       }
 
       if (barrier.verdict !== "open") {
+        /**
+         * LAST DELIVERY — settle before the topic drops the message.
+         *
+         * `retry` below cannot do this: it is handed only the error and the
+         * metadata, never the message, so it has no `signatureRowId` to settle and
+         * for a year it acknowledged its way out while the row stayed `queued`.
+         * Here we still have it. Marking `owed` is what makes the abandonment
+         * VISIBLE (the board reads it as needing a human) and RECOVERABLE
+         * (`/api/cron/waiver-redrive` re-drives it onto `bmi_sync_queue`).
+         *
+         * `>=` rather than `> `: this delivery is the one the `retry` callback is
+         * about to acknowledge, so the settle has to happen on it, not after.
+         */
+        if (metadata.deliveryCount >= MAX_DELIVERIES) {
+          console.error(
+            `[waiver-push] row ${signatureRowId} OWED after ${metadata.deliveryCount} deliveries: ${barrier.detail}. ` +
+              `Settled 'owed' — the signature is safe in Neon and waiver-redrive will keep chasing it.`,
+          );
+          await settleWaiverSignature(
+            Number(signatureRowId),
+            WAIVER_OUTCOME_OWED,
+            null,
+            `still ${barrier.verdict} after ${metadata.deliveryCount} deliveries: ${barrier.detail}`,
+          );
+          return;
+        }
         // Not yet (or we could not ask). Throwing hands control to the `retry`
         // callback below, which schedules redelivery — this is the normal path for a
         // brand-new guest and must never look like an error in the logs.
@@ -213,9 +260,17 @@ export function createWaiverPushConsumer() {
       visibilityTimeoutSeconds: 120,
       retry: (error, metadata) => {
         if (metadata.deliveryCount >= MAX_DELIVERIES) {
+          // BACKSTOP ONLY. The barrier path settles the row `owed` and returns
+          // normally before it ever gets here, so reaching this means the handler
+          // threw for another reason (a failed sign call, a payload that got past
+          // the guards). The row keeps whatever outcome it has — `queued` at worst —
+          // and `/api/cron/waiver-redrive` sweeps it up either way, which is the
+          // whole point of that cron existing: no path out of this consumer may
+          // leave a captured signature with nothing driving it.
           console.error(
-            `[waiver-push] giving up after ${metadata.deliveryCount} deliveries — ` +
-              `the Neon row stays unsettled and will show in the owed list.`,
+            `[waiver-push] acknowledging after ${metadata.deliveryCount} deliveries ` +
+              `(non-barrier failure: ${error instanceof Error ? error.message : String(error)}). ` +
+              `waiver-redrive owns it from here.`,
           );
           return { acknowledge: true };
         }

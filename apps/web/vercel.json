@@ -65,6 +65,10 @@
       "schedule": "*/2 * * * *"
     },
     {
+      "path": "/api/cron/waiver-redrive",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/arena-tickets",
       "schedule": "*/2 * * * *"
     },

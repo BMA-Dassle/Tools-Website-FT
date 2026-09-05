@@ -1,5 +1,56 @@
 # Lessons Learned
 
+## A queue that acknowledges without settling its source row is a black hole — and a "give up" timer writes off work that is still doable (2026-09-05)
+
+**What happened:** Pandora went down mid-day. 71 waiver signatures froze at
+`waiver_signatures.outcome = 'queued'` and nothing ever retried them. 13 guests raced
+with no waiver record at BMI. The same failure produced the same backlog on **2026-08-13**
+and was cleared by hand; the hole was left open, so it happened again.
+
+**Root cause — two independent bugs that only bite together:**
+
+1. **The Vercel Queues consumer acknowledged without settling.** At `MAX_DELIVERIES` it
+   returned `{ acknowledge: true }` and dropped the message. Its comment claimed this left
+   the row "unsettled so it shows up in the owed list" — but the row was `'queued'`, not
+   unsettled, and the owed-list index is `WHERE outcome IS NULL`. So an **abandoned** push
+   was byte-identical to one **in flight**, with the message gone, no `bmi_sync_queue` row
+   behind it (Queues bypasses that rail), and **no cron over the table**.
+2. **`give_up_at` is an absolute deadline set at enqueue.** Any vendor outage longer than
+   it silently writes off *everything* captured during the outage — precisely the work that
+   is still perfectly doable the moment the vendor answers.
+
+**Why nobody saw it:** the admin board renders a stale `queued` row as "parked", so the
+board looked *right* while nothing was driving the rows. A display that infers a state is
+not a system that owns it.
+
+**The rules:**
+
+1. **Whoever acknowledges a message owns settling its source row.** If a handler can end a
+   message's life, it must write a terminal state that is distinguishable from
+   "in flight" — before it acknowledges, in the code path that still has the row id. A
+   `retry`/`onGiveUp` callback that is handed only the error and the metadata **cannot**
+   do it; do it in the handler where the message is still in scope.
+2. **Every durable work table needs exactly one scheduled owner.** Two transports over one
+   table is fine; zero crons over it is not. `waiver_signatures` had a source of truth, a
+   board that read it, and nothing that *drove* it.
+3. **Patience is per-KIND, never one number** (`CLOCK_GIVE_UP`). Ask "is this still worth
+   doing?", not "has the timer expired?". A waiver is a legal record tied to a person and
+   good for a year; a paid membership is owed until granted — neither may be abandoned on
+   a clock. Only the check-in stamp, which is a signal staff read *on the day*, ends on
+   time — and as `lapsed`, not `parked`, so it never becomes a work order.
+4. **When a recovery script has to be written by hand, the fix is not the script — it is
+   the cron that makes the script unnecessary.** `scripts/sync-redrive-0813.mts` diagnosed
+   this exactly ("once dropped, NOTHING re-drives them") three weeks early. It was run and
+   shelved. Corroborating smell: `bmi_sync_queue` carried 19 `lapsed` and 24 `dismissed`
+   rows in statuses **no code writes** — every recovery this system had was a human with SQL.
+5. **A cross-server "the record is at X" diagnosis MUST confirm identity, not just id
+   existence.** Parked row #4569 said Eleanor Seeger's id "does not exist at this center —
+   their record is at the Fort Myers server". The id *did* resolve there — to **a different
+   human** (`joseph sibaja`); Eleanor was at Naples all along. Auto-re-aiming on that
+   diagnosis would have granted her paid licence to a stranger. See
+   `reference_bmi_person_id_is_per_server`. Re-arm in place and re-probe; never re-aim on
+   an id match alone.
+
 ## `moduleResolution: "bundler"` lets an extensionless import through, and Node ESM crash-loops on it (2026-09-05)
 
 **What happened:** a new file in `kart-timing-bridge/` was imported as

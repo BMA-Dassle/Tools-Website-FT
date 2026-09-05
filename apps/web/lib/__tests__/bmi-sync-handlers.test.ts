@@ -71,7 +71,19 @@ describe("backoff + patience budget", () => {
     expect(backoffSeconds(4)).toBe(120);
   });
   it("caps so a parked-bound row cannot drift into hours between tries", () => {
-    expect(backoffSeconds(100)).toBe(600);
+    // Within the normal attempt budget the cap is 10 minutes. Every CLOCK_GIVE_UP
+    // kind parks at MAX_ATTEMPTS, so this is the widest gap such a row can ever see.
+    expect(backoffSeconds(MAX_ATTEMPTS - 1)).toBe(600);
+  });
+  it("stretches to 30 min only for the long-haulers that never park on a clock", () => {
+    // Past MAX_ATTEMPTS is reachable only by `push-waiver-signature` and
+    // `add-membership` (CLOCK_GIVE_UP:false, added 2026-09-05) — a clock-give-up
+    // kind has already parked by then. Those are waiting on something measured in
+    // hours, and polling a down vendor every 10 minutes for days buys nothing:
+    // that cadence is what turned the 2026-08-14 Pandora outage into congestive
+    // collapse. See bmi-sync-giveup.test.ts for the full policy.
+    expect(backoffSeconds(MAX_ATTEMPTS)).toBe(1_800);
+    expect(backoffSeconds(100)).toBe(1_800);
   });
   it("a waiver is chased far longer than a person repair", () => {
     expect(GIVE_UP_MINUTES["push-waiver-signature"]).toBeGreaterThan(
