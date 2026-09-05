@@ -15,6 +15,22 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.33.0 — FAMILY PICKER SHEET (owner 2026-09-05, "Option A" from the reviewed
+ *         mockups): a BMI sign-in used to dump every linked family member onto
+ *         the people step as a wall of green chips. The linked list now
+ *         collapses to ONE summary row (avatar cluster + "N people on this
+ *         account"); "Add family" opens a picker sheet — tap several, Select
+ *         all, one "Add N players" confirm. Needs-waiver picks read " · will
+ *         sign waiver next" (amber) instead of a blocking-sounding note; the
+ *         under-7 racing floor still disables the card with the reason. Both
+ *         people components (KioskPeopleStep + KioskPartyManager) in lockstep;
+ *         family stays strictly OPT-IN. EN+ES. Plus GUEST RACE HISTORY on Your
+ *         Crew: every signed-in roster card on /kiosk/racers gets "My race
+ *         history" — races, best lap per track with the earned level, the
+ *         same off-Pro line the level-up texts use, CREDITS BY KIND (races,
+ *         gel blaster, laser tag, headsock…), and the per-heat table. Guest
+ *         re-skin of the staff sheet over a new read-only
+ *         /api/kiosk/race-history (no staff token — the guest's own data).
  * 1.32.5 — WALLET QR ENCODES THE LOGIN CODE, NOT THE LAST-TOUCHED TAG (owner
  *         2026-09-05: "apple wallet only works when I'm logged in as myself —
  *         everyone else is brought to the race booking site"; Alex, Jamil and
@@ -1229,7 +1245,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.32.5";
+export const KIOSK_VERSION = "1.33.0";
 
 let bootVersion: string | null = null;
 let captured = false;

@@ -1,5 +1,43 @@
 # Open Tasks
 
+## Kiosk family picker + guest race history (2026-09-05) — branch `feat/kiosk-family-picker` — BUILT, gates green, NOT hardware-smoked
+
+Owner: signing in with a BMI account on any racing screen threw every linked family member on
+screen at once ("a very bad look"). Mockups reviewed on a design canvas
+(https://claude.ai/code/artifact/cdf6bf58-e74e-4ffc-a37d-c4cf34146c09); owner picked **Option A**
+and added "we also want to know gel, laser, headsock, etc credits" on the race history.
+
+- [x] Linked family collapses to ONE summary row — overlapping initials avatars, "N people on
+      this account", first names — with an **Add family** button. Kiosk **1.33.0**.
+- [x] Picker sheet: multi-select cards (checkbox + name + age + waiver state), Select all /
+      Clear all, one "Add N players" confirm, "Not today". Under-7 stays disabled ON RACE
+      screens with the reason; a selected needs-waiver person reads " · will sign waiver next"
+      (amber) instead of the blocking-sounding note.
+- [x] `family-picker.ts` — pure rules shared by BOTH people components so they cannot drift:
+      `tooYoungToRace` (unknown age is NOT blocked), `selectableLinked`, `resolvePicks`,
+      `allSelected`, `splitWarnNeeded`. 20 tests.
+- [x] **Split-payment warning generalized to batches**: was `party.length >= 3` (one tap at a
+      time), so adding 3 at once to a party of 1 would have skipped it. Now
+      `partyLength + adding >= 4` — identical for single adds, honest for a batch.
+- [x] Both `KioskPeopleStep` + `KioskPartyManager` in lockstep (race / gel blaster / laser tag /
+      shuffly / race sims / waiver flow / race-pack flow). Family stays strictly OPT-IN.
+- [x] EN + ES for every new string (`peopleUi.family.*`, `party.linked.*`, `rh.*`).
+- [x] **Guest race history on Your Crew**: "My race history" on every signed-in roster card →
+      races, best lap per track + earned level, the same off-Pro line the level-up texts use,
+      **credits by kind** (races / gel blaster / laser tag / headsock…), per-heat table.
+      `GET /api/kiosk/race-history` — read-only, NO staff token (the guest's own personId, same
+      precedent as `/api/pandora?personId=`); memberships stay staff-only.
+      Mounted via `GuestRaceHistorySurface` — the crew page is the only page that opts in.
+- [ ] **NOT SMOKED ON HARDWARE.** Needed: sign in a real multi-member family on a kiosk (picker
+      opens, Select all, Add N, roster grows, nobody auto-added); a race screen with an under-7
+      linked child (disabled + reason); an attraction batch that crosses 4 people (split-payment
+      warning fires ONCE, over the picker); Spanish on both sheets; race history for a racer with
+      heats AND one with none; credits show the right kinds.
+- [ ] Open question for the owner: race history is karting-only (only karts produce lap times).
+      Gel blaster / laser tag visits are not in `personStats/races`.
+- [ ] Future phase (blocked on the owner's API calls): add/remove family LINKS. The picker sheet
+      is where "Manage my family list" goes — there is no add/remove-link API in BMI today.
+
 ## Kiosk staff mode — staff card → Membership / Comp / Race history on Your Crew (2026-09-04) — branch `feat/kiosk-staff-mode` — BUILT 2026-09-04, not committed, not live-verified
 
 Owner: a staff Intercard card scanned on /kiosk/racers shows staff buttons on every person card
