@@ -79,6 +79,7 @@ import { KioskSignInBoxes } from "../components/KioskSignInBoxes";
 import { racerLicenseState } from "~/features/booking/service/license";
 import { LICENSE_PRICE } from "~/features/booking/service/race-pricing";
 import { useT } from "../i18n";
+import { StaffPersonActions, useStaffCardScan } from "../staff-mode";
 
 /** Waiver-gated attraction slugs (duckpin is exempt — uses the party-count step). */
 const WAIVER_SLUGS = new Set(["gel-blaster", "laser-tag", "shuffly"]);
@@ -1692,11 +1693,19 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
     void runMemberLookup(qr);
   };
 
+  // Staff-card gate (staff-mode/): a card-shaped scan on a staff surface (the
+  // crew page) arms staff mode; anywhere else this declines and the scan stays
+  // an unrecognised no-op exactly as before. Checked FIRST on the leftovers —
+  // owner: "check for staff first, that's priority".
+  const tryStaffCard = useStaffCardScan();
   const licenseScan = useLicenseScan({
     config: kioskCfg,
     enabled: true, // the hook itself no-ops unless this kiosk has the scanner
     onLicense: handleLicense,
     onMemberQr: handleMemberQr,
+    onUnrecognised: (lines) => {
+      for (const line of lines) if (tryStaffCard(line)) return;
+    },
   });
 
   // A racer who scanned back on an ENTRY screen and had nothing booked. The
@@ -1983,6 +1992,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
                   </button>
                 </div>
               </div>
+              {/* Staff-only actions — null unless this page is a StaffModeSurface
+                  AND a staff card has armed the kiosk (staff-mode/). */}
+              <StaffPersonActions member={m} />
             </div>
           );
         })}

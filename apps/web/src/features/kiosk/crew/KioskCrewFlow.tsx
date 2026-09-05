@@ -57,6 +57,7 @@ import { useMobileJoinStatus } from "../hooks/useMobileJoin";
 import { closeMobileJoin } from "../join/kiosk-client";
 import { resetToKiosk } from "../version";
 import { useT } from "../i18n";
+import { StaffBar, StaffModeSurface, endStaffMode } from "../staff-mode";
 
 // Same patience as the waiver flow / race-info: guests stand and work through
 // waivers here; the watchdog pauses while a photo/signature is mid-flight.
@@ -140,6 +141,8 @@ function CrewInner({ config }: { config: KioskConfig }) {
    *  resetToKiosk is NOT enough here — it clears only the entry-scan stash. */
   const teardown = useCallback(async () => {
     closeMobileJoin("start-over");
+    // Staff mode is a per-tab credential; the guest boundary ends it too.
+    endStaffMode();
     setResetting(true);
     // abandonBooking retries + verifies the BMI cancel (7/19 incident: silent
     // cancel failures stacked abandoned holds onto live heats). Safe on a
@@ -167,120 +170,134 @@ function CrewInner({ config }: { config: KioskConfig }) {
     );
   }
 
-  return (
-    <div className="k-flow">
-      <IdleWatcher
-        timeoutMs={IDLE_MS}
-        // Never reset a guest mid-photo/signature, mid-teardown, or while
-        // phones are actively signing in (heartbeats expire server-side in
-        // ~30s, so an abandoned phone unpauses within one window).
-        paused={
-          partyBusy || resetting || (mobileJoin.status === "open" && mobileJoin.activeClients > 0)
-        }
-        onReset={() => {
-          clarityEvent("kiosk:crew:idle-reset");
-          closeMobileJoin("idle");
-          void teardown();
-        }}
-      />
+  // Staff surface (staff-mode/): a manager's Intercard card scanned here arms
+  // Membership / Comp / Race history on every roster card. Center first —
+  // Naples writes to the Naples Pandora location regardless of brand.
+  const staffLocation =
+    config.center === "naples" ? "naples" : config.brand === "headpinz" ? "headpinz" : "fasttrax";
 
-      {/* Header — back + eyebrow + title (the race-info skeleton). Back goes to
+  return (
+    <StaffModeSurface location={staffLocation}>
+      <div className="k-flow">
+        <IdleWatcher
+          timeoutMs={IDLE_MS}
+          // Never reset a guest mid-photo/signature, mid-teardown, or while
+          // phones are actively signing in (heartbeats expire server-side in
+          // ~30s, so an abandoned phone unpauses within one window).
+          paused={
+            partyBusy || resetting || (mobileJoin.status === "open" && mobileJoin.activeClients > 0)
+          }
+          onReset={() => {
+            clarityEvent("kiosk:crew:idle-reset");
+            closeMobileJoin("idle");
+            void teardown();
+          }}
+        />
+
+        {/* Header — back + eyebrow + title (the race-info skeleton). Back goes to
           the CHOOSER, never the attract screen: the crew must stay reachable
           and the session alive (H7). */}
-      <div className="k-flow-head pb-[8px]">
-        <div className="flex items-center gap-[28px]">
+        <div className="k-flow-head pb-[8px]">
+          <div className="flex items-center gap-[28px]">
+            <button
+              type="button"
+              aria-label={t("crew.back")}
+              onClick={() => router.push("/kiosk/flow")}
+              className="k-tap flex h-[96px] w-[96px] shrink-0 items-center justify-center rounded-[24px] border-2 border-white/15 bg-white/5 text-white/80"
+            >
+              <IconChevronLeft size={52} aria-hidden="true" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="k-eyebrow text-[#00e2e5]">{t("crew.eyebrow")}</div>
+              <div className="k-display mt-[10px] text-[74px]">{t("crew.title")}</div>
+            </div>
+            <IconUsersGroup size={56} className="shrink-0 text-white/25" aria-hidden="true" />
+          </div>
+        </div>
+
+        {/* Staff bar — who armed the kiosk, the 10 s idle ring, Staff logout.
+          Renders nothing until a manager's card is scanned. */}
+        <StaffBar />
+
+        {/* Body — the live people monolith over the PERSISTED session. */}
+        <div className="k-flow-body kiosk-scroll">
+          <p className="mb-[28px] max-w-[44ch] text-[28px] leading-snug text-white/55">
+            {t("crew.subtitle")}
+          </p>
+          <PeopleScreens
+            item={item}
+            session={session}
+            onChange={(patch) => setItem((prev) => ({ ...prev, ...patch }))}
+            dispatch={dispatch}
+            setBusy={setPartyBusy}
+          />
+        </div>
+
+        {/* Actions — no cart pill, no prices; that's the point of this page. */}
+        <div className="k-z-actions pt-[16px]">
           <button
             type="button"
-            aria-label={t("crew.back")}
-            onClick={() => router.push("/kiosk/flow")}
-            className="k-tap flex h-[96px] w-[96px] shrink-0 items-center justify-center rounded-[24px] border-2 border-white/15 bg-white/5 text-white/80"
+            onClick={() => setConfirmReset(true)}
+            className="k-btn-ghost k-tap"
+            style={{ flex: "0 0 auto" }}
           >
-            <IconChevronLeft size={52} aria-hidden="true" />
+            {t("crew.startOver")}
           </button>
-          <div className="min-w-0 flex-1">
-            <div className="k-eyebrow text-[#00e2e5]">{t("crew.eyebrow")}</div>
-            <div className="k-display mt-[10px] text-[74px]">{t("crew.title")}</div>
-          </div>
-          <IconUsersGroup size={56} className="shrink-0 text-white/25" aria-hidden="true" />
+          <button type="button" onClick={goBook} className="k-btn-primary k-tap">
+            {t("crew.bookSomething")}
+          </button>
         </div>
-      </div>
+        <div className="flex h-[96px] shrink-0 items-center justify-center">
+          <span className="k-eyebrow text-white/35">{t("crew.footer.tagline")}</span>
+        </div>
 
-      {/* Body — the live people monolith over the PERSISTED session. */}
-      <div className="k-flow-body kiosk-scroll">
-        <p className="mb-[28px] max-w-[44ch] text-[28px] leading-snug text-white/55">
-          {t("crew.subtitle")}
-        </p>
-        <PeopleScreens
-          item={item}
-          session={session}
-          onChange={(patch) => setItem((prev) => ({ ...prev, ...patch }))}
-          dispatch={dispatch}
-          setBusy={setPartyBusy}
-        />
-      </div>
-
-      {/* Actions — no cart pill, no prices; that's the point of this page. */}
-      <div className="k-z-actions pt-[16px]">
-        <button
-          type="button"
-          onClick={() => setConfirmReset(true)}
-          className="k-btn-ghost k-tap"
-          style={{ flex: "0 0 auto" }}
-        >
-          {t("crew.startOver")}
-        </button>
-        <button type="button" onClick={goBook} className="k-btn-primary k-tap">
-          {t("crew.bookSomething")}
-        </button>
-      </div>
-      <div className="flex h-[96px] shrink-0 items-center justify-center">
-        <span className="k-eyebrow text-white/35">{t("crew.footer.tagline")}</span>
-      </div>
-
-      {/* Start-over confirm — same canvas-native sheet pattern as KioskFlow's
+        {/* Start-over confirm — same canvas-native sheet pattern as KioskFlow's
           exit confirm: the SAFE choice is the big primary, the destructive one
           is the ghost. No tap-outside dismiss (kiosk convention). */}
-      {confirmReset && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
-          <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
-            <div className="k-eyebrow text-[#f0b341]">{t("crew.startOver")}</div>
-            <div className="k-display text-[46px] leading-[1.05]">{t("crew.confirm.title")}</div>
-            <p className="text-[26px] leading-snug text-white/60">{t("crew.confirm.body")}</p>
-            <div className="flex flex-col gap-[16px] pt-[4px]">
-              {/* Inline flex per the .kiosk-canvas cascade gotcha (KioskFlow's
+        {confirmReset && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
+            <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
+              <div className="k-eyebrow text-[#f0b341]">{t("crew.startOver")}</div>
+              <div className="k-display text-[46px] leading-[1.05]">{t("crew.confirm.title")}</div>
+              <p className="text-[26px] leading-snug text-white/60">{t("crew.confirm.body")}</p>
+              <div className="flex flex-col gap-[16px] pt-[4px]">
+                {/* Inline flex per the .kiosk-canvas cascade gotcha (KioskFlow's
                   confirm sheet): k-btn-primary's flex:1 squashes its height in
                   a column layout. */}
-              <button
-                type="button"
-                onClick={() => setConfirmReset(false)}
-                className="k-btn-primary k-tap"
-                style={{ flex: "0 0 auto" }}
-              >
-                {t("crew.confirm.stay")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (partyBusy) return;
-                  clarityEvent("kiosk:crew:start-over");
-                  setConfirmReset(false);
-                  void teardown();
-                }}
-                className="k-btn-ghost k-tap"
-                style={{
-                  flex: "0 0 auto",
-                  color: "#fca5a5",
-                  borderColor: "rgba(248,113,113,0.45)",
-                }}
-              >
-                {t("crew.confirm.reset")}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmReset(false)}
+                  className="k-btn-primary k-tap"
+                  style={{ flex: "0 0 auto" }}
+                >
+                  {t("crew.confirm.stay")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (partyBusy) return;
+                    clarityEvent("kiosk:crew:start-over");
+                    setConfirmReset(false);
+                    void teardown();
+                  }}
+                  className="k-btn-ghost k-tap"
+                  style={{
+                    flex: "0 0 auto",
+                    color: "#fca5a5",
+                    borderColor: "rgba(248,113,113,0.45)",
+                  }}
+                >
+                  {t("crew.confirm.reset")}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {resetting && <BrandedLoaderOverlay brand={config.brand} label={t("flow.loader.clearing")} />}
-    </div>
+        {resetting && (
+          <BrandedLoaderOverlay brand={config.brand} label={t("flow.loader.clearing")} />
+        )}
+      </div>
+    </StaffModeSurface>
   );
 }

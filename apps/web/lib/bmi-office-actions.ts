@@ -773,6 +773,46 @@ export async function fetchOfficeDepositHistory(
   }
 }
 
+/** One row of Office `personStats/races` — a person's finished heats, newest
+ *  first. Scores are lap MILLISECONDS (bestScore 44233 = 44.233 s). Ids arrive
+ *  as JSON strings already, so a plain parse keeps them intact. */
+export interface OfficeRaceStatRow {
+  participantId?: string;
+  scheduledStart?: string;
+  sessionState?: number;
+  resourceId?: string;
+  resourceName?: string;
+  sessionName?: string;
+  kart?: string;
+  finishState?: number;
+  finishPosition?: number | null;
+  bestScore?: number | null;
+  avgScore?: number | null;
+  scoreLaps?: number | null;
+  participantState?: number;
+}
+
+/** A person's race history (owner 2026-09-04: the kiosk staff Race history
+ *  sheet's source), or null on any failure. personId is a raw digit string. */
+export async function fetchOfficeRaceHistory(
+  personId: string,
+  clientKey: string = LOOKUP_CLIENT_KEY,
+): Promise<OfficeRaceStatRow[] | null> {
+  try {
+    const token = await getOfficeToken(clientKey);
+    const res = await httpsRequest(
+      "GET",
+      `/api/${clientKey}/personStats/races?personId=${encodeURIComponent(personId)}`,
+      readHeaders(token, clientKey),
+    );
+    if (res.status >= 400) return null;
+    const rows = JSON.parse(res.body);
+    return Array.isArray(rows) ? (rows as OfficeRaceStatRow[]) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Batch person lookup ─────────────────────────────────────────────
 
 export interface PersonInfo {

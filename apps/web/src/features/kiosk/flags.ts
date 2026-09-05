@@ -409,6 +409,20 @@ export function kioskCrewEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_CREW !== "false";
 }
 
+/**
+ * Kiosk STAFF MODE (2026-09-04) — a staff Intercard card scanned on a staff
+ * surface (Your Crew first) arms Membership / Comp / Race history actions on
+ * every roster card for 10 s past the last touch. Kill switch, defaults ON.
+ * Gates the scan GATE only (useStaffCardScan): with it off a staff card is just
+ * another unrecognised scan and nothing staff-shaped renders. Set the literal
+ * "false" in Vercel + redeploy to withdraw it (NEXT_PUBLIC_* values are
+ * build-baked). Read at call time (never module scope) so tests can stub
+ * process.env.
+ */
+export function kioskStaffModeEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_STAFF_MODE !== "false";
+}
+
 // kioskSplitTenderEnabled is GONE (owner 2026-07-31) — paying with a gift card
 // (ONE gift card + ONE reader tap, "match web") is unconditional on every kiosk
 // checkout. History: tasks/split-tender-probes.md.

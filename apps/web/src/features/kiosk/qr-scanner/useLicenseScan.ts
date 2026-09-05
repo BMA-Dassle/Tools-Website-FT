@@ -35,6 +35,11 @@ export interface UseLicenseScanOptions {
   /** Fires when an SMS-Timing member QR is scanned (the app's personal QR,
    *  member-qr.ts) — omit on surfaces that only take licenses (bowling). */
   onMemberQr?: (qr: MemberQr) => void;
+  /** Fires with the non-blank lines of a burst that was neither a licence nor
+   *  a member QR — the hook's leftovers, for consumers with their own shapes
+   *  (the staff-card gate: an Intercard card is a 16-digit run). The
+   *  diagnostic warning still logs; this is in addition, not instead. */
+  onUnrecognised?: (lines: string[]) => void;
 }
 
 export type BurstVerdict =
@@ -92,7 +97,13 @@ export function classifyBurst(lines: readonly string[]): BurstVerdict {
   };
 }
 
-export function useLicenseScan({ config, enabled, onLicense, onMemberQr }: UseLicenseScanOptions) {
+export function useLicenseScan({
+  config,
+  enabled,
+  onLicense,
+  onMemberQr,
+  onUnrecognised,
+}: UseLicenseScanOptions) {
   const onLicenseRef = useRef(onLicense);
   useEffect(() => {
     onLicenseRef.current = onLicense;
@@ -101,16 +112,24 @@ export function useLicenseScan({ config, enabled, onLicense, onMemberQr }: UseLi
   useEffect(() => {
     onMemberQrRef.current = onMemberQr;
   }, [onMemberQr]);
+  const onUnrecognisedRef = useRef(onUnrecognised);
+  useEffect(() => {
+    onUnrecognisedRef.current = onUnrecognised;
+  }, [onUnrecognised]);
 
   const burstRef = useRef(new AamvaBurst());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flush = useCallback(() => {
     timerRef.current = null;
-    const verdict = classifyBurst(burstRef.current.flushLines());
+    const lines = burstRef.current.flushLines();
+    const verdict = classifyBurst(lines);
     if (verdict.kind === "member") return void onMemberQrRef.current?.(verdict.qr);
     if (verdict.kind === "license") return void onLicenseRef.current(verdict.license);
-    if (verdict.kind === "unrecognised") console.warn(`[license-scan] ${verdict.diagnostic}`);
+    if (verdict.kind === "unrecognised") {
+      console.warn(`[license-scan] ${verdict.diagnostic}`);
+      onUnrecognisedRef.current?.(lines.map((l) => l.trim()).filter((l) => l.length > 0));
+    }
   }, []);
 
   const scanner = useQrScanner({

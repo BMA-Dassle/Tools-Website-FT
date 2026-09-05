@@ -67,6 +67,7 @@ import { matchGateKey, matchGateVerdict } from "../license/match-gate";
 import { mintForSigningVerdict } from "../license/mint-for-signing";
 import type { LicenseMatch } from "../license/types";
 import { LicenseMatchPicker } from "./LicenseMatchPicker";
+import { StaffPersonActions, useStaffCardScan } from "../staff-mode";
 
 export type PartyManagerMode = "race" | "attraction" | "waiver";
 
@@ -1681,11 +1682,17 @@ export function KioskPartyManager({
     void runMemberLookup(qr);
   };
 
+  // Staff-card gate (staff-mode/) — declines outside a StaffModeSurface, so
+  // the waiver page and the mobile /waiver flow keep today's behavior.
+  const tryStaffCard = useStaffCardScan();
   const licenseScan = useLicenseScan({
     config: kioskCfg,
     enabled: true, // the hook itself no-ops unless this kiosk has the scanner
     onLicense: handleLicense,
     onMemberQr: handleMemberQr,
+    onUnrecognised: (lines) => {
+      for (const line of lines) if (tryStaffCard(line)) return;
+    },
   });
 
   // Absorb the Office/Pandora cold start BEFORE anyone scans or types (one
@@ -1947,6 +1954,9 @@ export function KioskPartyManager({
                   )}
                 </div>
               </div>
+              {/* Staff-only actions — null unless inside a StaffModeSurface with
+                  staff mode armed (staff-mode/). */}
+              <StaffPersonActions member={m} />
             </div>
           );
         })}

@@ -15,6 +15,20 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.32.0 — STAFF MODE ON YOUR CREW (owner 2026-09-04). A MANAGER's Intercard
+ *         card scanned on /kiosk/racers arms staff-only actions on every roster
+ *         card — Add membership (kind chips, start/end dates; License defaults
+ *         to 1 year, everything else to 99), Add comp (kind, qty, free-text
+ *         reason) and Race history (memberships + balances; heats not yet
+ *         connected — no per-person source exists) — for 10 s past the last
+ *         touch, with a green Staff bar (name, idle ring, Staff logout). The
+ *         card resolves Office person-by-card → Pandora staff-roles; only a
+ *         group containing "Manager" opens the menu. Writes go through the
+ *         signed staff token (/api/kiosk/staff-actions), persist-first into
+ *         Neon kiosk_staff_actions, then Pandora addMembership / addDeposit.
+ *         Built as kiosk-wide pieces (staff-mode/): StaffModeSurface, StaffBar,
+ *         StaffPersonActions (mounted in both roster components, null outside
+ *         a surface), sheets. Kill switch NEXT_PUBLIC_KIOSK_STAFF_MODE.
  * 1.31.1 — THE CARD DISPENSER IS ALREADY CONNECTED WHEN YOU TAP GAME ZONE
  *         (owner 2026-09-01: "we often click game zone and have to wait for
  *         this to connect"). The CRT-591 connection was only ever created when
@@ -1175,7 +1189,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.31.1";
+export const KIOSK_VERSION = "1.32.0";
 
 let bootVersion: string | null = null;
 let captured = false;

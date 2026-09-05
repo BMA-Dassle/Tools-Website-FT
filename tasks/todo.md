@@ -1,5 +1,55 @@
 # Open Tasks
 
+## Kiosk staff mode — staff card → Membership / Comp / Race history on Your Crew (2026-09-04) — branch `feat/kiosk-staff-mode` — BUILT 2026-09-04, not committed, not live-verified
+
+Owner: a staff Intercard card scanned on /kiosk/racers shows staff buttons on every person card
+(Add membership, Add comp, Race history) for 10 s past the last touch, plus Staff logout. Mockup
+approved 2026-09-04 (reason = free text, everything else as drawn). Built GENERAL: a kiosk-wide
+staff-mode store + a `StaffModeSurface` any page can mount; the crew page is the first surface.
+
+- [x] `staff-mode/store.ts` — module store (useSyncExternalStore): employee + signed token + lastTouchAt
+      + open sheet; document pointerdown/keydown (capture) re-arm; 10 s idle → off; paused while a sheet
+      is open; `end()` on logout / crew teardown. Never persisted.
+- [x] `staff-mode/staff-card.ts` — pure: is this scan an Intercard card (reuses classifyKioskCode)?
+- [x] `useLicenseScan.onUnrecognised` — the people steps hand card-shaped scans to the staff gate
+      (the port owner on the crew page is the people step; nothing new opens the port).
+- [x] `POST /api/kiosk/staff-card` — rate-limited; resolves the card through the owner's Pandora
+      endpoint (`staff-card.server.ts`, contract ASSUMED until the owner sends it — env-pathed,
+      fails closed = no staff mode); mints a short-lived HMAC staff token carrying the employee.
+- [x] `POST /api/kiosk/staff-actions` — `x-kiosk-staff-token` gate; `membership` (Pandora
+      addMembership, per-client-key kind catalogue, default term 1 yr licence / 99 yr others) and
+      `comp` (Pandora addDeposit, deposit-kind catalogue, qty, free-text reason). PERSIST-FIRST:
+      every write lands in Neon `kiosk_staff_actions` (employee, person, kind, dates, reason,
+      kiosk) before the Pandora call; outcome recorded after.
+- [x] `GET /api/kiosk/staff-actions?action=account` — memberships (raw, with stops) + deposit
+      balances for the Race history sheet. Heats: NOT connected (no per-person source exists).
+- [x] UI: `StaffBar` (identity, idle ring, Staff logout), `StaffPersonActions` (registry-driven chip
+      row on each roster card — KioskPeopleStep + KioskPartyManager), `AddMembershipSheet`,
+      `AddCompSheet`, `RaceHistorySheet`. Staff surface → hardcoded English (i18n exempt).
+- [x] Crew page mounts `StaffModeSurface` + `StaffBar`; teardown ends staff mode.
+- [x] Catalogues `membership-kinds.ts` / `comp-kinds.ts` — ids known today only: License Fee
+      11260957, Employee Pass 12754847, Qualified Intermediate 12213012 (FM); Race Comp 11260967,
+      Headsock 48069703. Unknown ids render the chip disabled ("id not configured") — never guess.
+- [x] Kiosk 1.32.0 + changelog; vitest for store/catalogue/card-shape/token; tsc + eslint clean.
+
+Review (2026-09-04, evening): 17 new files under `apps/web/src/features/kiosk/staff-mode/` + two routes;
+edits to useLicenseScan (onUnrecognised), KioskPeopleStep + KioskPartyManager (gate + action row),
+KioskCrewFlow (surface + bar + teardown), lookup.server (`lookupPersonByCard` — Office token search
+confirmed against the person's `kind: 2` Intercard tags), bmi-office-actions (`fetchOfficeRaceHistory`
+= `personStats/races`), flags, version 1.32.0. Card resolve is the owner's two-step contract: Office
+person-by-card, then Pandora `GET …/bmi/staff-roles/{location}/{personId}`; ONLY a group containing
+"Manager" opens the menu (owner), other staff get a named "needs a Manager role" notice. Catalogue ids
+filled from the owner's Office screenshots (memberships: License 11260957, Qual Int 12213012, Qual Pro
+12744844, Qual Jr Int 12757067, Qual Jr Pro 15175025, Age Override 60303930, Employee Pass 12754847;
+comps: Race Comp 11260967, Nexus Gel 24216636, Nexus Laser 306564, Headsock 48069703, Viewpoint/POV
+46322806). Race history is REAL: every finished heat, best per track, earned pace, closest climb to the
+next level (racing/qualify cutoffs). Gates: vitest 31 new green, tsc 0 errors in touched files (47
+pre-existing e2e/@auth errors in this checkout are unrelated), eslint 0 errors / 0 new warnings, prettier.
+
+STILL OWED: live smoke on a Fort Myers kiosk — manager card → bar; non-manager card → named notice;
+add a membership + a comp to a test person; open Race history on a racer; check `kiosk_staff_actions`
+rows. Naples deliberately skipped (owner 2026-09-04) — its chips stay disabled until ids are wanted.
+staff-roles URL is `…azurewebsites.net/api/v2/bmi/staff-roles/{location}/{personId}` (owner-confirmed).
 ## Pit staff rotation: employee ID on the briefing prompt (2026-09-03)
 
 Owner: staff rotate through the pit, one person follows a group. The briefing tablet's

@@ -188,7 +188,7 @@ interface OfficePerson {
   name?: string;
   birthDate?: string | null;
   lastLineUp?: string | null;
-  tags?: Array<{ tag?: string; lastSeen?: string }>;
+  tags?: Array<{ tag?: string; lastSeen?: string; kind?: number }>;
   memberships?: Array<{ name: string; stops?: string | null }>;
   addresses?: Array<{ email?: string; mobile?: string | null; phone?: string | null }>;
 }
@@ -411,3 +411,60 @@ export async function warmLicenseLookup(location?: string): Promise<void> {
 }
 
 export { OfficeApiError };
+
+export interface CardPersonHit {
+  /** Office person id — raw digit string (17 digits on modern records). */
+  personId: string;
+  firstName: string;
+  lastName: string;
+}
+
+/**
+ * The Office person whose CARD this is — the staff-card gate's first step
+ * (owner 2026-09-04: "use the office api to find person by crewcard").
+ *
+ * An Intercard account rides the person record as a TAG, and the Office token
+ * search resolves tags the same way it resolves login codes — so this is the
+ * member-QR rail pointed at a card number. The hit is CONFIRMED against the
+ * person detail (a tag equal to the account) before it counts: the token search
+ * is a substring oracle and a bare digit run must not sign a look-alike in.
+ * Exactly one confirmed person → the hit; zero or several → null (a shared
+ * card is not an identity).
+ *
+ * Throws only when the search itself is unavailable (OfficeApiError) so the
+ * caller can say "couldn't check" rather than "not staff".
+ */
+export async function lookupPersonByCard(
+  account: string,
+  location?: string,
+): Promise<CardPersonHit | null> {
+  if (!/^\d{1,20}$/.test(account)) return null;
+  const clientKey = clientKeyForLookup(location);
+  const hits = await officeSearchPerson(account, clientKey);
+  if (hits.length === 0) return null;
+  const details = await Promise.all(
+    hits.slice(0, MAX_CANDIDATES).map(async (h) => {
+      const office = await fetchPersonRaw<OfficePerson>(clientKey, h.localId).catch(() => null);
+      if (!office) return null;
+      // Intercard cards are `kind: 2` tags on the person (live record
+      // 2026-09-04: two cards, both kind 2; the login code is kind 9 and a uuid
+      // kind 10). Match the card number AND the kind, so a login code that
+      // happens to be all digits can never pass as a card.
+      const tagged = (office.tags || []).some(
+        (t) =>
+          typeof t?.tag === "string" &&
+          (t.kind === undefined || t.kind === 2) &&
+          t.tag.replace(/^0+/, "") === account,
+      );
+      return tagged ? { hit: h, office } : null;
+    }),
+  );
+  const confirmed = details.filter((d): d is NonNullable<typeof d> => d !== null);
+  if (confirmed.length !== 1) return null;
+  const { hit, office } = confirmed[0];
+  return {
+    personId: hit.localId,
+    firstName: String(office.firstName ?? "").trim(),
+    lastName: String(office.name ?? "").trim(),
+  };
+}
