@@ -28,6 +28,7 @@ import { povEn, povEs } from "./parts/pov";
 import { addonsEn, addonsEs } from "./parts/addons";
 import { racesimEn, racesimEs } from "./parts/racesim";
 import { crewEn, crewEs } from "./parts/crew";
+import { racehistoryEn, racehistoryEs } from "./parts/racehistory";
 import { nflEn, nflEs } from "./parts/nfl";
 import { foodEn, foodEs } from "./parts/food";
 import type { KioskLocale } from "../locales";
@@ -51,6 +52,7 @@ const EN = {
   ...addonsEn,
   ...racesimEn,
   ...crewEn,
+  ...racehistoryEn,
   ...nflEn,
   ...foodEn,
 };
@@ -74,6 +76,7 @@ const ES = {
   ...addonsEs,
   ...racesimEs,
   ...crewEs,
+  ...racehistoryEs,
   ...nflEs,
   ...foodEs,
 };

@@ -58,6 +58,8 @@ import { closeMobileJoin } from "../join/kiosk-client";
 import { resetToKiosk } from "../version";
 import { useT } from "../i18n";
 import { StaffBar, StaffModeSurface, endStaffMode } from "../staff-mode";
+import type { StaffLocation } from "../staff-mode/types";
+import { GuestRaceHistorySurface } from "../race-history/GuestRaceHistory";
 
 // Same patience as the waiver flow / race-info: guests stand and work through
 // waivers here; the watchdog pauses while a photo/signature is mid-flight.
@@ -159,6 +161,19 @@ function CrewInner({ config }: { config: KioskConfig }) {
     router.push("/kiosk/flow");
   };
 
+  // Staff surface (staff-mode/): a manager's Intercard card scanned here arms
+  // Membership / Comp / Race history on every roster card. Center first —
+  // Naples writes to the Naples Pandora location regardless of brand.
+  const staffLocation: StaffLocation =
+    config.center === "naples" ? "naples" : config.brand === "headpinz" ? "headpinz" : "fasttrax";
+
+  // Guest race history (owner 2026-09-05): providing this surface is what puts
+  // the "My race history" button on every signed-in roster card — the crew page
+  // is the only surface that opts in (the booking wizard stays focused on
+  // building the party). Same location rule as the staff surface above.
+  // ABOVE the hydration gate: hooks must run in the same order every render.
+  const raceHistorySurface = useMemo(() => ({ location: staffLocation }), [staffLocation]);
+
   // Gate the body on reducer hydration (H4): the hook won't WRITE before
   // hydrated, and this keeps a fast tapper from dispatching against the
   // pre-restore fallback either.
@@ -169,12 +184,6 @@ function CrewInner({ config }: { config: KioskConfig }) {
       </div>
     );
   }
-
-  // Staff surface (staff-mode/): a manager's Intercard card scanned here arms
-  // Membership / Comp / Race history on every roster card. Center first —
-  // Naples writes to the Naples Pandora location regardless of brand.
-  const staffLocation =
-    config.center === "naples" ? "naples" : config.brand === "headpinz" ? "headpinz" : "fasttrax";
 
   return (
     <StaffModeSurface location={staffLocation}>
@@ -224,13 +233,15 @@ function CrewInner({ config }: { config: KioskConfig }) {
           <p className="mb-[28px] max-w-[44ch] text-[28px] leading-snug text-white/55">
             {t("crew.subtitle")}
           </p>
-          <PeopleScreens
-            item={item}
-            session={session}
-            onChange={(patch) => setItem((prev) => ({ ...prev, ...patch }))}
-            dispatch={dispatch}
-            setBusy={setPartyBusy}
-          />
+          <GuestRaceHistorySurface.Provider value={raceHistorySurface}>
+            <PeopleScreens
+              item={item}
+              session={session}
+              onChange={(patch) => setItem((prev) => ({ ...prev, ...patch }))}
+              dispatch={dispatch}
+              setBusy={setPartyBusy}
+            />
+          </GuestRaceHistorySurface.Provider>
         </div>
 
         {/* Actions — no cart pill, no prices; that's the point of this page. */}
