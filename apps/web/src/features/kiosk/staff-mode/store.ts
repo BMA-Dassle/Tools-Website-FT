@@ -54,6 +54,13 @@ const INACTIVE: StaffState = {
 };
 
 let state: StaffState = INACTIVE;
+/** Side modules (local-status cache) register here to reset with staff mode —
+ *  the store must not import them, or the two would import each other. */
+const onEndHooks = new Set<() => void>();
+export function onStaffModeEnd(fn: () => void): () => void {
+  onEndHooks.add(fn);
+  return () => void onEndHooks.delete(fn);
+}
 const listeners = new Set<() => void>();
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -117,10 +124,12 @@ export function touchStaffMode(): void {
   armIdleTimer();
 }
 
-/** Staff logout / idle expiry / page teardown. Idempotent. */
+/** Staff logout / idle expiry / page teardown. Idempotent. Also drops the
+ *  per-person on-site answers (local-status.ts) — the next manager re-asks. */
 export function endStaffMode(): void {
   clearIdleTimer();
   stopListening();
+  onEndHooks.forEach((fn) => fn());
   if (state.employee || state.sheet || state.token) {
     set({ employee: null, token: "", lastTouchAt: 0, sheet: null });
   }

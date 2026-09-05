@@ -15,6 +15,16 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.32.1 — STAFF CHIPS GREY UNTIL THE GUEST IS ON-SITE (owner 2026-09-04: "just
+ *         disable the buttons if it's not local yet"). Pandora writes land on the
+ *         center's LOCAL server; a guest created cloud-side (web booking, desk)
+ *         is not there until BMI's sync carries them down, and a membership or
+ *         comp posted before that would 404. Each roster card now asks
+ *         /api/kiosk/staff-actions?action=local (the sync queue's own
+ *         person-local probe) and keeps Membership / Comp disabled with "Not on
+ *         the on-site server yet — tap to re-check" until it answers yes; Race
+ *         history reads the cloud and stays live. The server refuses the same
+ *         write for the same reason, so the chip and the route can't disagree.
  * 1.32.0 — STAFF MODE ON YOUR CREW (owner 2026-09-04). A MANAGER's Intercard
  *         card scanned on /kiosk/racers arms staff-only actions on every roster
  *         card — Add membership (kind chips, start/end dates; License defaults
@@ -1189,7 +1199,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.32.0";
+export const KIOSK_VERSION = "1.32.1";
 
 let bootVersion: string | null = null;
 let captured = false;

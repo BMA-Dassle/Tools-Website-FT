@@ -8,6 +8,7 @@ import {
   fetchOfficeRaceHistory,
 } from "@/lib/bmi-office-actions";
 import { hasActiveLicenseMembership } from "~/features/booking/service/license";
+import { personLocalBarrier } from "@/lib/bmi-sync-barriers";
 import {
   MAX_COMP_QTY,
   MAX_TERM_YEARS,
@@ -45,6 +46,15 @@ import {
  * the Office id is the fallback. Office READS (the account view) use the Office
  * id. Both are raw digit strings end-to-end.
  *
+ * ON-SITE FIRST (owner 2026-09-04: "just disable the buttons if it's not local
+ * yet"). Pandora writes land on the center's LOCAL server, and a person created
+ * cloud-side (web booking, Office desk) is not there until BMI's sync carries
+ * them down. `isPersonLocal` is the one probe — the sync queue's own
+ * `personLocalBarrier` (404 = not here yet, anything else = present) — used by
+ * the kiosk to grey the Membership / Comp chips AND by both writes below to
+ * refuse rather than fail against a person who is not local. No queueing: the
+ * chips come back on their own once the sync lands and the kiosk re-checks.
+ *
  * READS: the account view is Office person (memberships, raw, with dates) +
  * Office deposit history (balances) + Office `personStats/races` (every
  * finished heat, owner 2026-09-04) shaped by race-history.ts into rows, a best
@@ -69,6 +79,41 @@ function pandoraLocationId(location: StaffLocation): string {
 
 function writeId(p: PersonRef): string {
   return p.pandoraPersonId || p.personId;
+}
+
+export interface PersonLocalStatus {
+  /** true = on the local server; false = not yet (404); null = could not tell
+   *  (vendor unreachable / errored) — the kiosk treats null as "not yet" and
+   *  offers a re-check. */
+  local: boolean | null;
+  detail: string;
+}
+
+export async function isPersonLocal(
+  personId: string,
+  location: StaffLocation,
+): Promise<PersonLocalStatus> {
+  // diagnoseElsewhere off: a staff chip does not need the other-center hunt
+  // the sync queue does before parking a row; it just needs yes / not yet.
+  const r = await personLocalBarrier(pandoraLocationId(location), personId, {
+    diagnoseElsewhere: false,
+  });
+  if (r.verdict === "open") return { local: true, detail: r.detail };
+  if (r.verdict === "closed" || r.verdict === "impossible") {
+    return { local: false, detail: r.detail };
+  }
+  return { local: null, detail: r.detail };
+}
+
+/** Refuse a write against a person who is not on the local server yet. */
+async function assertLocal(p: PersonRef, location: StaffLocation): Promise<void> {
+  const status = await isPersonLocal(writeId(p), location);
+  if (status.local === true) return;
+  throw new Error(
+    status.local === false
+      ? "This guest hasn't reached the on-site server yet — try again in a few minutes"
+      : `Couldn't confirm the guest is on the on-site server (${status.detail})`,
+  );
 }
 
 export interface StaffMembershipInput extends PersonRef {
@@ -98,6 +143,7 @@ export async function grantStaffMembership(
   if (ends > addYears(starts, MAX_TERM_YEARS)) {
     throw new Error(`Term is longer than ${MAX_TERM_YEARS} years`);
   }
+  await assertLocal(input, ctx.location);
 
   const rowId = await recordStaffActionPending({
     kioskId: ctx.kioskId,
@@ -156,6 +202,7 @@ export async function grantStaffComp(
     throw new Error(`Quantity must be between 1 and ${MAX_COMP_QTY}`);
   }
   const reason = input.reason?.trim() || null;
+  await assertLocal(input, ctx.location);
 
   const rowId = await recordStaffActionPending({
     kioskId: ctx.kioskId,

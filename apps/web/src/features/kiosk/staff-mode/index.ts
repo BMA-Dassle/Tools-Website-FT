@@ -19,4 +19,5 @@ export {
   useStaffMode,
 } from "./store";
 export { staffCardAccountFromScan, cardTail } from "./staff-card";
+export { usePersonLocal, staffActionEnabled, type LocalStatus } from "./local-status";
 export type { StaffEmployee, StaffLocation, StaffTarget, StaffSheetKind } from "./types";

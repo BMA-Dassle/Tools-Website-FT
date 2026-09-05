@@ -111,3 +111,23 @@ export async function fetchStaffAccount(
     return { error: "Couldn't reach the server" };
   }
 }
+
+/** Is this person on the on-site server yet? null = couldn't tell (fail closed). */
+export async function fetchPersonLocal(
+  token: string,
+  personId: string,
+  location: StaffLocation,
+): Promise<boolean | null> {
+  try {
+    const qs = new URLSearchParams({ action: "local", personId, location });
+    const res = await fetch(`/api/kiosk/staff-actions?${qs}`, {
+      headers: { "x-kiosk-staff-token": token },
+      cache: "no-store",
+    });
+    const data = (await res.json().catch(() => null)) as { local?: boolean | null } | null;
+    if (!res.ok || !data || typeof data.local !== "boolean") return null;
+    return data.local;
+  } catch {
+    return null;
+  }
+}

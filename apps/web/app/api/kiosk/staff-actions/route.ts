@@ -4,6 +4,7 @@ import { verifyStaffToken } from "~/features/kiosk/staff-mode/staff-token.server
 import {
   grantStaffComp,
   grantStaffMembership,
+  isPersonLocal,
   readStaffAccount,
 } from "~/features/kiosk/staff-mode/service.server";
 import { MAX_COMP_QTY } from "~/features/kiosk/staff-mode/catalog";
@@ -23,6 +24,8 @@ export const dynamic = "force-dynamic";
  *
  * GET  ?action=account&personId=&location=  → memberships + credit balances +
  *                                            every finished heat (Office personStats/races)
+ *      ?action=local&personId=&location=    → { local: true|false|null } — is this person on
+ *                                            the on-site server yet? Greys Membership / Comp.
  * POST { action:"membership", personId, pandoraPersonId?, personName?, kindKey,
  *        activates?, expires, location, kioskId? }
  *      { action:"comp", personId, pandoraPersonId?, personName?, kindKey, qty,
@@ -66,7 +69,8 @@ export async function GET(req: NextRequest) {
   const employee = employeeFrom(req);
   if (!employee) return NextResponse.json({ error: "Staff token required" }, { status: 401 });
   const { searchParams } = new URL(req.url);
-  if (searchParams.get("action") !== "account") {
+  const action = searchParams.get("action");
+  if (action !== "account" && action !== "local") {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
   const personId = searchParams.get("personId") || "";
@@ -75,6 +79,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "personId + location required" }, { status: 400 });
   }
   try {
+    if (action === "local") {
+      const status = await isPersonLocal(personId, location.data);
+      return NextResponse.json(status);
+    }
     const account = await readStaffAccount(personId, location.data);
     return NextResponse.json({ account });
   } catch (err) {

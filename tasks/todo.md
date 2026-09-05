@@ -46,6 +46,12 @@ comps: Race Comp 11260967, Nexus Gel 24216636, Nexus Laser 306564, Headsock 4806
 next level (racing/qualify cutoffs). Gates: vitest 31 new green, tsc 0 errors in touched files (47
 pre-existing e2e/@auth errors in this checkout are unrelated), eslint 0 errors / 0 new warnings, prettier.
 
+1.32.1 (2026-09-04): Membership / Comp chips are DISABLED until the guest is on the on-site server
+(owner: "just disable the buttons if it's not local yet" — no queueing). `?action=local` on the
+staff-actions route runs the sync queue's `personLocalBarrier` probe; `local-status.ts` caches the
+answer 60 s per person with a tap-to-re-check hint; the server refuses the same write for the same
+reason. Race history (cloud read) stays live.
+
 STILL OWED: live smoke on a Fort Myers kiosk — manager card → bar; non-manager card → named notice;
 add a membership + a comp to a test person; open Race history on a racer; check `kiosk_staff_actions`
 rows. Naples deliberately skipped (owner 2026-09-04) — its chips stay disabled until ids are wanted.
