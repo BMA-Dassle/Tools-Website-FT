@@ -3,12 +3,12 @@ import { verifyCron } from "@/lib/cron-auth";
 import {
   listDueSyncRows,
   listParkedSyncRows,
+  listStuckSyncRows,
   markSyncDone,
   markSyncRetry,
   lapseSyncRow,
   parkSyncRow,
   syncQueueCounts,
-  type SyncQueueRow,
 } from "@/lib/bmi-sync-queue";
 import { probeBarrier } from "@/lib/bmi-sync-probe";
 import { lapseVerdict } from "@/lib/bmi-sync-lapse";
@@ -256,12 +256,24 @@ export async function GET(req: NextRequest) {
 
   // ALWAYS report parked rows — including on an idle run.
   const parked = await listParkedSyncRows(25);
+  /**
+   * ...and rows that are still TRYING but have been trying too long.
+   *
+   * Parked-row reporting exists so a give-up can never read as success. It stopped
+   * being sufficient on 2026-09-05, when `push-waiver-signature` and
+   * `add-membership` became kinds that never give up: they can now be owed
+   * indefinitely without ever becoming parked, so "parkedTotal=0" no longer means
+   * "nothing needs a human". The only thing that caught a queue problem that day
+   * was the owner reading the board by eye.
+   */
+  const stuck = await listStuckSyncRows(25);
   const summary = await syncQueueCounts();
 
   console.log(
     `[bmi-sync-queue] dryRun=${dryRun} due=${counts.due} ran=${counts.ran} done=${counts.done} ` +
       `waiting=${counts.waiting} retry=${counts.retry} parked=${counts.parked} ` +
-      `deferred=${counts.deferred} parkedTotal=${parked.length} elapsedMs=${Date.now() - started}`,
+      `deferred=${counts.deferred} parkedTotal=${parked.length} stuckTotal=${stuck.length} ` +
+      `elapsedMs=${Date.now() - started}`,
   );
   if (parked.length > 0) {
     console.error(
@@ -269,6 +281,21 @@ export async function GET(req: NextRequest) {
         parked
           .slice(0, 10)
           .map((p) => `#${p.id} ${p.kind} ref=${p.barrierRef ?? "-"} — ${p.lastError ?? "?"}`)
+          .join(" | "),
+    );
+  }
+  if (stuck.length > 0) {
+    // Age is the whole point of this line — "still pending" is not news, "still
+    // pending after four hours" is — so lead with it.
+    console.error(
+      `[bmi-sync-queue] STUCK (still trying, well past normal): ` +
+        stuck
+          .slice(0, 10)
+          .map(
+            (s) =>
+              `#${s.id} ${s.kind} ${Math.round((Date.now() - Date.parse(s.createdAt)) / 60_000)}m ` +
+              `barrier=${s.barrier} ref=${s.barrierRef ?? "-"} — ${s.lastError ?? "?"}`,
+          )
           .join(" | "),
     );
   }
@@ -284,6 +311,15 @@ export async function GET(req: NextRequest) {
       barrierRef: p.barrierRef,
       attempts: p.attempts,
       lastError: p.lastError,
+    })),
+    stuck: stuck.map((s) => ({
+      id: s.id,
+      kind: s.kind,
+      barrier: s.barrier,
+      barrierRef: s.barrierRef,
+      ageMin: Math.round((Date.now() - Date.parse(s.createdAt)) / 60_000),
+      attempts: s.attempts,
+      lastError: s.lastError,
     })),
     summary,
     outcomes,

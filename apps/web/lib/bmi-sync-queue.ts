@@ -187,6 +187,49 @@ export const CLOCK_GIVE_UP: Record<SyncKind, boolean> = {
   "stamp-confirmation-state": true,
 };
 
+/**
+ * WHEN A STILL-PENDING ROW BECOMES AN ALARM.
+ *
+ * Distinct from `GIVE_UP_MINUTES`, and the distinction is the point. Give-up is
+ * when we stop trying; this is when a human should LOOK — long before that, and
+ * (for the never-give-up kinds) at a moment that otherwise never comes at all. A
+ * `push-waiver-signature` row now retries indefinitely by design, so without this
+ * it could sit owed forever and nothing would ever say so.
+ *
+ * Calibrated from what the table actually did, not from taste — measured over its
+ * whole life on 2026-09-05, p95 of rows that LANDED:
+ *
+ *   add-membership            p50 1.3m   p95 5.3m    → 240
+ *   push-waiver-signature     p50 4.4m   p95 35.4m   →  90
+ *   stamp-confirmation-state  p50 2.5m   p95 96.5m   → 240
+ *   repair-person-details     p50 0.5m   (n=4)       →  90
+ *
+ * `add-membership` gets far more headroom than its p95 suggests on purpose: 62 of
+ * its 84 slow rows were created between 10am and noon ET and legitimately waited
+ * 2-4 hours with ZERO failed attempts, because a guest who books in the morning is
+ * not on the local server until much later. Those are not stuck; alarming on them
+ * would teach everyone to ignore the alarm, which is the failure mode this whole
+ * mechanism exists to avoid.
+ *
+ * EVERY THRESHOLD MUST SIT BELOW ITS KIND'S `GIVE_UP_MINUTES`, or for a kind that
+ * parks on the clock the row is already parked — and reported by the parked list —
+ * before the alarm could ever fire, making it dead code exactly where it is needed.
+ * That ordering is pinned by test, and it is what caps the two booking followups at
+ * 90: both give up at 120. `repair-person-details` also has no usable distribution
+ * to calibrate against (4 landed rows, and its 303-minute tail is an artifact of
+ * the 2026-08-13 manual re-drive re-basing `give_up_at`, not of normal behaviour),
+ * so the give-up deadline is the only honest anchor it has.
+ *
+ * `attach-project-person` has no landed rows at all and inherits the same shape.
+ */
+export const STUCK_AFTER_MINUTES: Record<SyncKind, number> = {
+  "repair-person-details": 90,
+  "push-waiver-signature": 90,
+  "add-membership": 240,
+  "attach-project-person": 90,
+  "stamp-confirmation-state": 240,
+};
+
 /** Escalating backoff, capped: 30s × attempt, max 10 min. The first check is
  *  ~30s because a cloud→local PERSON lands in ~19-32s (measured 2026-08-12).
  *
@@ -626,6 +669,48 @@ export async function listParkedSyncRows(limit = 50): Promise<SyncQueueRow[]> {
     SELECT * FROM bmi_sync_queue
     WHERE status = 'parked'
     ORDER BY resolved_at DESC NULLS LAST
+    LIMIT ${limit}
+  `) as Array<Record<string, unknown>>;
+  return rows.map(mapRow);
+}
+
+/**
+ * Rows that are still TRYING but have been trying too long — see
+ * `STUCK_AFTER_MINUTES`.
+ *
+ * The gap this closes: `listParkedSyncRows` reports work that has STOPPED, and
+ * that report is why a give-up can never read as success. But a row that is still
+ * pending is invisible no matter how long it sits, and after the 2026-09-05 change
+ * two kinds never stop at all — so "nothing is parked" stopped meaning "nothing
+ * needs a human". On 2026-09-05 the only thing that noticed a queue problem was
+ * the owner reading the board by eye.
+ *
+ * Deliberately a plain threshold per kind rather than anything cleverer: an alarm
+ * nobody can explain is an alarm nobody trusts. The thresholds come from measured
+ * p95s, so a row here is genuinely outside how this kind normally behaves.
+ */
+export async function listStuckSyncRows(limit = 50): Promise<SyncQueueRow[]> {
+  if (!isDbConfigured()) return [];
+  await ensureSchema();
+  const q = sql();
+  /**
+   * The per-kind threshold rides IN the query as a VALUES join rather than being
+   * filtered in JS: the pending set is unbounded in principle, and pulling it all
+   * back to compare timestamps would make the alarm the most expensive read in the
+   * cron. Kinds absent from the map simply never match, which is the safe default
+   * for a kind nobody has calibrated yet.
+   */
+  const thresholds = Object.entries(STUCK_AFTER_MINUTES);
+  const rows = (await q`
+    SELECT z.* FROM bmi_sync_queue z
+    JOIN (SELECT * FROM unnest(
+            ${thresholds.map(([k]) => k)}::text[],
+            ${thresholds.map(([, m]) => m)}::int[]
+          ) AS t(kind, mins)) t
+      ON t.kind = z.kind
+    WHERE z.status = 'pending'
+      AND z.created_at < now() - (t.mins * INTERVAL '1 minute')
+    ORDER BY z.created_at ASC
     LIMIT ${limit}
   `) as Array<Record<string, unknown>>;
   return rows.map(mapRow);
