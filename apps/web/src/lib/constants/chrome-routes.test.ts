@@ -22,6 +22,8 @@ describe("isChromeFreePath", () => {
       "/passes/abc",
       "/kiosk",
       "/kiosk/waiver",
+      "/kart",
+      "/kart/15",
     ]) {
       expect(isChromeFreePath(p), p).toBe(true);
     }
@@ -36,6 +38,10 @@ describe("isChromeFreePath", () => {
       "/reload",
       "/cards",
       "/racer",
+      // A finished race report is a page someone lands on from a text and may
+      // want to book from — it KEEPS the nav, unlike the live /kart screens.
+      "/race/58691643",
+      "/race/58691643/15",
       "/waiver-3",
       "/book",
       "/book/race",
@@ -52,6 +58,10 @@ describe("isChromeFreePath", () => {
     expect(isChromeFreePath("/rewards")).toBe(false);
     expect(isChromeFreePath("/waiver-3")).toBe(false);
     expect(isChromeFreePath("/joinery")).toBe(false);
+    // startsWith("/kart") must not swallow the report routes, and a bare
+    // startsWith("/ka") would eat nothing today but is the same trap.
+    expect(isChromeFreePath("/karting")).toBe(false);
+    expect(isChromeFreePath("/race/1/2")).toBe(false);
   });
 });
 

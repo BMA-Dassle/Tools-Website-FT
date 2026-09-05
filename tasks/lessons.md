@@ -1,5 +1,40 @@
 # Lessons Learned
 
+## `moduleResolution: "bundler"` lets an extensionless import through, and Node ESM crash-loops on it (2026-09-05)
+
+**What happened:** a new file in `kart-timing-bridge/` was imported as
+`import { parseVenueJson } from "./raw-ids"`. It typechecked, it built, it merged, and
+Railway crash-looped the container from 04:50 EDT with
+`ERR_MODULE_NOT_FOUND: /app/dist/raw-ids`. The kart bridge was **down** for that window:
+no race clocks, no fast-path finish capture, no driver-view ingest.
+
+**Root cause:** the bridges are `"type": "module"` with
+`"moduleResolution": "bundler"`. Bundler mode accepts an extensionless relative
+specifier and emits it **verbatim** — on the assumption something will bundle it. Nothing
+does: Railway runs `node dist/index.js`, and Node's ESM resolver requires the extension.
+TypeScript resolves `./raw-ids.js` back to `./raw-ids.ts`, so writing the extension is
+always correct and never costs anything.
+
+**Why the gates missed it:** `tsc --noEmit` passed, the build passed, and the bridge has
+no tests. **Every check that ran was a compile-time check on a runtime-only failure.**
+The build and the start command use different module resolvers over the same source, and
+nothing in CI exercised the second one.
+
+**The rules:**
+
+1. **Every relative import in `kart-timing-bridge/` and `vt3-bridge/` ends in `.js`.**
+   There was no local example to copy in `index.ts` (only bare-package imports) — that
+   absence should itself have prompted a check rather than a guess.
+2. **When you cannot run a deployed service locally, verify the EMITTED artefact, not the
+   source.** Compile to a temp dir, `grep` the import line, `test -f` the file it names.
+   Ten seconds, and it catches this outright.
+3. **Ask what the START COMMAND does that the build does not.** Here: `node dist/…`
+   applies Node's resolver, `tsc` applies TypeScript's. Any gap between those two is
+   invisible to every gate we run.
+4. **Do not "just boot it to check."** Starting the kart bridge from a dev machine opens a
+   second connection to the venue socket and displaces the live subscribers — which is
+   precisely why static verification of the artefact matters more here than elsewhere.
+
 ## A `fixed` overlay inside a `.k-glass` card is not full-screen — `backdrop-filter` makes the card its containing block (2026-09-05)
 
 **What happened:** the new guest "My race history" sheet opened *inside* the roster card

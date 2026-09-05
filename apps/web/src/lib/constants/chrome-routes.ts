@@ -71,6 +71,14 @@ export function isChromeFreePath(pathname: string): boolean {
     // chrome, and a shared public device that also drops the mini-carts.
     p === "/kiosk" ||
     p.startsWith("/kiosk/") ||
+    // Live driver view — a full-bleed pit board a racer reads at a glance, and
+    // later a panel bolted to the kart itself. The fixed site nav sat straight
+    // across the kart-number heading and the top row of the keypad (owner
+    // 2026-09-05). Only the LIVE screens: /race/* keeps the nav, because a
+    // finished race report is a page someone lands on from a text and may well
+    // want to book from.
+    p === "/kart" ||
+    p.startsWith("/kart/") ||
     // Wall-mounted lobby TV — a full-bleed 1920×1080 canvas with no input
     // device at all. Nav, footer and any bar are meaningless on it and would
     // simply cover the picture.
