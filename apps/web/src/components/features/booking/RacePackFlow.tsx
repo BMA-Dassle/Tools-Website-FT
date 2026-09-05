@@ -10,6 +10,7 @@ import {
   type RacePack,
 } from "~/features/booking/data/packs";
 import { webPackSkus } from "~/features/booking/service/race-pack-kiosk";
+import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
 
 /**
  * v2 race-pack purchase — `/book/race-pack/v2`.
@@ -154,9 +155,7 @@ export function RacePackFlow() {
           } catch {
             /* deposits are best-effort */
           }
-          const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-            (b.lastSeen || "").localeCompare(a.lastSeen || ""),
-          );
+          const tags = (p.tags || []) as Array<{ tag?: string; lastSeen?: string; kind?: number }>;
           return {
             personId: String(p.id),
             fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
@@ -168,7 +167,9 @@ export function RacePackFlow() {
                   year: "numeric",
                 })
               : "",
-            loginCode: tags[0]?.tag || "",
+            // Kind-9 login code / app-QR UUID only — never the most-recent raw
+            // tag, which can be an Intercard card number (2026-09-05).
+            loginCode: pickPublishableLoginCode(tags),
             races: tags.length,
             memberships,
             creditBalances,

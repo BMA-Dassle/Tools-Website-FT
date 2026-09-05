@@ -41,6 +41,66 @@ export const RACER_LOGIN_CODE_RE = /^[A-Za-z0-9]{6,32}$/;
  */
 export const RACER_PUBLIC_CODE_RE = /^(?:[A-Za-z0-9]{13,32}|[0-9a-f][0-9a-f-]{15,63})$/i;
 
+/** A person tag as the Office API returns it — the minimal slice every
+ *  `person.tags[]` reader actually uses. */
+export interface PersonTagLike {
+  tag?: string | null;
+  lastSeen?: string | null;
+  kind?: number | null;
+}
+
+/** The canonical racing login code: 13 chars, letters and digits mixed. The
+ *  letter requirement is load-bearing — a 13-digit run could be an Intercard
+ *  card number, and no login code observed is all digits. */
+const LOGIN_CODE_SHAPE = /^(?=.*[A-Za-z])[A-Za-z0-9]{13}$/;
+/** The SMS-Timing app's personal QR (a UUID). */
+const APP_QR_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The login code to PUBLISH for a person, from their tags[].
+ *
+ * NOT `tags[0]`. A person's tags are not all login codes — measured live
+ * 2026-09-05 across ~70 records, `kind` separates them:
+ *
+ *   9  = racing login code (13-char alnum)  ← the only thing we may publish
+ *   10 = SMS-Timing app QR (UUID)           ← publishable fallback
+ *   2  = the guest's Intercard CARD NUMBER  ← never a login code
+ *   5  = legacy 6-digit registration code   ← enumerable, never published
+ *
+ * and every tag's `lastSeen` refreshes when it is USED — including a game-card
+ * or staff-card scan. So "most recently seen tag" is whichever handle the
+ * guest touched last, not their login code: on 2026-09-05 a card scanned on
+ * the crew page put kind-2 `597195` at tags[0], the wallet QR encoded
+ * `/r/597195/wallet`, and the route's shape gate (correctly) bounced every
+ * scan to /book/race. Only racers whose kind-9 tag happened to be newest —
+ * i.e. almost nobody who holds a game card — ever reached their pass.
+ *
+ * Most-recent kind-9 first (so the code stays stable per record), then
+ * most-recent kind-10. `kind` absent (older cached shapes) falls back to the
+ * shape tests. Returns "" when the person has no publishable code at all —
+ * callers must treat that as "no code", never fall back to a raw tag.
+ */
+export function pickPublishableLoginCode(
+  tags: readonly PersonTagLike[] | null | undefined,
+): string {
+  const sorted = [...(tags ?? [])].sort((a, b) =>
+    String(b.lastSeen ?? "").localeCompare(String(a.lastSeen ?? "")),
+  );
+  const first = (ok: (t: PersonTagLike, s: string) => boolean): string => {
+    for (const t of sorted) {
+      const s = String(t.tag ?? "").trim();
+      if (s && ok(t, s)) return s;
+    }
+    return "";
+  };
+  const code =
+    first((t, s) => t.kind === 9 || (t.kind == null && LOGIN_CODE_SHAPE.test(s))) ||
+    first((t, s) => t.kind === 10 || (t.kind == null && APP_QR_SHAPE.test(s)));
+  // Belt and braces: whatever won must still be a shape the published routes
+  // accept — a kind mislabelled upstream must not mint a dead QR.
+  return RACER_PUBLIC_CODE_RE.test(code) ? code : "";
+}
+
 /**
  * One matched account. Mirrors ReturningRacerLookup's FoundAccount (so the
  * existing AccountCard renders it structurally) plus the contact + waiver

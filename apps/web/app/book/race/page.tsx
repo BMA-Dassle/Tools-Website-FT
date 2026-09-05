@@ -84,6 +84,7 @@ import {
   POV_PRICE,
 } from "@/lib/packages";
 import { isMegaDay, megaWindowFor } from "~/features/racing/mega-calendar";
+import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
 import { raceWarningFor, type RaceWarning } from "~/features/booking/service/race-warnings";
 import { RaceWarningModal } from "~/components/features/booking/steps/race/RaceWarningModal";
 import ContactForm from "./components/ContactForm";
@@ -712,9 +713,9 @@ export default function BookRacePage() {
       // Get person details
       const detailRes = await fetch(`/api/bmi-office?action=person&id=${results[0].localId}`);
       const p = await detailRes.json();
-      const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-        (b.lastSeen || "").localeCompare(a.lastSeen || ""),
-      );
+      // Kind-9 login code / app-QR UUID only — never the most-recent raw tag,
+      // which can be an Intercard card number (2026-09-05).
+      const publishableCode = pickPublishableLoginCode(p.tags);
       const memberships = (p.memberships || [])
         .filter(
           (m: { stops: string; name: string }) =>
@@ -741,8 +742,8 @@ export default function BookRacePage() {
         email: p.addresses?.[0]?.email || "",
         races: (p.tags || []).length,
         maxExpiry: null,
-        tag: tags[0]?.tag || "",
-        loginCode: tags[0]?.tag || "",
+        tag: publishableCode,
+        loginCode: publishableCode,
         personReference: "",
         memberships,
         waiverValid,

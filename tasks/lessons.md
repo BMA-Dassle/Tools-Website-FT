@@ -1,5 +1,32 @@
 # Lessons Learned
 
+## `person.tags[]` is a bag of HANDLES, not a list of login codes — and `lastSeen` refreshes on USE (2026-09-05)
+
+**What happened:** the kiosk wallet QR ("Add licence to phone") bounced every racer but
+one to /book/race. Every `tags[0]` reader in the codebase assumed "most-recent tag =
+login code". Live probe over ~70 records: `kind` separates the tag population — 9 = the
+13-char racing login code, 10 = the SMS-Timing app's QR UUID, **2 = the guest's
+Intercard CARD NUMBER**, 5 = a legacy 6-digit registration code — and a tag's
+`lastSeen` refreshes whenever that tag is *used*. Scanning a game card (staff mode,
+Game Zone) therefore put the card number at `tags[0]`, the QR encoded
+`/r/{cardNumber}/wallet`, and the route's anti-enumeration shape gate (correctly)
+bounced it. It "worked for Eric" only because his kind-9 tag happened to be his most
+recently used handle — the classic one-user-works trap.
+
+**The rule:** never publish `tags[0]`. Any code that lands in a URL, a QR, an email or
+a pass barcode goes through `pickPublishableLoginCode` (license/types.ts): most-recent
+kind-9, else most-recent kind-10, else NONE — and "none" must hide the affordance, not
+fall back to a raw tag. Scan/typed-entry trust is different: any tag the guest
+physically presents still proves identity (RACER_LOGIN_CODE_RE), but the code carried
+forward from that sign-in is re-picked from the record. The Neon code cache stores
+every tag a sweep saw (card numbers included), so `codeForPersonId` applies the same
+publishable-only filter.
+
+**How it was proven:** read-only probes against live Office records for each named
+failing racer (`scripts/crew-wallet-code-pick-verify.mts`) — the picked code must
+resolve uniquely to the same personId through the same token search the wallet route
+runs. 16/16 after the fix, including the three named failures and a zero-tag control.
+
 ## "Laggy" was a frame rate, and it sent us hunting through file size, compression and caching for an evening (2026-09-01)
 
 **What happened:** staff reported the front-desk pricing videos as laggy. The obvious

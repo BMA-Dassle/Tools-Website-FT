@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
+import { WALLET_BADGES, BADGE_HEIGHT } from "~/features/game-cards/wallet/badges";
 
 /**
  * "Add licence to phone" — the wallet racing licence, offered on a racer's own
@@ -90,6 +91,23 @@ export default function LicenceWalletChip({
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-[22px] font-semibold leading-tight text-white">{scanHint}</p>
+        {/* The vendors' own badges, INFORMATIONAL — they say where the pass
+            lands, but on a kiosk they must not be tap targets: the pass goes to
+            the phone that scans, never to the shared screen (owner rule
+            2026-08-05). No white plate — both badges are drawn with their own
+            outlines and read straight on a dark panel (see /r/[code]). */}
+        <div className="mt-[12px] flex flex-wrap items-center gap-[12px]">
+          {WALLET_BADGES.map((b) => (
+            // eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte
+            <img
+              key={b.platform}
+              src={b.svg}
+              alt={b.label}
+              width={Math.round(b.width * (34 / BADGE_HEIGHT))}
+              height={34}
+            />
+          ))}
+        </div>
         <button
           type="button"
           onClick={() => setOpen(false)}

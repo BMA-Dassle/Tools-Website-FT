@@ -9,6 +9,7 @@ import PaymentForm from "@/components/square/PaymentForm";
 import type { PaymentResult } from "@/components/square/PaymentForm";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
+import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
 
 // ── Pack catalog ────────────────────────────────────────────────────────────
 
@@ -354,17 +355,16 @@ export default function RacePacksPage() {
               .map((d) => ({ kind: d.depositKind, balance: d.balance }));
           }
         } catch {}
-        const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-          (b.lastSeen || "").localeCompare(a.lastSeen || ""),
-        );
-        const loginCode = tags[0]?.tag || "";
+        // Kind-9 login code / app-QR UUID only — never the most-recent raw tag,
+        // which can be an Intercard card number (2026-09-05).
+        const loginCode = pickPublishableLoginCode(p.tags);
         return {
           personId: String(p.id),
           fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
           email: p.addresses?.[0]?.email || "",
           lastSeen,
           loginCode,
-          races: tags.length,
+          races: (p.tags || []).length,
           memberships,
           creditBalances,
         } as FoundAccount;

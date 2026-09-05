@@ -8,6 +8,7 @@ import {
 import { hasActiveLicenseMembership } from "~/features/booking/service/license";
 import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
 import { rankSearchResults, type SearchCandidate } from "~/features/booking/service/office-search";
+import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
 
 export interface PersonData {
   personId: string;
@@ -145,10 +146,11 @@ async function fetchAccountDetails(
         if (!res.ok) return null;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const p = (await res.json()) as any;
-        const tags = (p.tags || []).sort((a: { lastSeen?: string }, b: { lastSeen?: string }) =>
-          (b.lastSeen || "").localeCompare(a.lastSeen || ""),
-        );
-        const loginCode = tags[0]?.tag || "";
+        // Kind-9 login code / app-QR UUID only — never the most-recent raw tag,
+        // which can be an Intercard card number (2026-09-05). A record with no
+        // publishable code was never a code-holding racer, so dropping it here
+        // keeps the account list to ones the guest can actually sign into.
+        const loginCode = pickPublishableLoginCode(p.tags);
         if (!loginCode) return null;
         const memberships = (p.memberships || [])
           .filter(

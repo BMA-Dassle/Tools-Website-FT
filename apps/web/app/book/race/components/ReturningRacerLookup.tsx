@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { bmiGet, isRelevantMembership } from "../data";
+import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
 
 export interface PersonData {
   personId: string;
@@ -131,10 +132,10 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
       try {
         const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
         const p = await res.json();
-        const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-          (b.lastSeen || "").localeCompare(a.lastSeen || ""),
-        );
-        const loginCode = tags[0]?.tag || "";
+        // Kind-9 login code / app-QR UUID only — the most-recent tag can be an
+        // Intercard card number or a legacy 6-digit code, and both dead-end
+        // every published /r/{code} link (2026-09-05).
+        const loginCode = pickPublishableLoginCode(p.tags);
         const memberships = (p.memberships || [])
           .filter(
             (m: { stops: string; name: string }) =>
@@ -297,14 +298,18 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
         const matchTag = tags.find((t: { tag: string }) => t.tag.toLowerCase() === trimmed);
 
         if (matchTag) {
+          // The TYPED tag proves identity (possession, any shape), but what we
+          // carry forward gets PUBLISHED (/r/{code}, the wallet QR) — so prefer
+          // the record's publishable login code over whatever was typed.
+          const carried = pickPublishableLoginCode(p.tags) || matchTag.tag;
           const person: PersonData = {
             personId: String(p.id),
             fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
             email: p.addresses?.[0]?.email || "",
             races: tags.length,
             maxExpiry: null,
-            tag: matchTag.tag,
-            loginCode: matchTag.tag,
+            tag: carried,
+            loginCode: carried,
             personReference: "",
             memberships: (p.memberships || [])
               .filter(

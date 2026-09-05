@@ -15,6 +15,19 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.32.5 — WALLET QR ENCODES THE LOGIN CODE, NOT THE LAST-TOUCHED TAG (owner
+ *         2026-09-05: "apple wallet only works when I'm logged in as myself —
+ *         everyone else is brought to the race booking site"; Alex, Jamil and
+ *         Henrry all failed). A person's tags[] are not all login codes: an
+ *         Intercard card rides the record as a kind-2 tag and the legacy
+ *         6-digit codes as kind-5 — and lastSeen refreshes on USE, so a card
+ *         scan (staff mode, Game Zone) put the card number at tags[0]. The
+ *         roster chip's QR then encoded /r/{cardNumber}/wallet, which the
+ *         route's anti-enumeration shape gate bounces to /book/race. Every
+ *         tags[0] reader now goes through pickPublishableLoginCode (kind-9
+ *         first, app-QR UUID fallback, else none), the chip hides when no
+ *         publishable code exists, and the vendors' Add-to-Wallet badges show
+ *         beside the QR. Verified live against all three named records.
  * 1.32.4 — THE SIGNED-IN BAR STAYS AT THE BOTTOM OF THE CHOOSER (owner
  *         2026-09-05: sign in inside racing, hit back, and the crew bar sat at
  *         the TOP of the category screen instead of where the empty "sign in"
@@ -1216,7 +1229,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.32.4";
+export const KIOSK_VERSION = "1.32.5";
 
 let bootVersion: string | null = null;
 let captured = false;

@@ -6,6 +6,7 @@ import { verifyCron } from "@/lib/cron-auth";
 // the level-up text and the wall could disagree about who qualified, in front of
 // the racer.
 import { qualifiesFor, formatLap } from "~/features/racing/qualify";
+import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
 
 const REDIS_URL = process.env.REDIS_URL || process.env.KV_URL || "";
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
@@ -85,10 +86,10 @@ async function hasMembership(
     const phone = (p.addresses?.[0]?.phone || "").replace(/\D/g, "");
     const firstName = p.firstName || "";
     const lastName = p.name || "";
-    const tags = (p.tags || []).sort((a: { lastSeen: string }, b: { lastSeen: string }) =>
-      (b.lastSeen || "").localeCompare(a.lastSeen || ""),
-    );
-    const loginCode = tags[0]?.tag || "";
+    // Kind-9 login code / app-QR UUID only — this code lands in a texted
+    // /book/race?code= link, and the most-recent raw tag can be an Intercard
+    // card number (2026-09-05).
+    const loginCode = pickPublishableLoginCode(p.tags);
     return { hasIt, email, phone, firstName, lastName, loginCode };
   } catch {
     return null;

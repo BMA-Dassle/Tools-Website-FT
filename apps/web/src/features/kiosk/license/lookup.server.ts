@@ -51,6 +51,7 @@ import {
   lastSeenFromDescription,
 } from "~/features/booking/service/office-search";
 import { personIdForCode, rememberCodes } from "./code-cache";
+import { pickPublishableLoginCode } from "./types";
 import type { LicenseMatch } from "./types";
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
@@ -228,9 +229,6 @@ async function buildMatch(
   )
     return null;
 
-  const tags = (office.tags || []).sort((a, b) =>
-    (b.lastSeen || "").localeCompare(a.lastSeen || ""),
-  );
   const activeMemberships = (office.memberships || []).filter(
     (m) => !m.stops || new Date(m.stops) > new Date(),
   );
@@ -259,7 +257,11 @@ async function buildMatch(
     fullName: `${firstName} ${lastName}`.trim(),
     email: office.addresses?.[0]?.email || "",
     phone: office.addresses?.[0]?.mobile || office.addresses?.[0]?.phone || "",
-    loginCode: tags[0]?.tag || "",
+    // NEVER tags[0]: the most-recent tag is whichever handle the guest touched
+    // last — a game-card scan puts their Intercard number there (kind 2), and
+    // publishing that minted dead wallet QRs on 2026-09-05. Kind-9 login code
+    // first, app-QR UUID second, "" when neither exists (chip hides itself).
+    loginCode: pickPublishableLoginCode(office.tags),
     lastSeen:
       lastSeenAt > 0
         ? new Date(lastSeenAt).toLocaleDateString("en-US", {

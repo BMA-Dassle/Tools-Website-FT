@@ -88,7 +88,17 @@ export async function personIdForCode(code: string): Promise<string | null> {
 /** Remember every tag a racer holds — old ones resolve too, so store them all. */
 export async function rememberCodes(personId: string, codes: string[]): Promise<void> {
   const pid = String(personId || "").trim();
-  const clean = [...new Set(codes.map((c) => String(c || "").trim().toLowerCase()).filter(Boolean))];
+  const clean = [
+    ...new Set(
+      codes
+        .map((c) =>
+          String(c || "")
+            .trim()
+            .toLowerCase(),
+        )
+        .filter(Boolean),
+    ),
+  ];
   if (!/^\d+$/.test(pid) || clean.length === 0 || !isDbConfigured()) return;
   try {
     await ensureSchema();
@@ -190,15 +200,19 @@ export async function warmRacerCodes(
  *
  * DETERMINISTIC BY DESIGN. A racer holds many tags (append-only, roughly one per
  * visit — 31 on one real record), and every one resolves, so any of them would
- * "work". But a pass that prints a different code each time it is issued is a
- * pass whose owner cannot learn their own number, and the whole point of the
- * printed code is that they type it at BMI. So: prefer the 13-character shape
- * racers actually type, then the shortest, then alphabetical — never
+ * "work" as a lookup token. But a pass that prints a different code each time
+ * it is issued is a pass whose owner cannot learn their own number, and the
+ * whole point of the printed code is that they type it at BMI. So: prefer the
+ * 13-character shape racers actually type, then alphabetical — never
  * "whichever row the database returned first".
  *
- * The 36-char UUIDs are excluded from preference deliberately: that form is the
- * SMS-Timing app's own QR, only ~half of racers have one, and it is not a code
- * anybody could read aloud.
+ * PUBLISHABLE ONLY. Every caller puts the result in a URL or a pass barcode,
+ * and the published routes reject short digit runs (enumerable — see
+ * RACER_PUBLIC_CODE_RE). The cache also holds tags that are NOT login codes at
+ * all (Intercard card numbers, legacy 6-digit codes), so anything but the
+ * 13-char shape or the app-QR UUID returns null rather than a dead link. The
+ * UUID stays LAST: it is the SMS-Timing app's own QR, only ~half of racers
+ * have one, and it is not a code anybody could read aloud.
  */
 export async function codeForPersonId(personId: string): Promise<string | null> {
   const pid = String(personId || "").trim();
@@ -211,9 +225,19 @@ export async function codeForPersonId(personId: string): Promise<string | null> 
       .map((r) => String((r as Record<string, unknown>).code ?? ""))
       .filter(Boolean);
     if (codes.length === 0) return null;
-    const preferred = codes.filter((c) => c.length === 13);
-    const pool = preferred.length > 0 ? preferred : codes.filter((c) => c.length < 36);
-    const usable = pool.length > 0 ? pool : codes;
+    // PUBLISHABLE shapes only. This cache stores EVERY tag a warm sweep saw —
+    // including the guest's Intercard CARD NUMBER (tag kind 2) and the legacy
+    // 6-digit codes (kind 5) — and every caller of this function puts the
+    // result in a URL or on a pass barcode, where /r/{code} and
+    // /r/{code}/wallet reject short digit runs by design (enumerable). The old
+    // "shortest non-UUID" fallback handed exactly those out (2026-09-05).
+    // The letter requirement keeps a 13-digit card number out of the pool.
+    const preferred = codes.filter((c) => /^(?=.*[A-Za-z])[A-Za-z0-9]{13}$/.test(c));
+    const uuids = codes.filter((c) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c),
+    );
+    const usable = preferred.length > 0 ? preferred : uuids;
+    if (usable.length === 0) return null;
     return [...usable].sort((a, b) => a.length - b.length || a.localeCompare(b))[0];
   } catch {
     return null;

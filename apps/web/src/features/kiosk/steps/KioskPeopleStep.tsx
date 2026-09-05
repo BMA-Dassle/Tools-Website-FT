@@ -71,6 +71,7 @@ import { racerHandleFromRaw, type RacerHandle } from "../entry-scan/classify-ent
 import { consumeEntryScan } from "../entry-scan/handoff";
 import { matchGateKey, matchGateVerdict } from "../license/match-gate";
 import { mintForSigningVerdict } from "../license/mint-for-signing";
+import { RACER_PUBLIC_CODE_RE } from "../license/types";
 import type { LicenseMatch } from "../license/types";
 import { LicenseMatchPicker } from "../components/LicenseMatchPicker";
 import { ageFromIso } from "../join/phone/join-helpers";
@@ -1960,8 +1961,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
                       produced a login tag — that tag IS the pass barcode, so
                       without one there is nothing to encode and the chip must
                       not render rather than offer a dead end. New racers have
-                      no tag yet, by definition. */}
-                  {m.loginCode && (
+                      no tag yet, by definition. The shape gate mirrors what
+                      /r/{code}/wallet enforces: a session persisted before the
+                      2026-09-05 fix can still carry an Intercard card number
+                      here, and a QR the route will bounce must never render. */}
+                  {m.loginCode && RACER_PUBLIC_CODE_RE.test(m.loginCode) && (
                     <LicenceWalletChip
                       loginCode={m.loginCode}
                       brand={kioskCfg?.brand}
