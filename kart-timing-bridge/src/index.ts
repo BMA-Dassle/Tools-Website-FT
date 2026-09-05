@@ -77,7 +77,14 @@
 
 import WebSocket from "ws";
 import { createHash, randomUUID } from "node:crypto";
-import { parseVenueJson } from "./raw-ids";
+// `.js`, NOT `./raw-ids` — and this is a trap worth naming. tsconfig here sets
+// `moduleResolution: "bundler"`, which accepts an extensionless specifier and
+// emits it verbatim; the output is plain ESM run by `node dist/index.js`, and
+// Node's ESM resolver REQUIRES the extension. So `tsc --noEmit` passes, the
+// build passes, and the container crash-loops on boot with ERR_MODULE_NOT_FOUND.
+// (It did, 2026-09-05 04:50 EDT — the bridge was down until this line was fixed.)
+// Every relative import added to this package must carry `.js`.
+import { parseVenueJson } from "./raw-ids.js";
 
 const WS_URL = process.env.WS_URL ?? "ws://68.171.192.138:10001";
 const WEBHOOK_URL = required("WEBHOOK_URL");
