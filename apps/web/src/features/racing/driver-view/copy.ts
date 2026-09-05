@@ -26,6 +26,14 @@ export const en = {
   entryClear: "Clear",
   entryUnknown: "Nothing on that kart yet. Check the number, or wait for your heat to start.",
 
+  // add to home screen
+  a2hsTitle: "Put it on your home screen",
+  a2hsWhy: "Runs full screen with no address bar, and it is one tap next time.",
+  a2hsIos: "Tap Share, then Add to Home Screen.",
+  a2hsAndroid: "Tap the browser menu, then Install app.",
+  a2hsInstall: "Install",
+  a2hsDismiss: "Not now",
+
   // orientation
   rotateTitle: "Turn your phone",
   rotateBody: "The timing screen only runs sideways.",
@@ -46,6 +54,8 @@ export const en = {
   labelNoTime: "no time",
   waitingTitle: "Waiting for your heat",
   waitingBody: "This screen wakes up the moment kart {kart} crosses the line.",
+  changeKart: "Change kart",
+  wrongKart: "Wrong kart?",
 
   // takeovers
   greenTitle: "Green",
@@ -148,6 +158,14 @@ export const es: Record<CopyKey, string> = {
   entryUnknown:
     "Todavía no hay nada en ese kart. Revisa el número o espera a que empiece tu carrera.",
 
+  a2hsTitle: "Ponlo en tu pantalla de inicio",
+  a2hsWhy:
+    "Se abre a pantalla completa, sin barra de direcciones, y con un solo toque la próxima vez.",
+  a2hsIos: "Toca Compartir y luego Agregar a inicio.",
+  a2hsAndroid: "Toca el menú del navegador y luego Instalar aplicación.",
+  a2hsInstall: "Instalar",
+  a2hsDismiss: "Ahora no",
+
   rotateTitle: "Gira tu teléfono",
   rotateBody: "La pantalla de tiempos solo funciona de lado.",
   rotateStill: "Seguimos contigo — no se pierde nada",
@@ -166,6 +184,8 @@ export const es: Record<CopyKey, string> = {
   labelNoTime: "sin tiempo",
   waitingTitle: "Esperando tu carrera",
   waitingBody: "Esta pantalla se activa en cuanto el kart {kart} cruce la línea.",
+  changeKart: "Cambiar kart",
+  wrongKart: "¿Kart equivocado?",
 
   greenTitle: "Verde",
   greenBody: "El reloj está corriendo. Adelante.",

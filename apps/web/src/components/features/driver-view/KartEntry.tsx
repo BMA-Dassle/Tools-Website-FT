@@ -14,6 +14,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { t, type Locale } from "~/features/racing/driver-view/copy";
+import { AddToHomeScreen } from "./AddToHomeScreen";
 import { c, fluid, font, label, numeral } from "./tokens";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"] as const;
@@ -120,6 +121,12 @@ export function KartEntry({ locale }: { locale: Locale }) {
         >
           {t(locale, "entryStart")}
         </button>
+
+        {/* Offered here and nowhere else: this is the only screen a guest is
+            standing still on. On the pit board it would be an interruption. */}
+        <div style={{ marginTop: 12, flexShrink: 0 }}>
+          <AddToHomeScreen locale={locale} />
+        </div>
       </div>
 
       <div

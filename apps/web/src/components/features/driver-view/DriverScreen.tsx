@@ -17,6 +17,7 @@
  * dead API leaves the board live. Neither failure blanks the screen.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLiveKart } from "~/features/racing/driver-view/useLiveKart";
 import { currentTakeover, visibleInline } from "~/features/racing/driver-view/standing";
@@ -46,6 +47,7 @@ const POLL_MS = 2_000;
 export function DriverScreen({ kart, locale }: { kart: string; locale: Locale }) {
   const router = useRouter();
   const [api, setApi] = useState<ApiState>({ binding: null, laps: [], alerts: [] });
+  const [loaded, setLoaded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -55,7 +57,10 @@ export function DriverScreen({ kart, locale }: { kart: string; locale: Locale })
         const res = await fetch(`/api/kart/${encodeURIComponent(kart)}`, { cache: "no-store" });
         if (!res.ok) return;
         const json = (await res.json()) as ApiState;
-        if (!stop) setApi(json);
+        if (!stop) {
+          setApi(json);
+          setLoaded(true);
+        }
       } catch {
         // Keep whatever we had. A screen that blanks on a blip is worse than a
         // screen a few seconds behind.
@@ -98,6 +103,86 @@ export function DriverScreen({ kart, locale }: { kart: string; locale: Locale })
     : api.binding?.track
       ? trackColor[api.binding.track]
       : c.cyan;
+
+  /**
+   * NOTHING ON THIS KART — almost always a mistyped number.
+   *
+   * Gated on `loaded` so it cannot flash before the first poll answers, and on
+   * the live socket having found nothing either. Showing an empty pit board
+   * here would leave a guest staring at dashes wondering whether the race had
+   * started; saying so plainly, with the way back one tap away, is the whole
+   * difference between "broken" and "you meant a different kart".
+   */
+  const nothingHere =
+    loaded && !live.onTrack && api.binding === null && api.laps.length === 0 && !takeover;
+
+  if (nothingHere) {
+    return (
+      <RotateGate locale={locale} kart={kart} heatName="">
+        <main
+          style={{
+            minHeight: "100dvh",
+            background: c.ground,
+            color: c.ink,
+            fontFamily: font.body,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: fluid(10, 2, 20),
+            padding: fluid(20, 5, 48),
+            textAlign: "center",
+          }}
+        >
+          <div style={{ ...label, fontSize: fluid(9, 1.5, 13), color: c.inkDim }}>
+            {t(locale, "labelKart")}
+          </div>
+          <div
+            style={{
+              ...numeral,
+              fontSize: fluid(56, 16, 130),
+              fontWeight: 900,
+              fontStyle: "italic",
+              lineHeight: 0.85,
+              letterSpacing: "-0.05em",
+            }}
+          >
+            {kart}
+          </div>
+          <div
+            style={{
+              fontFamily: font.display,
+              fontSize: fluid(14, 2.6, 22),
+              fontWeight: 700,
+              color: "rgba(245,236,238,0.75)",
+              maxWidth: "36ch",
+              textWrap: "pretty",
+            }}
+          >
+            {t(locale, "waitingBody", { kart })}
+          </div>
+          <Link
+            href="/kart"
+            style={{
+              ...label,
+              marginTop: 6,
+              minHeight: 44,
+              display: "flex",
+              alignItems: "center",
+              padding: "0 20px",
+              background: c.cyan,
+              color: c.ground,
+              textDecoration: "none",
+              fontSize: fluid(11, 1.8, 14),
+              fontWeight: 700,
+            }}
+          >
+            {t(locale, "wrongKart")}
+          </Link>
+        </main>
+      </RotateGate>
+    );
+  }
 
   return (
     <RotateGate locale={locale} kart={kart} heatName={heatName}>
@@ -282,7 +367,7 @@ export function DriverScreen({ kart, locale }: { kart: string; locale: Locale })
             gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
           }}
         >
-          <Cell locale={locale} labelKey="labelKart" value={kart} />
+          <KartCell locale={locale} kart={kart} />
           <Cell
             locale={locale}
             labelKey="labelGapAhead"
@@ -312,6 +397,62 @@ export function DriverScreen({ kart, locale }: { kart: string; locale: Locale })
         />
       ) : null}
     </RotateGate>
+  );
+}
+
+/**
+ * The kart number, and the only way off this screen.
+ *
+ * THE PIT BOARD HAS NO NAV — it is registered chrome-free, so a guest who typed
+ * the wrong number, or who was moved to another kart, would otherwise be
+ * stranded watching someone else's race with no way back (owner 2026-09-05).
+ *
+ * It lives in the quiet strip along the bottom rather than anywhere near the
+ * two big numbers: findable when they are parked and looking for it, nowhere
+ * near a thumb mid-corner. The 44px target is the floor for a gloved hand.
+ */
+function KartCell({ locale, kart }: { locale: Locale; kart: string }) {
+  return (
+    <Link
+      href="/kart"
+      style={{
+        display: "block",
+        textDecoration: "none",
+        color: "inherit",
+        padding: `${fluid(4, 0.9, 10)} ${fluid(10, 2.5, 24)}`,
+        minHeight: 44,
+      }}
+    >
+      <div
+        style={{
+          ...label,
+          fontSize: fluid(7, 1.1, 11),
+          color: c.inkDim,
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+        }}
+      >
+        {t(locale, "labelKart")}
+        <svg
+          width="9"
+          height="9"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={c.cyan}
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <polyline points="17 4 9 12 17 20" />
+        </svg>
+        <span style={{ color: c.cyan }}>{t(locale, "changeKart")}</span>
+      </div>
+      <div style={{ ...numeral, fontSize: fluid(14, 2.8, 26), fontWeight: 800, lineHeight: 1.05 }}>
+        {kart}
+      </div>
+    </Link>
   );
 }
 
