@@ -72,10 +72,9 @@ export const peopleUiEn = {
   "peopleUi.tooYoungSuffix": " · under 7 — too young to race",
   "peopleUi.waiverOnFileSuffix": " · waiver on file",
   "peopleUi.needsWaiverSuffix": " · needs waiver",
-  "peopleUi.family.count":
-    "{n, plural, one {# person on this account} other {# people on this account}}",
-  "peopleUi.family.andMore": "{names} & {n} more",
-  "peopleUi.family.open": "Add family",
+  // The pill on a signed-in member's own card — family belongs to the person.
+  "peopleUi.family.pill": "{n, plural, one {# family member} other {# family members}}",
+  "peopleUi.aria.family": "Add family from {name}’s account",
   "peopleUi.family.eyebrow": "On this account",
   "peopleUi.family.titleRace": "Who’s racing today?",
   "peopleUi.family.titlePlay": "Who’s playing today?",
@@ -238,10 +237,8 @@ export const peopleUiEs: Record<keyof typeof peopleUiEn, string> = {
   "peopleUi.tooYoungSuffix": " · menor de 7 — demasiado joven para correr",
   "peopleUi.waiverOnFileSuffix": " · exención en archivo",
   "peopleUi.needsWaiverSuffix": " · necesita exención",
-  "peopleUi.family.count":
-    "{n, plural, one {# persona en esta cuenta} other {# personas en esta cuenta}}",
-  "peopleUi.family.andMore": "{names} y {n} más",
-  "peopleUi.family.open": "Agregar familia",
+  "peopleUi.family.pill": "{n, plural, one {# familiar} other {# familiares}}",
+  "peopleUi.aria.family": "Agregar familia de la cuenta de {name}",
   "peopleUi.family.eyebrow": "En esta cuenta",
   "peopleUi.family.titleRace": "¿Quién corre hoy?",
   "peopleUi.family.titlePlay": "¿Quién juega hoy?",

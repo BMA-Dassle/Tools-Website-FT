@@ -17,14 +17,19 @@
  * self-update below is what actually drives reloads).
  * 1.33.0 — FAMILY PICKER SHEET (owner 2026-09-05, "Option A" from the reviewed
  *         mockups): a BMI sign-in used to dump every linked family member onto
- *         the people step as a wall of green chips. The linked list now
- *         collapses to ONE summary row (avatar cluster + "N people on this
- *         account"); "Add family" opens a picker sheet — tap several, Select
- *         all, one "Add N players" confirm. Needs-waiver picks read " · will
- *         sign waiver next" (amber) instead of a blocking-sounding note; the
- *         under-7 racing floor still disables the card with the reason. Both
- *         people components (KioskPeopleStep + KioskPartyManager) in lockstep;
- *         family stays strictly OPT-IN. EN+ES. Plus GUEST RACE HISTORY on Your
+ *         the people step as a wall of green chips. Family now hangs off the
+ *         CARD of whoever signed in — a pill beside the licence chip reading
+ *         "4 family members" — because family belongs to a PERSON, not to the
+ *         screen (owner, on glass: "what if multiple people had family, this
+ *         would fill up fast"; two signed-in adults would have stacked two
+ *         full-width strips). The pill opens a picker holding only THAT
+ *         person's relatives — tap several, Select all, one "Add N players"
+ *         confirm — and disappears once they have all been added.
+ *         Needs-waiver picks read " · will sign waiver next" (amber) instead
+ *         of a blocking-sounding note; the under-7 racing floor still disables
+ *         the card with the reason. One FamilyPickerSheet mounted by both
+ *         people components (KioskPeopleStep + KioskPartyManager); family
+ *         stays strictly OPT-IN. EN+ES. Plus GUEST RACE HISTORY on Your
  *         Crew: every signed-in roster card on /kiosk/racers gets "My race
  *         history" — races, best lap per track with the earned level, the
  *         same off-Pro line the level-up texts use, CREDITS BY KIND (races,

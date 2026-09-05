@@ -31,6 +31,8 @@ const REACHABLE = [
   "src/features/kiosk/components/KioskPartyManager.tsx",
   "src/features/kiosk/components/KioskSignInBoxes.tsx",
   "src/features/kiosk/components/LicenseMatchPicker.tsx",
+  // Family picker — the party manager opens it from a member's family pill.
+  "src/features/kiosk/components/FamilyPickerSheet.tsx",
   // Context-load spinner (WaiverFlow renders it inside the wp-mobile shell).
   "src/features/kiosk/components/BrandedLoader.tsx",
 ];

@@ -82,13 +82,8 @@ import { LICENSE_PRICE } from "~/features/booking/service/race-pricing";
 import { useT } from "../i18n";
 import { StaffPersonActions, useStaffCardScan } from "../staff-mode";
 import { GuestRaceHistoryActions } from "../race-history/GuestRaceHistory";
-import {
-  allSelected,
-  resolvePicks,
-  selectableLinked,
-  splitWarnNeeded,
-  tooYoungToRace,
-} from "../family-picker";
+import { resolvePicks, splitWarnNeeded } from "../family-picker";
+import { FamilyPickerSheet } from "../components/FamilyPickerSheet";
 
 /** Waiver-gated attraction slugs (duckpin is exempt — uses the party-count step). */
 const WAIVER_SLUGS = new Set(["gel-blaster", "laser-tag", "shuffly"]);
@@ -133,6 +128,10 @@ interface LinkedSuggestion {
   lastName: string;
   age: number | null;
   waiverValid: boolean;
+  /** The roster member whose account listed this relative. Family belongs to a
+   *  PERSON, not to the screen — two signed-in adults each bring their own, and
+   *  the picker opens from that person's card (owner 2026-09-05). */
+  ownerMemberId: string;
 }
 
 const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Component"] = ({
@@ -247,11 +246,15 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
   const [choosingGuardianId, setChoosingGuardianId] = useState<string | null>(null);
   // Linked family are OPT-IN suggestions — tap to add, never auto-pulled in.
   const [linked, setLinked] = useState<LinkedSuggestion[]>([]);
-  // Family picker sheet (owner 2026-09-05, "Option A"): the linked list
-  // collapses to ONE summary row and the sheet multi-selects relatives — a
-  // 7-person family used to land on the screen as a wall of chips.
-  const [linkedOpen, setLinkedOpen] = useState(false);
+  // Family picker sheet (owner 2026-09-05, "Option A"): a 7-person family used
+  // to land on the screen as a wall of chips. It lives on the CARD of whoever
+  // signed in — a pill beside the licence chip — because family belongs to a
+  // person, not to the screen: two signed-in adults would otherwise stack two
+  // full-width strips and fill the canvas. `linkedOpen` is that member's id.
+  const [linkedOpen, setLinkedOpen] = useState<string | null>(null);
   const [linkedSel, setLinkedSel] = useState<Set<string>>(new Set());
+  /** This member's un-added relatives. */
+  const linkedFor = (memberId: string) => linked.filter((l) => l.ownerMemberId === memberId);
   // Driver's-license scan flow (handlers live below, after handleVerified):
   // in-flight lookup / multi-match picker / one-line outcome note.
   const [licenseBusy, setLicenseBusy] = useState(false);
@@ -1453,11 +1456,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
             collected.push({
               id: rid,
               // Linked-family names come from the CRM (often ALL CAPS) — format
-              // at collection so the suggestion chips AND addLinked stay clean.
+              // at collection so the picker and the batch add stay clean.
               firstName: formatPersonName(first),
               lastName: formatPersonName(last),
               age: isoAge,
               waiverValid: p.valid === true,
+              ownerMemberId: memberId,
             });
           } catch {
             /* skip this relative — non-fatal */
@@ -2005,6 +2009,40 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
                       ariaLabel={t("peopleUi.aria.licenceQr", { name: m.firstName })}
                     />
                   )}
+                  {/* FAMILY ON THIS ACCOUNT — a pill beside the licence chip,
+                      not a strip below the roster (owner 2026-09-05: "what if
+                      multiple people had family, this would fill up fast").
+                      Only this member's un-added relatives; the pill vanishes
+                      once they have all been added. */}
+                  {linkedFor(m.id).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLinkedSel(new Set());
+                        setLinkedOpen(m.id);
+                      }}
+                      aria-label={t("peopleUi.aria.family", { name: m.firstName })}
+                      className="k-tap mt-[10px] flex items-center gap-[10px] rounded-full border-[1.5px] border-[#00e2e5]/45 bg-[#00e2e5]/5 px-[20px] py-[10px] text-[22px] font-bold text-[#00e2e5]"
+                    >
+                      <svg
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                      {t("peopleUi.family.pill", { n: linkedFor(m.id).length })}
+                    </button>
+                  )}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-[12px]">
                   {!ready && !checking && (
@@ -2127,200 +2165,40 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
         </>
       )}
 
-      {/* Linked family — OPT-IN, collapsed to ONE summary row (owner 2026-09-05
-          "Option A": a 7-person family used to render as a wall of chips). The
-          picker sheet below adds several relatives in one act; nobody is ever
-          auto-added. */}
-      {linked.length > 0 && form === null && !lookupOpen && (
-        <div className="k-glass flex items-center gap-[24px] border-[#00e2e5]/25 px-[32px] py-[24px]">
-          <div className="flex shrink-0" aria-hidden="true">
-            {linked.slice(0, 4).map((lp, i) => (
-              <div
-                key={lp.id}
-                className="flex h-[64px] w-[64px] items-center justify-center rounded-full border-[3px] border-[#000418] bg-gradient-to-br from-[#0d1a36] to-[#071027] text-[22px] font-bold text-white/85 shadow-[inset_0_0_0_2px_rgba(0,226,229,.35)]"
-                style={i > 0 ? { marginLeft: -18 } : undefined}
-              >
-                {(lp.firstName[0] ?? "") + (lp.lastName[0] ?? "")}
-              </div>
-            ))}
-            {linked.length > 4 && (
-              <div
-                className="flex h-[64px] w-[64px] items-center justify-center rounded-full border-[3px] border-[#000418] bg-gradient-to-br from-[#0d1a36] to-[#071027] text-[20px] font-bold text-[#00e2e5] shadow-[inset_0_0_0_2px_rgba(0,226,229,.35)]"
-                style={{ marginLeft: -18 }}
-              >
-                +{linked.length - 4}
-              </div>
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-[28px] font-bold text-white">
-              {t("peopleUi.family.count", { n: linked.length })}
-            </div>
-            <div className="truncate text-[22px] text-white/55">
-              {linked.length > 3
-                ? t("peopleUi.family.andMore", {
-                    names: linked
-                      .slice(0, 3)
-                      .map((l) => l.firstName)
-                      .join(", "),
-                    n: linked.length - 3,
-                  })
-                : linked.map((l) => l.firstName).join(", ")}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setLinkedSel(new Set());
-              setLinkedOpen(true);
-            }}
-            className="k-tap k-display flex h-[88px] shrink-0 items-center rounded-full border-2 border-[#00e2e5]/50 bg-[#00e2e5]/10 px-[36px] text-[28px] text-[#00e2e5]"
-          >
-            {t("peopleUi.family.open")}
-          </button>
-        </div>
-      )}
-
-      {/* Family picker sheet — multi-select, one "Add N players" tap. Canvas-
-          native sheet, no tap-outside dismiss (kiosk convention). z-[78]: below
-          the split-payment warning so a guardAdd interception reads on top. */}
-      {linkedOpen && linked.length > 0 && (
-        <div className="fixed inset-0 z-[78] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
-          <div className="k-glass flex max-h-full w-full max-w-[920px] flex-col gap-[28px] overflow-y-auto p-[44px]">
-            <div className="flex items-end justify-between gap-[20px]">
-              <div>
-                <div className="k-eyebrow">{t("peopleUi.family.eyebrow")}</div>
-                <div className="k-display mt-[10px] text-[52px]">
-                  {isRace ? t("peopleUi.family.titleRace") : t("peopleUi.family.titlePlay")}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() =>
-                  setLinkedSel(
-                    allSelected(linkedSel.size, selectableLinked(linked, isRace).length)
-                      ? new Set()
-                      : new Set(selectableLinked(linked, isRace).map((l) => l.id)),
-                  )
-                }
-                className="k-tap flex h-[72px] shrink-0 items-center rounded-full border border-white/15 px-[28px] text-[24px] font-semibold text-white/70"
-              >
-                {allSelected(linkedSel.size, selectableLinked(linked, isRace).length)
-                  ? t("peopleUi.family.clearAll")
-                  : t("peopleUi.family.selectAll")}
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-[16px]">
-              {linked.map((lp) => {
-                // Racing hard floor (7+): a linked kid under 7 can't join a
-                // race party — show why instead of a dead tap.
-                const tooYoung = tooYoungToRace(lp.age, isRace);
-                const sel = linkedSel.has(lp.id);
-                return (
-                  <button
-                    key={lp.id}
-                    type="button"
-                    disabled={tooYoung}
-                    aria-pressed={sel}
-                    onClick={
-                      tooYoung
-                        ? undefined
-                        : () =>
-                            setLinkedSel((prev) => {
-                              const n = new Set(prev);
-                              if (n.has(lp.id)) n.delete(lp.id);
-                              else n.add(lp.id);
-                              return n;
-                            })
-                    }
-                    className={`k-tap flex items-center gap-[20px] rounded-[20px] border-2 px-[24px] py-[20px] text-left ${
-                      tooYoung
-                        ? "border-white/10 bg-white/[0.03] opacity-50"
-                        : sel
-                          ? "border-[#00e2e5]/60 bg-[#00e2e5]/[.08]"
-                          : "border-white/15 bg-white/[0.03]"
-                    }`}
-                  >
-                    <div
-                      className={`flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[14px] ${
-                        sel ? "bg-[#00e2e5] text-[#04252b]" : "border-[2.5px] border-white/30"
-                      }`}
-                      aria-hidden="true"
-                    >
-                      {sel && (
-                        <svg
-                          width="30"
-                          height="30"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M5 13 L10 18 L19 7" />
-                        </svg>
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[28px] font-bold text-white">
-                        {lp.firstName} {lp.lastName}
-                      </div>
-                      <div
-                        className={`text-[21px] ${
-                          !tooYoung && !lp.waiverValid ? "text-[#f0b341]" : "text-white/50"
-                        }`}
-                      >
-                        {lp.age !== null
-                          ? t("peopleUi.age", { age: lp.age })
-                          : t("peopleUi.family")}
-                        {tooYoung
-                          ? t("peopleUi.tooYoungSuffix")
-                          : lp.waiverValid
-                            ? t("peopleUi.waiverOnFileSuffix")
-                            : sel
-                              ? t("peopleUi.family.willSignSuffix")
-                              : t("peopleUi.needsWaiverSuffix")}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="flex flex-col gap-[16px] pt-[8px]">
-              {/* Inline flex per the .kiosk-canvas cascade gotcha (see the
-                  splitWarn sheet): k-btn-primary's flex:1 squashes its height
-                  in a column layout. */}
-              <button
-                type="button"
-                disabled={linkedSel.size === 0}
-                onClick={() => {
-                  if (linkedSel.size === 0) return;
-                  const picks = new Set(linkedSel);
-                  // Close FIRST: guardAdd may intercept with the split-payment
-                  // sheet (z-[80]) and the picker must not sit over it.
-                  setLinkedOpen(false);
-                  guardAdd(() => addLinkedBatch(picks), picks.size);
-                }}
-                className={`k-btn-primary k-tap ${linkedSel.size === 0 ? "opacity-40" : ""}`}
-                style={{ flex: "0 0 auto" }}
-              >
-                {linkedSel.size === 0
-                  ? t("peopleUi.family.selectPrompt")
-                  : t("peopleUi.family.add", { n: linkedSel.size })}
-              </button>
-              <button
-                type="button"
-                onClick={() => setLinkedOpen(false)}
-                className="k-tap rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
-              >
-                {t("peopleUi.family.notToday")}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Family picker sheet — opened from a member's family pill, so it shows
+          only THAT person's relatives. Multi-select, one "Add N players" tap.
+          Canvas-native sheet, no tap-outside dismiss (kiosk convention).
+          z-[78]: below the split-payment warning so a guardAdd interception
+          reads on top. */}
+      {linkedOpen !== null && linkedFor(linkedOpen).length > 0 && (
+        <FamilyPickerSheet
+          linked={linkedFor(linkedOpen)}
+          isRace={isRace}
+          selected={linkedSel}
+          setSelected={setLinkedSel}
+          onClose={() => setLinkedOpen(null)}
+          onConfirm={(picks) => {
+            // Close FIRST: guardAdd may intercept with the split-payment sheet
+            // (z-[80]) and the picker must not sit over it.
+            setLinkedOpen(null);
+            guardAdd(() => addLinkedBatch(picks), picks.size);
+          }}
+          copy={{
+            eyebrow: t("peopleUi.family.eyebrow"),
+            title: isRace ? t("peopleUi.family.titleRace") : t("peopleUi.family.titlePlay"),
+            selectAll: t("peopleUi.family.selectAll"),
+            clearAll: t("peopleUi.family.clearAll"),
+            notToday: t("peopleUi.family.notToday"),
+            selectPrompt: t("peopleUi.family.selectPrompt"),
+            addLabel: (n) => t("peopleUi.family.add", { n }),
+            age: (n) => t("peopleUi.age", { age: n }),
+            family: t("peopleUi.family"),
+            tooYoungSuffix: t("peopleUi.tooYoungSuffix"),
+            waiverOnFileSuffix: t("peopleUi.waiverOnFileSuffix"),
+            needsWaiverSuffix: t("peopleUi.needsWaiverSuffix"),
+            willSignSuffix: t("peopleUi.family.willSignSuffix"),
+          }}
+        />
       )}
 
       {/* person form (new OR setup) */}

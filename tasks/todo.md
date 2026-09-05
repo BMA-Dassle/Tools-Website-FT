@@ -7,12 +7,22 @@ screen at once ("a very bad look"). Mockups reviewed on a design canvas
 (https://claude.ai/code/artifact/cdf6bf58-e74e-4ffc-a37d-c4cf34146c09); owner picked **Option A**
 and added "we also want to know gel, laser, headsock, etc credits" on the race history.
 
-- [x] Linked family collapses to ONE summary row — overlapping initials avatars, "N people on
-      this account", first names — with an **Add family** button. Kiosk **1.33.0**.
+- [x] Linked family is a **pill on the signed-in member's own card**, beside the licence chip
+      ("4 family members"). Kiosk **1.33.0**. _(Revised from a full-width summary strip after
+      the owner saw it on glass: "this should be a pill on the member, what if multiple people
+      had family this would fill up fast." Family belongs to a PERSON — each `LinkedSuggestion`
+      now carries `ownerMemberId`, set from the member whose account listed them, and the pill
+      shows only that member's un-added relatives, disappearing once they are all added. Two
+      signed-in adults each get their own pill instead of stacking two full-width strips.)_
 - [x] Picker sheet: multi-select cards (checkbox + name + age + waiver state), Select all /
       Clear all, one "Add N players" confirm, "Not today". Under-7 stays disabled ON RACE
       screens with the reason; a selected needs-waiver person reads " · will sign waiver next"
       (amber) instead of the blocking-sounding note.
+- [x] `FamilyPickerSheet.tsx` — ONE sheet component both people screens mount (each passes its
+      own resolved copy, since the two use different message-key namespaces). Also added to
+      `waiver-party.theme.test.ts`'s REACHABLE list: the mobile /waiver flow renders it through
+      `KioskPartyManager`, and **the guard caught 11 kiosk px utilities that would have rendered
+      at full kiosk size on a phone** — mapped under `.wp-mobile` in `waiver-party.css`.
 - [x] `family-picker.ts` — pure rules shared by BOTH people components so they cannot drift:
       `tooYoungToRace` (unknown age is NOT blocked), `selectableLinked`, `resolvePicks`,
       `allSelected`, `splitWarnNeeded`. 20 tests.

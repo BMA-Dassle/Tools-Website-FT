@@ -56,10 +56,9 @@ export const partyEn = {
   "party.linked.tooYoung": " · under 7 — too young to race",
   "party.linked.waiverOnFile": " · waiver on file",
   "party.linked.needsWaiver": " · needs waiver",
-  "party.linked.count":
-    "{n, plural, one {# person on this account} other {# people on this account}}",
-  "party.linked.andMore": "{names} & {n} more",
-  "party.linked.open": "Add family",
+  // The pill on a signed-in member's own card — family belongs to the person.
+  "party.linked.pill": "{n, plural, one {# family member} other {# family members}}",
+  "party.linked.aria": "Add family from {name}’s account",
   "party.linked.eyebrow": "On this account",
   "party.linked.titleRace": "Who’s racing today?",
   "party.linked.titlePlay": "Who’s playing today?",
@@ -184,10 +183,8 @@ export const partyEs: Record<keyof typeof partyEn, string> = {
   "party.linked.tooYoung": " · menor de 7 — muy pequeño para correr",
   "party.linked.waiverOnFile": " · exención registrada",
   "party.linked.needsWaiver": " · necesita exención",
-  "party.linked.count":
-    "{n, plural, one {# persona en esta cuenta} other {# personas en esta cuenta}}",
-  "party.linked.andMore": "{names} y {n} más",
-  "party.linked.open": "Agregar familia",
+  "party.linked.pill": "{n, plural, one {# familiar} other {# familiares}}",
+  "party.linked.aria": "Agregar familia de la cuenta de {name}",
   "party.linked.eyebrow": "En esta cuenta",
   "party.linked.titleRace": "¿Quién corre hoy?",
   "party.linked.titlePlay": "¿Quién juega hoy?",

@@ -212,6 +212,12 @@
 .wp-mobile .text-\[19px\] {
   font-size: 0.78rem;
 }
+.wp-mobile .text-\[52px\] {
+  font-size: 1.75rem;
+}
+.wp-mobile .text-\[21px\] {
+  font-size: 0.85rem;
+}
 .wp-mobile .text-\[18px\] {
   font-size: 0.75rem;
 }
@@ -225,6 +231,9 @@
 }
 .wp-mobile .p-\[24px\] {
   padding: 1rem;
+}
+.wp-mobile .p-\[44px\] {
+  padding: 1.15rem;
 }
 .wp-mobile .p-\[28px\] {
   padding: 1.15rem;
@@ -267,6 +276,14 @@
 .wp-mobile .py-\[4px\] {
   padding-top: 0.2rem;
   padding-bottom: 0.2rem;
+}
+.wp-mobile .py-\[10px\] {
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+/* Family picker's confirm-row spacer. */
+.wp-mobile .pt-\[8px\] {
+  padding-top: 0.35rem;
 }
 .wp-mobile .py-\[12px\] {
   padding-top: 0.5rem;
@@ -380,6 +397,17 @@
 .wp-mobile .h-\[80px\] {
   height: 3rem;
 }
+/* Family picker (FamilyPickerSheet): the 52px select box and the 72px
+   Select-all pill. */
+.wp-mobile .h-\[52px\] {
+  height: 2.25rem;
+}
+.wp-mobile .w-\[52px\] {
+  width: 2.25rem;
+}
+.wp-mobile .h-\[72px\] {
+  height: 2.75rem;
+}
 /* QR codes are absolutely sized for the canvas — clamp to the viewport so a
    400px block never forces a horizontal scroll on a 390px phone. */
 .wp-mobile .h-\[150px\] {
@@ -401,11 +429,18 @@
   .wp-mobile .max-w-\[900px\] {
     max-width: 100%;
   }
+  /* Family picker sheet — same reason as 900px above. */
+  .wp-mobile .max-w-\[920px\] {
+    max-width: 100%;
+  }
 }
 
 /* ---- radii ---- */
 .wp-mobile .rounded-\[14px\] {
   border-radius: 0.625rem;
+}
+.wp-mobile .rounded-\[20px\] {
+  border-radius: 0.875rem;
 }
 .wp-mobile .rounded-\[24px\] {
   border-radius: 1rem;
@@ -438,6 +473,9 @@
 }
 .wp-mobile .gap-\[24px\] {
   gap: 0.9rem;
+}
+.wp-mobile .gap-\[28px\] {
+  gap: 1rem;
 }
 .wp-mobile .gap-x-\[16px\] {
   column-gap: 0.75rem;
