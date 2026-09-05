@@ -23,10 +23,17 @@ import type { StaffEmployee, StaffLocation } from "./types";
  *      staff without one → `not-manager`, and the kiosk says so by name. The
  *      display role is the matching Manager group.
  *
- * URL: `https://bma-pandora-api.azurewebsites.net/api/v2/bmi/staff-roles/{location}/{personId}`
- * (owner 2026-09-04 — note the `/api/v2` prefix, unlike the older `/v2/bmi/*`
- * calls in this repo). `PANDORA_STAFF_ROLES_URL` overrides the template if the
- * host ever moves. Auth: SWAGGER_ADMIN_KEY (the same key).
+ * URL: `https://bma-pandora-api.azurewebsites.net/v2/bmi/staff-roles/{location}/{personId}`
+ * — the SAME `/v2/bmi/*` base every other Pandora call here uses. Measured live
+ * 2026-09-04 with curl: `/v2/bmi/staff-roles/LAB52GY480CJF/63000000000021716`
+ * → 200 `{isStaff:true, groups:[…Manager…]}` and the sample id 465243 → 200
+ * (Stephanie, byte-identical to the owner's paste), while
+ * `/api/v2/bmi/staff-roles/…` → the Express "Cannot GET" 404 for BOTH ids. The
+ * `/api/v2` prefix in the sample belongs to a different host; on this one it
+ * does not exist, and the first live scan failed on exactly that. The route
+ * also accepts the 17-digit cloud person id (the Office search returns it for
+ * cloud-minted records). `PANDORA_STAFF_ROLES_URL` overrides the template if
+ * the host ever moves. Auth: SWAGGER_ADMIN_KEY (the same key).
  *
  * Fail closed throughout: any error → no staff mode, with a reason the kiosk
  * turns into one honest line.
@@ -39,7 +46,7 @@ export type StaffCardResolution =
   | { linked: false; reason: "not-manager"; name: string };
 
 const DEFAULT_STAFF_ROLES_URL =
-  "https://bma-pandora-api.azurewebsites.net/api/v2/bmi/staff-roles/{location}/{personId}";
+  "https://bma-pandora-api.azurewebsites.net/v2/bmi/staff-roles/{location}/{personId}";
 
 /** The gate: any group whose name contains "Manager" (case-insensitive). */
 export function isManagerGroup(name: string): boolean {

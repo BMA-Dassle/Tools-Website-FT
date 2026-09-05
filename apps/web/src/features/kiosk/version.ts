@@ -15,6 +15,15 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.32.3 — STAFF CARDS RESOLVE NOW (owner 2026-09-04: "I just scanned my card and
+ *         nothing happened" → "not linked to a staff member"). Two findings from
+ *         live probes: the Office token search finds the card fine (token=597195
+ *         → the person, tag kind 2 = 597195; the 16-digit padded token → 0 hits),
+ *         and the Pandora staff-roles route lives at `/v2/bmi/staff-roles/…` on
+ *         our host — `/api/v2/…` (the sample's prefix) is an Express "Cannot GET"
+ *         404 there, which is what every scan was hitting. Default URL corrected.
+ *         (1.32.2 briefly widened the gate to bare digit runs and was reverted by
+ *         the owner — it was never the cause.)
  * 1.32.1 — STAFF CHIPS GREY UNTIL THE GUEST IS ON-SITE (owner 2026-09-04: "just
  *         disable the buttons if it's not local yet"). Pandora writes land on the
  *         center's LOCAL server; a guest created cloud-side (web booking, desk)
@@ -1199,7 +1208,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.32.1";
+export const KIOSK_VERSION = "1.32.3";
 
 let bootVersion: string | null = null;
 let captured = false;
