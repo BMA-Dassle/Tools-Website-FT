@@ -10,7 +10,7 @@ const REAL_CAPTURE = {
   api_version: "2025-02-01",
   id: "6a8654c7ff2145b4ffe2f2c6",
   to: "+12394412867",
-  from: "+12397762044",
+  from: "+12395551234",
   body: "Start ",
   received_at: "2026-08-20T01:13:42.000Z",
 };
@@ -31,7 +31,7 @@ describe("parseMoPayload — the real captured payload", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.payload.id).toBe("6a8654c7ff2145b4ffe2f2c6");
-    expect(r.payload.from).toBe("+12397762044");
+    expect(r.payload.from).toBe("+12395551234");
     expect(r.payload.to).toBe(OUR_DID);
     expect(r.payload.apiVersion).toBe("2025-02-01");
   });
@@ -74,7 +74,7 @@ describe("parseMoPayload — refuses to guess", () => {
     const dlr = {
       message_id: "abc123",
       status: "delivered",
-      to: "+12397762044",
+      to: "+12395551234",
       from: OUR_DID,
     };
     const r = parseMoPayload(dlr, [OUR_DID]);

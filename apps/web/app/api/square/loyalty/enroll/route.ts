@@ -19,7 +19,7 @@ function toE164(phone: string): string {
 
 /**
  * POST /api/square/loyalty/enroll
- * Body: { phone: "2397762044" }
+ * Body: { phone: "2395551234" }
  * Creates a Square Customer → then a Loyalty Account
  * Returns: { account, customer }
  */

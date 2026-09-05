@@ -52,7 +52,7 @@ Square reads the order's catalog items and computes points from the accrual rule
 In the booking wizard guest info step:
 
 1. Customer enters phone number
-2. Wizard calls `GET /api/square/loyalty/lookup?phone=2397762044`
+2. Wizard calls `GET /api/square/loyalty/lookup?phone=2395551234`
 3. If found: returns `loyaltyAccount` (id, balance, customerId) — customer enters SMS verification
 4. If not found: offers "Join HeadPinz Rewards" checkbox
 5. New enrollment calls `POST /api/square/loyalty/enroll` → creates Square Customer + Loyalty Account

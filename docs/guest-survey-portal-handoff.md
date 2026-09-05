@@ -78,7 +78,7 @@ The portal gets three pre-built URLs per survey so you can render direct
 | `surveyResultUrl`            | The customer-facing survey page (`/survey/<token>`) — operator can open it to see exactly what the guest sees + their submitted answers | Yes                                    |
 | `squareGiftCardDashboardUrl` | The Square Gift Card admin page for the issued $5 card                                                                                  | Only when `rewardKind === 'gift_card'` |
 
-Per-customer history is one fetch: `GET /api/admin/guest-survey/list?phone=+12397762044`.
+Per-customer history is one fetch: `GET /api/admin/guest-survey/list?phone=+12395551234`.
 
 ### Reservation context
 
@@ -144,7 +144,7 @@ GET /api/admin/guest-survey/list
       "id": "27f3d726-d7df-4b82-937d-9a2485b0b3d7",
       "token": "6d2e7b6b-2e32-4f4b-99d4-cddf09edf4f7",
       "squareCustomerId": "MAM5YPC3YGEJPTTVRBFPJ307RM",
-      "phoneE164": "+12397762044",
+      "phoneE164": "+12395551234",
       "origin": "bowling",
       "originRef": "1454",                       // QAMF reservation id (string)
       "centerCode": "TXBSQN0FEKQ11",
@@ -463,7 +463,7 @@ shape of `SurveyRow` matches the `GuestSurveyListItem` TypeScript type in
   queries hit indexed columns and are cheap.
 - The backfill / wipe / send-test endpoints **mutate** state. Don't expose them
   as background polling targets.
-- Phone numbers in responses are in **E.164** (`+12397762044`). Square customer
+- Phone numbers in responses are in **E.164** (`+12395551234`). Square customer
   IDs are opaque strings. The `squareDashboardUrl` field is the canonical
   drill-down link.
 - Timestamps are ISO 8601 UTC. The `byDay` grouping in `/stats` uses the

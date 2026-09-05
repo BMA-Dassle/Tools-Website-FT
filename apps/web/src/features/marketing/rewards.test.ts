@@ -37,7 +37,7 @@ const mockedEnsureUnique = vi.mocked(ensureUniquePromoCode);
 
 const BASE_INPUT = {
   customerId: "CUS_TEST",
-  phoneE164: "+12397762044",
+  phoneE164: "+12395551234",
   locationId: "TXBSQN0FEKQ11",
   baseKey: "abc123",
   surveyId: "survey-uuid-1",
@@ -81,7 +81,7 @@ describe("issueReward — pinz", () => {
 
     expect(mockedEnroll).toHaveBeenCalledWith({
       customerId: "CUS_TEST",
-      phoneE164: "+12397762044",
+      phoneE164: "+12395551234",
       baseKey: "abc123",
     });
     expect(mockedCredit).toHaveBeenCalledWith({

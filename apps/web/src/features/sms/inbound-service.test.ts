@@ -5,7 +5,7 @@ import type { MoPayload } from "./mo-payload";
 function payload(body: string, id = "msg1"): MoPayload {
   return {
     id,
-    from: "+12397762044",
+    from: "+12395551234",
     to: "+12394412867",
     body,
     receivedAt: "2026-08-20T01:13:42.000Z",

@@ -107,7 +107,7 @@ components:
         id: { type: string, format: uuid }
         token: { type: string }
         squareCustomerId: { type: string }
-        phoneE164: { type: string, example: "+12397762044" }
+        phoneE164: { type: string, example: "+12395551234" }
         origin: { type: string, enum: [bowling, racing] }
         originRef:
           { type: string, description: "QAMF reservation id (bowling) or VT3 match id (racing)." }
@@ -500,7 +500,7 @@ paths:
               type: object
               required: [phone, guestName, centerCode]
               properties:
-                phone: { type: string, example: "+12397762044" }
+                phone: { type: string, example: "+12395551234" }
                 guestName: { type: string, example: "Eric Osborn" }
                 guestEmail: { type: string, format: email }
                 centerCode: { type: string, enum: [TXBSQN0FEKQ11, PPTR5G2N0QXF7] }

@@ -151,7 +151,7 @@ describe("POST /api/surveys/[token]/reward — Pinz path", () => {
       aGuestSurvey({
         token: TOKEN,
         squareCustomerId: "CUS_TEST",
-        phoneE164: "+12397762044",
+        phoneE164: "+12395551234",
         centerCode: "TXBSQN0FEKQ11",
         completedAt: "2026-05-20T20:00:00.000Z",
         rewardKind: null,
@@ -181,7 +181,7 @@ describe("POST /api/surveys/[token]/reward — Pinz path", () => {
     expect(mockedIssue).toHaveBeenCalledWith(
       expect.objectContaining({
         customerId: "CUS_TEST",
-        phoneE164: "+12397762044",
+        phoneE164: "+12395551234",
         locationId: "TXBSQN0FEKQ11",
         kind: "pinz",
         surveyId: expect.any(String),
@@ -199,7 +199,7 @@ describe("POST /api/surveys/[token]/reward — Pinz path", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     const send = smsMock.lastSend();
-    expect(send?.to).toBe("+12397762044");
+    expect(send?.to).toBe("+12395551234");
     expect(send?.body).toContain("500 Pinz");
     expect(send?.body).toContain("1500");
 
@@ -220,7 +220,7 @@ describe("POST /api/surveys/[token]/reward — gift card path", () => {
       aGuestSurvey({
         token: TOKEN,
         squareCustomerId: "CUS_TEST",
-        phoneE164: "+12397762044",
+        phoneE164: "+12395551234",
         centerCode: "TXBSQN0FEKQ11",
         completedAt: "2026-05-20T20:00:00.000Z",
         rewardKind: null,

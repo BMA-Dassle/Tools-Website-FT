@@ -5381,3 +5381,61 @@ neighbour was half-way across.
    fraction, reproduced the reported overlap to the millisecond (500ms at Fort Myers) and tripped
    the CSS lock — proof the new tests bite, rather than a green suite that would have passed
    against the broken code too.
+
+## Recency alone ranks the newest ARTEFACT above the real account (2026-09-05)
+
+**Symptom.** Signing in at the kiosk with a phone number never offered the owner's actual BMI
+account — the one carrying the licence, passes, qualifications and credits. The ten accounts on
+offer were all test stubs.
+
+**Root cause, measured live.** That number sits on **628** Office person records. Three filters
+stacked, and the first one alone was fatal:
+
+1. `search/person` was asked for `maxResults=500`. It answers **newest-id-first**, so a cap
+   truncates the **oldest** records — exactly the long-established accounts. The real account was
+   at **position 598** and never reached the browser. (`maxResults=2000` returned the complete 628;
+   `5000` returned the same 628, so 628 is everything upstream holds.)
+2. `rankSearchResults` collapsed duplicates to ONE record per NAME, keeping the most recent. ~406
+   raw hits shared that name, so a stub minted days earlier took the only slot.
+3. The survivors were then sliced to the top 10 by "Last seen". The cutoff was five weeks newer
+   than the real account.
+
+**Lessons.**
+
+1. **A cap on a sorted upstream is a filter, not a limit.** `maxResults=500` reads like a payload
+   guard; because the sort is newest-first it is really "hide everything older than the 500th
+   record". Whenever you cap a result set, ask what the ordering makes you throw away — here it
+   threw away precisely the records worth keeping. Size the cap to *not truncate* (the constant is
+   `OFFICE_SEARCH_MAX_RESULTS`, with the measurement in its comment), or page.
+2. **"Most recently used" is only a proxy for "the one they want" among comparable records.**
+   The original rule (2026-07-21) was sound where it was born — a handful of real duplicates, pick
+   the live one. It inverts once the duplicates are worthless: a stub is not a better answer for
+   being newer, it is an artefact. Rank by SUBSTANCE first (`substanceTier`: a licence / pass /
+   qualification / race credit beats a birthdate-or-address record beats a bare stub), and let
+   recency decide only within a tier.
+3. **Auto-granted memberships are not substance.** "Customer Registration" and "Default Membership"
+   ride along on every web-registered stub. Reuse `isRelevantMembership` — the same rule the account
+   card and the product filter use — so "a real account" means one thing repo-wide.
+4. **Collapse and sort must use the SAME comparator.** The name-dedupe picked its winner on recency
+   while the sort claimed to rank on recency-then-completeness. The real account was discarded by
+   the collapse before the ordering could ever have surfaced it. One `byRank`, used by both.
+5. **Prove it against the live corpus, not the fixture.** The unit tests pass on three rows. What
+   settled it was replaying the actual 656 merged hits through the new module: the real account went
+   from ABSENT to position 2, and all ten slots became tier-2 accounts.
+
+## Test contact details: 2395551234, never a real number (2026-09-05)
+
+**Why.** The 628 records above are the bill for years of typing a real mobile into kiosk and web
+test runs. The pollution is not recoverable — it degrades every lookup keyed on that number, for the
+person who owns it, forever.
+
+1. **`2395551234` is the repo's test phone.** The mint probes already default to it
+   (`cloudmint-*`, `cloudfirst-e2e-reservation`); fixtures, docstrings, OpenAPI examples and handoff
+   docs now use it too. It is a reserved 555 number, so nothing can be delivered to it — that is the
+   point everywhere except a deliberate SMS-delivery smoke.
+2. **Never hardcode a real number as a script DEFAULT.** `racing-survey-fire-test.mts` defaulted to
+   the owner's mobile and *deletes* that number's survey and marketing-touch history before firing.
+   A bare run wiped a real person's records. Destructive scripts take the target as a required
+   argument — no default is the safe default.
+3. **Examples in shipped docs are copied.** A real number in a vendor handoff doc is both a privacy
+   leak and the seed of the next 628 records, because the next person pastes what the doc shows.

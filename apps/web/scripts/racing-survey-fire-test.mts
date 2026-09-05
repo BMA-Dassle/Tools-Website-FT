@@ -2,7 +2,12 @@
  * One-off: fire a REAL FastTrax racing survey SMS to a test number from the
  * dev machine (uses prod Neon + Square + Vox via .env.local).
  *
- * Usage (from apps/web): npx tsx scripts/racing-survey-fire-test.mts 2397762044
+ * Usage (from apps/web): npx tsx scripts/racing-survey-fire-test.mts 2395551234
+ *
+ * The phone is REQUIRED. It used to default to a real number, and step 2 below
+ * DELETES that number's survey + marketing-touch history — a bare run quietly
+ * wiped a real person's records. Use a test number (2395551234 is the repo's,
+ * see tasks/lessons.md § Test contact details) unless you need SMS delivery.
  *
  * Steps:
  *   1. syncGuestSurveyQuestions() — push the new racing + food_drink seed
@@ -17,11 +22,17 @@ for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^"(.*)"$/, "$1");
 }
 
-const rawPhone = process.argv[2] ?? "2397762044";
+const rawPhone = process.argv[2];
+if (!rawPhone) {
+  console.error(
+    "Usage: npx tsx scripts/racing-survey-fire-test.mts <phone>\n" +
+      "  No default — this wipes the number's survey history before firing.",
+  );
+  process.exit(1);
+}
 
-const { syncGuestSurveyQuestions, deleteGuestSurveysByPhone } = await import(
-  "@/lib/guest-survey-db"
-);
+const { syncGuestSurveyQuestions, deleteGuestSurveysByPhone } =
+  await import("@/lib/guest-survey-db");
 const { deleteMarketingTouchesByPhone } = await import("@/lib/marketing-db");
 const { recordOptIn, normalizePhoneE164 } = await import("~/features/marketing");
 const { enqueueRacingSurvey } = await import("~/features/guest-survey");
@@ -31,7 +42,9 @@ console.log(`\n[fire-test] target phone = ${phoneE164}`);
 
 // 1. Sync questions
 const sync = await syncGuestSurveyQuestions();
-console.log(`[fire-test] sync questions: upserted=${sync.upserted} deactivated=${sync.deactivated}`);
+console.log(
+  `[fire-test] sync questions: upserted=${sync.upserted} deactivated=${sync.deactivated}`,
+);
 
 // 2. Clear prior rows for this phone (so the cap can't block the test)
 const wipedSurveys = await deleteGuestSurveysByPhone(phoneE164);

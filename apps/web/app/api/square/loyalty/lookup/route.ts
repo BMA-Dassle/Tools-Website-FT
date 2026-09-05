@@ -18,7 +18,7 @@ function toE164(phone: string): string {
 
 /**
  * POST /api/square/loyalty/lookup
- * Body: { phone: "2397762044" }
+ * Body: { phone: "2395551234" }
  * Returns: { exists: true, account, customer } or { exists: false }
  */
 export async function POST(req: NextRequest) {

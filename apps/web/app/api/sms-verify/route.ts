@@ -86,7 +86,7 @@ async function sendEmailOtp(to: string, code: string): Promise<boolean> {
 
 /**
  * POST — Send verification code via SMS or email
- * Body: { phone: "2397762044" } OR { email: "user@example.com" }
+ * Body: { phone: "2395551234" } OR { email: "user@example.com" }
  * Returns: { sent: true } or { error: "..." }
  */
 export async function POST(req: NextRequest) {
@@ -176,7 +176,7 @@ const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
 
 /**
  * PUT — Verify code
- * Body: { phone: "2397762044", code: "123456", squareCustomerId?: "..." }
+ * Body: { phone: "2395551234", code: "123456", squareCustomerId?: "..." }
  *       OR { email: "x@y.com", code: "123456" }
  *
  * Returns: { verified: true, customer?: {...} } or { verified: false, attemptsLeft: N }
