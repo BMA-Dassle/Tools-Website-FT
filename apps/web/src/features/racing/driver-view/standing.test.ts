@@ -130,6 +130,35 @@ describe("currentTakeover", () => {
     expect(currentTakeover(f, T + 8_000)?.kind).toBe("red");
   });
 
+  it("drops a crash screen once the heat has taken the flag", () => {
+    // A kart parked after the race keeps tripping crash detect, and every
+    // re-fire renews the 20s expiry — so this one arrives AFTER the chequered
+    // flag and the ordinary clear rule (which only looks at newer events)
+    // cannot catch it. Kart 54 sat on this screen with the race long over.
+    const f = feed(a("chequered", 0), a("crash", 30_000, { expiresAtMs: T + 50_000 }));
+    expect(currentTakeover(f, T + 35_000)?.kind).toBe("chequered");
+  });
+
+  it("suppresses a caution and a red flag after the finish too", () => {
+    for (const kind of ["caution", "red"] as const) {
+      const f = feed(a("chequered", 0), a(kind, 30_000));
+      expect(currentTakeover(f, T + 35_000)?.kind, kind).toBe("chequered");
+    }
+  });
+
+  it("does not let one heat's finish silence the NEXT heat", () => {
+    // A live feed spans six hours and several races.
+    const finished = { ...a("chequered", 0), sessionId: "heat-64" };
+    const nextRace = { ...a("crash", 600_000, { expiresAtMs: T + 620_000 }), sessionId: "heat-65" };
+    const f = [nextRace, finished].sort((x, y) => y.atMs - x.atMs);
+    expect(currentTakeover(f, T + 605_000)?.kind).toBe("crash");
+  });
+
+  it("keeps a disqualification up after the flag — it is a verdict, not a condition", () => {
+    const f = feed(a("chequered", 0), a("disqualified", 10_000));
+    expect(currentTakeover(f, T + 20_000)?.kind).toBe("disqualified");
+  });
+
   it("keeps a disqualification on screen — nothing times it out", () => {
     const f = feed(a("disqualified", 0));
     expect(currentTakeover(f, T + 30 * 60_000)?.kind).toBe("disqualified");

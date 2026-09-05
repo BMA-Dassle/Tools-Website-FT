@@ -114,7 +114,41 @@ const PRIORITY: Record<AlertKind, number> = {
  *
  * @param alerts Newest first — the order the Redis feed returns.
  */
+/**
+ * Kinds that mean the heat is over.
+ *
+ * Anything the track was doing stops mattering the moment the flag is out.
+ */
+const RACE_ENDING: ReadonlySet<AlertKind> = new Set<AlertKind>(["chequered", "finished"]);
+
+/**
+ * The only takeovers allowed to stand after a race has ended.
+ *
+ * The chequered flag itself, obviously. A disqualification too — it is a
+ * verdict on the race that just finished, not a track condition, and a driver
+ * who was black-flagged should still be looking at it when they pull in.
+ */
+const SURVIVES_RACE_END: ReadonlySet<AlertKind> = new Set<AlertKind>(["chequered", "disqualified"]);
+
 export function currentTakeover(alerts: readonly DriverAlert[], nowMs: number): DriverAlert | null {
+  /**
+   * WHICH SESSIONS HAVE FINISHED.
+   *
+   * A kart parked after the flag keeps tripping crash detect, and every re-fire
+   * refreshes the twenty-second expiry — so the crash screen sat on a driver
+   * long after their race was over (owner 2026-09-05, kart 54). The per-kind
+   * clear rule could not catch it: it only looks at events NEWER than the alert,
+   * and those crashes are newer than the chequered flag.
+   *
+   * So a finish is not just another clear — it retires the whole session. Scoped
+   * BY SESSION on purpose: a six-hour feed spans several heats, and the end of
+   * one must not suppress the next one's flags.
+   */
+  const endedSessions = new Set<string>();
+  for (const a of alerts) {
+    if (a.atMs <= nowMs && RACE_ENDING.has(a.kind) && a.sessionId) endedSessions.add(a.sessionId);
+  }
+
   const standing: DriverAlert[] = [];
 
   for (let i = 0; i < alerts.length; i++) {
@@ -123,6 +157,9 @@ export function currentTakeover(alerts: readonly DriverAlert[], nowMs: number): 
     // A muted kind never reaches a screen, even if one is still sitting in a
     // live feed from before the mute — feeds have a six-hour TTL. See muted.ts.
     if (isMuted(a.kind)) continue;
+    // These only happen WITHIN a race. Once the heat is finished, a crash, a
+    // caution or a red flag is about a track nobody is racing on.
+    if (a.sessionId && endedSessions.has(a.sessionId) && !SURVIVES_RACE_END.has(a.kind)) continue;
 
     // The venue's own expiry always wins when it gave us one.
     if (a.expiresAtMs !== null && nowMs >= a.expiresAtMs) continue;

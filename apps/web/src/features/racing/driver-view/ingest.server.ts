@@ -83,6 +83,32 @@ async function targetKarts(rec: VenueRecord): Promise<KartNumber[]> {
 const incidentKey = (sessionId: string) => `kart:incident:${sessionId}`;
 const INCIDENT_TTL_SECONDS = 30 * 60;
 
+/**
+ * A heat that has taken the flag. Crash detect keeps firing on a kart parked
+ * afterwards, so without this the pits generate incidents for a race nobody is
+ * driving — and one of them sat on a driver's screen (owner 2026-09-05).
+ */
+const endedKey = (sessionId: string) => `kart:sessionended:${sessionId}`;
+const ENDED_TTL_SECONDS = 6 * 60 * 60;
+
+async function markSessionEnded(sessionId: string): Promise<void> {
+  try {
+    await redis.set(endedKey(sessionId), "1", "EX", ENDED_TTL_SECONDS);
+    // The incident dies with the race: nothing left to clear.
+    await redis.del(incidentKey(sessionId));
+  } catch {
+    /* the render path suppresses it too — see standing.ts */
+  }
+}
+
+async function sessionHasEnded(sessionId: string): Promise<boolean> {
+  try {
+    return (await redis.get(endedKey(sessionId))) === "1";
+  } catch {
+    return false;
+  }
+}
+
 async function readIncident(sessionId: string): Promise<IncidentState | null> {
   try {
     const raw = await redis.get(incidentKey(sessionId));
@@ -148,6 +174,10 @@ async function handleCrash(rec: VenueRecord, arrivedAtMs: number): Promise<void>
     }
     return;
   }
+
+  // ONLY WITHIN A RACE. A kart sitting in the pits after the flag trips crash
+  // detect over and over; none of it is a driver who needs reverse instructions.
+  if (await sessionHasEnded(sessionId)) return;
 
   const eventId = str(rec.Id) ?? `crash:${arrivedAtMs}`;
   const prev = await readIncident(sessionId);
@@ -367,6 +397,18 @@ async function ingestRecord(rec: VenueRecord, arrivedAtMs: number): Promise<void
       });
     }
     return;
+  }
+
+  // 2a-bis. A heat taking the flag retires its incidents. Recorded before the
+  //         alert is routed, so a crash arriving in the same message as the
+  //         finish is already too late.
+  if (
+    type === "CheckeredFlagNotification" ||
+    type === "SessionFinishedNotification" ||
+    type === "RaceFinish"
+  ) {
+    const ended = str(rec.SessionId) ?? str(rec.RaceId);
+    if (ended) await markSessionEnded(ended);
   }
 
   // 2b. Crashes have their own path: one incident, one yellow, however many
