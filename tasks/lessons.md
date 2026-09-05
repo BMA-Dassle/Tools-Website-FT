@@ -1,5 +1,40 @@
 # Lessons Learned
 
+## A `fixed` overlay inside a `.k-glass` card is not full-screen — `backdrop-filter` makes the card its containing block (2026-09-05)
+
+**What happened:** the new guest "My race history" sheet opened *inside* the roster card
+it was launched from — a blurred panel clipped to the card, the roster still visible
+around it. It looked, in the owner's words, like an amateur mistake, and it was one.
+
+**Root cause:** `position: fixed` is positioned against the viewport *only* when no
+ancestor establishes a containing block. `transform`, `filter`, `perspective`,
+`will-change` and **`backdrop-filter`** all establish one. `.k-glass` — the class on
+every roster card, sheet and panel on the kiosk — sets `backdrop-filter: blur(18px)`.
+So a `fixed inset-0` element rendered *within* a card anchors to the card, not the
+canvas. (`.kiosk-canvas` is itself transformed, which is why kiosk sheets anchor to the
+canvas rather than the browser viewport — that part is intended and load-bearing.)
+
+**Why the gates missed it:** tsc, eslint, 7367 unit tests and the a11y gate all passed.
+None of them lay anything out. This class of defect is only visible on glass or in a
+browser, which is exactly why the on-glass smoke exists — and it was found the moment a
+human looked at the screen.
+
+**The pattern that was already right there:** `staff-mode/StaffSheetHost.tsx` renders
+whichever staff sheet is open **once, at the surface level**, and its own comment says
+why: *"so a sheet exists in exactly one place per page and the roster rows never have to
+know how to draw one."* The guest sheet was built as a self-contained per-card component
+instead, which is how it ended up nested.
+
+**Rules:**
+- A sheet, modal or overlay is **hosted once, above the cards** — by the page or a
+  provider — and per-row components only *ask* for it to open. Never render an overlay
+  as a sibling of the button that opens it inside a card.
+- Before adding a `fixed` overlay anywhere, check the ancestor chain for `.k-glass` (or
+  any `transform`/`filter`/`backdrop-filter`). If one is there, the overlay is contained.
+- `race-history/guest-race-history.structure.test.ts` pins this for the guest sheet
+  (control-verified: it fails against the shipped version). Copy that shape when adding
+  another hosted sheet.
+
 ## `person.tags[]` is a bag of HANDLES, not a list of login codes — and `lastSeen` refreshes on USE (2026-09-05)
 
 **What happened:** the kiosk wallet QR ("Add licence to phone") bounced every racer but

@@ -6,28 +6,70 @@
  * show it to the racer" — plus their credits by kind: races, gel blaster,
  * laser tag, headsock…).
  *
- * Mount pattern mirrors StaffPersonActions: `GuestRaceHistoryActions` renders
- * inside every roster card and is NULL unless (a) the page opted in by
- * providing `GuestRaceHistorySurface` (only KioskCrewFlow does — the booking
- * wizard's people step stays focused on building the party) and (b) the member
- * resolved a BMI account. The sheet is a guest re-skin of the staff
- * RaceHistorySheet: same Office personStats/races data and the same
- * racing/qualify.ts cutoffs, so "0.84 s off Pro" here and the level-up text a
- * racer gets after a heat can never disagree — minus memberships, which stay
- * staff-only, plus the guest-facing credits section.
+ * Mount pattern mirrors staff mode, and for a reason that BIT: the button
+ * renders per roster card, but the SHEET is hosted ONCE by the provider,
+ * above the cards. `.k-glass` (every roster card) sets `backdrop-filter`,
+ * which makes it the containing block for `position: fixed` descendants — a
+ * sheet rendered beside the button paints INSIDE the card instead of over the
+ * screen. `.k-flow-body` only scrolls, so hosting it there anchors to
+ * `.kiosk-canvas` like every other kiosk sheet. Same lesson StaffSheetHost
+ * records: "the roster rows never have to know how to draw one."
+ *
+ * `GuestRaceHistoryActions` is NULL unless (a) the page opted in by mounting
+ * `GuestRaceHistoryProvider` (only KioskCrewFlow does — the booking wizard's
+ * people step stays focused on building the party) and (b) the member resolved
+ * a BMI account. The sheet is a guest re-skin of the staff RaceHistorySheet:
+ * same Office personStats/races data and the same racing/qualify.ts cutoffs,
+ * so "0.84 s off Pro" here and the level-up text a racer gets after a heat can
+ * never disagree — minus memberships, which stay staff-only, plus the
+ * guest-facing credits section.
  *
  * Data rides /api/kiosk/race-history (read-only, no staff token — the guest's
  * own personId, obtained by signing in, is the capability).
  */
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { StaffLocation } from "../staff-mode/types";
 import type { RaceHistoryRow, RaceHistorySummary, TrackKey } from "../staff-mode/race-history";
 import { formatGapMs, formatLapMs } from "../staff-mode/race-history";
 import { useLocale } from "../i18n/LocaleProvider";
 
-/** Provided by pages that want guest race history on their roster cards
- *  (KioskCrewFlow). Default null = the button renders nowhere else. */
-export const GuestRaceHistorySurface = createContext<{ location: StaffLocation } | null>(null);
+interface GuestRaceHistoryCtx {
+  location: StaffLocation;
+  /** Whose history the hosted sheet is showing; null = closed. */
+  open: (target: { personId: string; name: string }) => void;
+}
+
+/** Null outside a provider, which is what keeps the button off every other
+ *  page's roster cards. */
+const Ctx = createContext<GuestRaceHistoryCtx | null>(null);
+
+/** Mounted by a page that wants guest race history on its roster cards
+ *  (KioskCrewFlow). Owns the open sheet and renders it ABOVE the cards — see
+ *  the k-glass containing-block note at the top of this file. */
+export function GuestRaceHistoryProvider({
+  location,
+  children,
+}: {
+  location: StaffLocation;
+  children: ReactNode;
+}) {
+  const [target, setTarget] = useState<{ personId: string; name: string } | null>(null);
+  const value = useMemo<GuestRaceHistoryCtx>(() => ({ location, open: setTarget }), [location]);
+  return (
+    <Ctx.Provider value={value}>
+      {children}
+      {target && (
+        <GuestRaceHistorySheet
+          key={target.personId}
+          name={target.name}
+          personId={target.personId}
+          location={location}
+          onClose={() => setTarget(null)}
+        />
+      )}
+    </Ctx.Provider>
+  );
+}
 
 // Track names stay English (brand/product glossary), colours match the staff
 // sheet and the briefing board.
@@ -53,43 +95,33 @@ export function GuestRaceHistoryActions({
 }: {
   member: { firstName: string; lastName?: string; bmiPersonId?: string };
 }) {
-  const surface = useContext(GuestRaceHistorySurface);
+  const ctx = useContext(Ctx);
   const { t } = useLocale();
-  const [open, setOpen] = useState(false);
-  if (!surface || !member.bmiPersonId) return null;
+  if (!ctx || !member.bmiPersonId) return null;
+  const personId = member.bmiPersonId;
   const name = `${member.firstName} ${member.lastName ?? ""}`.trim();
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="k-tap flex items-center gap-[10px] rounded-full border-[1.5px] border-[#00e2e5]/45 bg-[#00e2e5]/5 px-[24px] py-[12px] text-[22px] font-bold text-[#00e2e5]"
+    <button
+      type="button"
+      onClick={() => ctx.open({ personId, name })}
+      className="k-tap flex items-center gap-[10px] rounded-full border-[1.5px] border-[#00e2e5]/45 bg-[#00e2e5]/5 px-[24px] py-[12px] text-[22px] font-bold text-[#00e2e5]"
+    >
+      <svg
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
       >
-        <svg
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7 v5 l3.5 2" />
-        </svg>
-        {t("rh.button")}
-      </button>
-      {open && (
-        <GuestRaceHistorySheet
-          name={name}
-          personId={member.bmiPersonId}
-          location={surface.location}
-          onClose={() => setOpen(false)}
-        />
-      )}
-    </>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7 v5 l3.5 2" />
+      </svg>
+      {t("rh.button")}
+    </button>
   );
 }
 

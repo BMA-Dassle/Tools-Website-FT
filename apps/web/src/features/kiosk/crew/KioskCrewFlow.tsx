@@ -59,7 +59,7 @@ import { resetToKiosk } from "../version";
 import { useT } from "../i18n";
 import { StaffBar, StaffModeSurface, endStaffMode } from "../staff-mode";
 import type { StaffLocation } from "../staff-mode/types";
-import { GuestRaceHistorySurface } from "../race-history/GuestRaceHistory";
+import { GuestRaceHistoryProvider } from "../race-history/GuestRaceHistory";
 
 // Same patience as the waiver flow / race-info: guests stand and work through
 // waivers here; the watchdog pauses while a photo/signature is mid-flight.
@@ -167,12 +167,12 @@ function CrewInner({ config }: { config: KioskConfig }) {
   const staffLocation: StaffLocation =
     config.center === "naples" ? "naples" : config.brand === "headpinz" ? "headpinz" : "fasttrax";
 
-  // Guest race history (owner 2026-09-05): providing this surface is what puts
+  // Guest race history (owner 2026-09-05): mounting this provider is what puts
   // the "My race history" button on every signed-in roster card — the crew page
   // is the only surface that opts in (the booking wizard stays focused on
-  // building the party). Same location rule as the staff surface above.
-  // ABOVE the hydration gate: hooks must run in the same order every render.
-  const raceHistorySurface = useMemo(() => ({ location: staffLocation }), [staffLocation]);
+  // building the party). It also HOSTS the sheet, above the roster cards; see
+  // the containing-block note in GuestRaceHistory.tsx. Same location rule as
+  // the staff surface above.
 
   // Gate the body on reducer hydration (H4): the hook won't WRITE before
   // hydrated, and this keeps a fast tapper from dispatching against the
@@ -233,7 +233,7 @@ function CrewInner({ config }: { config: KioskConfig }) {
           <p className="mb-[28px] max-w-[44ch] text-[28px] leading-snug text-white/55">
             {t("crew.subtitle")}
           </p>
-          <GuestRaceHistorySurface.Provider value={raceHistorySurface}>
+          <GuestRaceHistoryProvider location={staffLocation}>
             <PeopleScreens
               item={item}
               session={session}
@@ -241,7 +241,7 @@ function CrewInner({ config }: { config: KioskConfig }) {
               dispatch={dispatch}
               setBusy={setPartyBusy}
             />
-          </GuestRaceHistorySurface.Provider>
+          </GuestRaceHistoryProvider>
         </div>
 
         {/* Actions — no cart pill, no prices; that's the point of this page. */}
