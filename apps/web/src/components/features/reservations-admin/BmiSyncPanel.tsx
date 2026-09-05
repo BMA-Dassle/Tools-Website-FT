@@ -21,6 +21,35 @@
 import { useMemo, useState } from "react";
 import ModalShell from "./ModalShell";
 import type { AdminSyncRow } from "~/features/reservations-admin/bmi-sync-view";
+import { etWallMs, nowEtWallMs } from "~/features/reservations-admin/format";
+
+/** Grace after the scheduled moment before a row is genuinely overdue. Heats
+ *  routinely run 6-20 min behind, and the barrier itself says so. */
+const SEAT_GRACE_MIN = 20;
+
+/**
+ * IS THIS ROW ACTUALLY LATE, OR JUST OLD?
+ *
+ * Age was the only measure, at a flat 10 minutes for every kind. That is right
+ * for a row waiting on a SYNC — those land in seconds — and wrong for one waiting
+ * on a SCHEDULED EVENT. A `stamp-confirmation-state` row is created when the
+ * party checks in and cannot land until they race, routinely an hour later, so it
+ * went amber after ten minutes and stayed amber through its entire healthy life
+ * (median 2.5 min, p95 96).
+ *
+ * Live on 2026-09-05: a 42-minute-old row sat on screen in amber, flagged `late`,
+ * while the heat it was waiting for was still fifteen minutes in the future. It
+ * was read as a stuck queue and cost an afternoon of chasing. A board that cries
+ * wolf is how staff learn to ignore the rows that DO need them.
+ *
+ * So when we know what a row is waiting FOR, judge against that. Otherwise keep
+ * the old age rule, which is still the right answer for everything else.
+ */
+export function isOverdue(r: AdminSyncRow): boolean {
+  const at = r.waitingForAt;
+  if (at) return nowEtWallMs() > etWallMs(at) + SEAT_GRACE_MIN * 60_000;
+  return r.ageMin >= 10;
+}
 
 const TONE = {
   parked: { bg: "rgba(239,68,68,0.14)", fg: "#f87171", border: "rgba(239,68,68,0.35)" },
@@ -38,7 +67,7 @@ export function toneFor(r: AdminSyncRow): keyof typeof TONE {
   // closed row reads as "late" for ever — the trap that hid `cancelled` rows.
   if (r.status === "dismissed" || r.status === "cancelled" || r.status === "lapsed")
     return "dismissed";
-  return r.ageMin >= 10 ? "late" : "pending";
+  return isOverdue(r) ? "late" : "pending";
 }
 
 /** What the State pill says. One word per status; never "gave up" for a row a
@@ -49,7 +78,7 @@ export function stateLabel(r: AdminSyncRow): string {
   if (r.status === "dismissed") return "set aside";
   if (r.status === "lapsed") return "too late";
   if (r.status === "cancelled") return "cancelled";
-  return r.ageMin >= 10 ? "late" : "waiting";
+  return isOverdue(r) ? "late" : "waiting";
 }
 
 /** Desk language beats field names: "waiting for the center's server to see the
@@ -145,7 +174,7 @@ export function BmiSyncPanel({
   const counts = useMemo(
     () => ({
       waiting: visible.filter((r) => r.status === "pending").length,
-      late: visible.filter((r) => r.status === "pending" && r.ageMin >= 10).length,
+      late: visible.filter((r) => r.status === "pending" && isOverdue(r)).length,
       cleared: visible.filter(isSettled).length,
       attention: visible.filter((r) => r.status === "parked").length,
       all: visible.length,

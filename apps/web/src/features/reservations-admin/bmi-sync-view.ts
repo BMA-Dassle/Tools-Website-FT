@@ -67,6 +67,22 @@ export interface AdminSyncRow {
   resolvedAt: string | null;
   /** Minutes since the row was created — how long this has been outstanding. */
   ageMin: number;
+  /**
+   * THE MOMENT THIS ROW'S GATE CAN FIRST PLAUSIBLY OPEN, as a naive-ET
+   * `YYYY-MM-DDTHH:MM` key — or null when the row has no such moment and age is
+   * the only measure we have.
+   *
+   * Age alone is a bad judge of a followup that waits on a SCHEDULED event. A
+   * `stamp-confirmation-state` row is created when the party CHECKS IN and cannot
+   * possibly land until they race, which is routinely an hour later — so a flat
+   * age threshold painted it "late" for most of its healthy life (median 2.5 min,
+   * p95 96). On 2026-09-05 that put a 42-minute-old row on screen in amber while
+   * its heat was still fifteen minutes away, and it read as a stuck queue.
+   *
+   * Populated from the earliest racing seat. Only the display uses it — the
+   * barrier and the cron are untouched.
+   */
+  waitingForAt?: string | null;
   /** Best-effort display name from the payload, so a row reads as a person. */
   who: string | null;
   /** WHICH MECHANISM is carrying this work — "neon-cron", "vercel-queue", or null
@@ -128,6 +144,30 @@ function nameFromPayload(payload: unknown): string | null {
   const name = typeof p.name === "string" ? p.name : "";
   const joined = `${first} ${last}`.trim() || name.trim();
   return joined || null;
+}
+
+/**
+ * The earliest racing seat a row is waiting on, as a naive-ET `YYYY-MM-DDTHH:MM`.
+ *
+ * `payload.seats[].heatStart` is already the kiosk's naive-ET key (the same
+ * vocabulary `partySeatedBarrier` compares against), so this only picks the
+ * minimum — no timezone maths, which is exactly what makes it safe. Anything
+ * missing or malformed yields null, and the caller falls back to age.
+ */
+function earliestSeatAt(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const seats = (payload as Record<string, unknown>).seats;
+  if (!Array.isArray(seats)) return null;
+  let earliest: string | null = null;
+  for (const s of seats) {
+    const at = s && typeof s === "object" ? (s as Record<string, unknown>).heatStart : null;
+    // 16 chars is `YYYY-MM-DDTHH:MM`; these keys sort lexicographically in time
+    // order, which is the only reason a plain string compare is legitimate.
+    if (typeof at !== "string" || at.length < 16) continue;
+    const key = at.slice(0, 16);
+    if (earliest === null || key < earliest) earliest = key;
+  }
+  return earliest;
 }
 
 /**
@@ -401,6 +441,7 @@ export async function listSyncQueueForAdmin(
       giveUpAt: r.give_up_at === null ? null : String(r.give_up_at),
       resolvedAt: r.resolved_at === null ? null : String(r.resolved_at),
       ageMin: Math.round(Number(r.age_min ?? 0)),
+      waitingForAt: earliestSeatAt(r.payload),
       who: nameFromPayload(r.payload),
       center: centerName(r.location_id === null ? null : String(r.location_id)),
       /**
