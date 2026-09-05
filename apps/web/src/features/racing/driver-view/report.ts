@@ -85,9 +85,34 @@ export interface ReportDriver {
   gapToFastestMs: number | null;
   /** Spread between their own best and worst timed lap — how consistent. */
   consistencyMs: number | null;
+  /**
+   * Typical spread, ignoring the one lap that went wrong.
+   *
+   * Best-to-worst is dominated by a single spin, which tells a racer nothing
+   * about their driving. This is the gap between their fastest lap and their
+   * MEDIAN one — the honest answer to "am I repeatable?".
+   */
+  medianGapMs: number | null;
+  /**
+   * How much they found over the heat: mean of the first third minus mean of
+   * the last third. Positive means they got faster. Null under six timed laps,
+   * where thirds are noise rather than a trend.
+   */
+  improvementMs: number | null;
+  /** Which lap number was their best — "you were quickest on lap 7". */
+  bestLapNumber: number | null;
   events: EventRow[];
   /** True when a disqualification is on their record for this heat. */
   disqualified: boolean;
+}
+
+/** What a racer is chasing next, and how close they got. */
+export interface LevelUp {
+  level: string;
+  targetMs: number;
+  /** Positive = still to find. Zero or negative = they made it. */
+  gapMs: number;
+  achieved: boolean;
 }
 
 export interface RaceReport {
@@ -101,8 +126,54 @@ export interface RaceReport {
   drivers: ReportDriver[];
   /** The heat's fastest lap and who set it. */
   fastestLap: { kart: string; name: string; ms: number } | null;
+  /**
+   * How close the field was — slowest best lap minus fastest best lap. A racer
+   * reads this as "was I in a real fight or a procession?".
+   */
+  fieldSpreadMs: number | null;
+  /** Who found the most time over the heat. Null when nobody ran enough laps. */
+  mostImproved: { kart: string; name: string; ms: number } | null;
   /** Every reportable event in the heat, oldest first — the timeline. */
   timeline: EventRow[];
+}
+
+/** Mean of a slice, or null when the slice is empty. */
+function mean(xs: number[]): number | null {
+  if (xs.length === 0) return null;
+  return Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
+}
+
+/**
+ * Time found across the heat: first third's mean minus last third's.
+ *
+ * Thirds rather than first-lap-vs-last-lap, because a single lap is mostly
+ * traffic. Under six timed laps a "third" is one or two laps and the number is
+ * noise dressed as a trend, so it is withheld.
+ */
+export function improvementOf(timedMs: readonly number[]): number | null {
+  if (timedMs.length < 6) return null;
+  const n = Math.floor(timedMs.length / 3);
+  const first = mean(timedMs.slice(0, n));
+  const last = mean(timedMs.slice(-n));
+  if (first === null || last === null) return null;
+  return first - last;
+}
+
+/**
+ * Gap from a driver's best lap to their MEDIAN lap — repeatability.
+ *
+ * Best-to-worst is dominated by the one lap where they spun, which says nothing
+ * about how they drive. The median ignores that and answers "can you do it
+ * again?", which is the question a racer actually improves against.
+ */
+export function medianGapOf(timedMs: readonly number[]): number | null {
+  if (timedMs.length < 3) return null;
+  const sorted = [...timedMs].sort((a, b) => a - b);
+  const mid =
+    sorted.length % 2
+      ? sorted[(sorted.length - 1) / 2]
+      : Math.round((sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2);
+  return mid - sorted[0];
 }
 
 export function parseHeatNumber(heatName: string | null): number | null {
@@ -157,6 +228,7 @@ export function buildReport(args: {
     const own = eventsByKart.get(kart) ?? [];
     const best = summary.best?.lapTimeMs ?? null;
     const worst = summary.worst?.lapTimeMs ?? null;
+    const timedMs = summary.timed.map((l) => l.lapTimeMs as number);
     return {
       kart,
       name,
@@ -165,6 +237,9 @@ export function buildReport(args: {
       summary,
       gapToFastestMs: null, // filled once the heat's fastest is known
       consistencyMs: best !== null && worst !== null ? worst - best : null,
+      medianGapMs: medianGapOf(timedMs),
+      improvementMs: improvementOf(timedMs),
+      bestLapNumber: summary.best?.lapNumber ?? null,
       events: own,
       disqualified: own.some((e) => e.kind === "disqualified"),
     };
@@ -197,6 +272,21 @@ export function buildReport(args: {
     }
   }
 
+  // How close the field was, and who found the most over the heat. Both read
+  // off the drivers who actually set a time — a DNS must not widen the spread.
+  const bests = rows
+    .map((d) => d.summary.best?.lapTimeMs ?? null)
+    .filter((ms): ms is number => ms !== null);
+  const fieldSpreadMs = bests.length >= 2 ? Math.max(...bests) - Math.min(...bests) : null;
+
+  let mostImproved: RaceReport["mostImproved"] = null;
+  for (const d of rows) {
+    if (d.improvementMs === null || d.improvementMs <= 0) continue;
+    if (mostImproved === null || d.improvementMs > mostImproved.ms) {
+      mostImproved = { kart: d.kart, name: d.name, ms: d.improvementMs };
+    }
+  }
+
   const allTimes = crossings.map((c) => c.atUtc).sort();
 
   return {
@@ -208,7 +298,38 @@ export function buildReport(args: {
     endedAtUtc: allTimes[allTimes.length - 1] ?? null,
     drivers: rows,
     fastestLap: fastest,
+    fieldSpreadMs,
+    mostImproved,
     timeline,
+  };
+}
+
+/**
+ * What this driver is chasing next, from the SAME cutoffs the kiosk sheet and
+ * the post-heat level-up text use (`~/features/racing/qualify`). Reused rather
+ * than restated: a report promising a different time from the sign-in screen
+ * would be worse than one promising nothing.
+ *
+ * The heat name carries both halves the lookup needs — "65 - Blue Starter" is
+ * the track AND the race type — so it is passed for both.
+ */
+export function levelUpFor(
+  report: RaceReport,
+  driver: ReportDriver,
+  nextLevelTarget: (
+    track: string,
+    raceType: string | null | undefined,
+  ) => { level: string; ms: number } | null,
+): LevelUp | null {
+  const best = driver.summary.best?.lapTimeMs ?? null;
+  if (best === null || !report.sessionName) return null;
+  const target = nextLevelTarget(report.sessionName, report.sessionName);
+  if (!target) return null;
+  return {
+    level: target.level,
+    targetMs: target.ms,
+    gapMs: best - target.ms,
+    achieved: best <= target.ms,
   };
 }
 

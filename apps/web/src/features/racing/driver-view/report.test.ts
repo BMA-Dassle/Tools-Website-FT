@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReport, driverInReport, headline, parseHeatNumber } from "./report";
+import { buildReport, driverInReport, headline, levelUpFor, parseHeatNumber } from "./report";
 
 const T = Date.parse("2026-09-05T03:30:00.000Z");
 
@@ -117,6 +117,88 @@ describe("buildReport", () => {
 
   it("spans the heat by its first and last crossing", () => {
     expect(REPORT.startedAtUtc).toBe(new Date(T).toISOString());
+  });
+});
+
+describe("the numbers that tell a racer how to get faster", () => {
+  const mine = driverInReport(REPORT, "15")!;
+
+  it("measures repeatability against the MEDIAN lap, not the worst one", () => {
+    // Timed laps: 53.419 33.881 33.761 34.608 31.208 44.469 40.768
+    // sorted: 31.208 33.761 33.881 34.608 40.768 44.469 53.419 → median 34.608
+    // Best-to-worst would be 22.211 — dominated by one bad lap and useless as
+    // a measure of how they drive.
+    expect(mine.medianGapMs).toBe(34608 - 31208);
+    expect(mine.consistencyMs).toBe(53419 - 31208);
+  });
+
+  it("reports time found as first third against last third", () => {
+    // 7 timed laps → thirds of 2. First two 53.419/33.881 (mean 43650),
+    // last two 44.469/40.768 (mean 42619) → 1031ms found.
+    expect(mine.improvementMs).toBe(43650 - 42619);
+  });
+
+  it("withholds a trend from too few laps", () => {
+    const short = buildReport({
+      sessionId: "s",
+      sessionName: null,
+      track: null,
+      standings: [],
+      crossings: CROSSINGS.filter((c) => c.kart === "22"), // 3 laps
+      events: [],
+    });
+    expect(driverInReport(short, "22")?.improvementMs).toBeNull();
+  });
+
+  it("names the lap the best was set on", () => {
+    expect(mine.bestLapNumber).toBe(7);
+  });
+
+  it("measures how close the field was, ignoring anyone with no time", () => {
+    expect(REPORT.fieldSpreadMs).toBe(31208 - 30146);
+  });
+
+  it("names who found the most time, and nobody when nobody did", () => {
+    // Only kart 15 has enough laps for a trend here.
+    expect(REPORT.mostImproved?.kart).toBe("15");
+    const flat = buildReport({
+      sessionId: "s",
+      sessionName: null,
+      track: null,
+      standings: [],
+      crossings: CROSSINGS.filter((c) => c.kart === "22"),
+      events: [],
+    });
+    expect(flat.mostImproved).toBeNull();
+  });
+});
+
+describe("levelUpFor", () => {
+  // Stub the cutoff lookup so this tests the SHAPE, not the numbers — the real
+  // cutoffs live in ~/features/racing/qualify and are that module's to assert.
+  const target = () => ({ level: "Intermediate", ms: 41_000 });
+
+  it("says what to chase and how far off it is", () => {
+    const lu = levelUpFor(REPORT, driverInReport(REPORT, "15")!, target);
+    expect(lu?.level).toBe("Intermediate");
+    expect(lu?.achieved).toBe(true); // 31.208 is already under 41s
+    expect(lu?.gapMs).toBe(31208 - 41000);
+  });
+
+  it("shows a real gap when they are off the pace", () => {
+    const slow = () => ({ level: "Pro", ms: 30_000 });
+    const lu = levelUpFor(REPORT, driverInReport(REPORT, "15")!, slow);
+    expect(lu?.achieved).toBe(false);
+    expect(lu?.gapMs).toBe(31208 - 30000);
+  });
+
+  it("says nothing at the top of the ladder, or with no lap set", () => {
+    expect(levelUpFor(REPORT, driverInReport(REPORT, "15")!, () => null)).toBeNull();
+    const noLaps = {
+      ...driverInReport(REPORT, "15")!,
+      summary: { ...driverInReport(REPORT, "15")!.summary, best: null },
+    };
+    expect(levelUpFor(REPORT, noLaps, target)).toBeNull();
   });
 });
 

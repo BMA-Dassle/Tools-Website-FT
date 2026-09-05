@@ -104,6 +104,31 @@ export const en = {
   finishedTitle: "Your laps are saved",
   finishedBody: "Come back to them any time.",
 
+  // race report sections
+  sectionResults: "Full results",
+  sectionWhatHappened: "What happened",
+  sectionYourLaps: "Your laps",
+  sectionHowItWent: "How it went",
+  linkFullResults: "See the full results",
+  viewResults: "See your laps",
+
+  // race report detail
+  labelFastestLap: "Fastest lap of the heat",
+  labelRepeatability: "Repeatability",
+  labelRepeatabilityHint: "Your best against your typical lap — lower is more consistent.",
+  labelImprovement: "Time found",
+  labelImprovementHint: "First third of the heat against the last third.",
+  labelBestOnLap: "Best on lap {n}",
+  labelFieldSpread: "Field spread",
+  labelFieldSpreadHint: "Fastest to slowest best lap.",
+  labelMostImproved: "Most improved",
+  labelGapToFastest: "Off the pace",
+  labelNoImprovement: "Held steady",
+  levelUpTitle: "Next level",
+  levelUpChasing: "{time} for {level} — you are {gap} away.",
+  levelUpAchieved: "Your best lap is {level} pace. Ask the desk to move you up.",
+  labelNothingYet: "No timed laps in this heat.",
+
   // states
   feedDownTitle: "Live timing unavailable",
   feedDownBody: "We have lost the feed from the track. Your laps are still being recorded.",
@@ -199,6 +224,29 @@ export const es: Record<CopyKey, string> = {
 
   feedDownTitle: "Tiempos en vivo no disponibles",
   feedDownBody: "Perdimos la señal de la pista. Tus vueltas se siguen registrando.",
+
+  sectionResults: "Resultados completos",
+  sectionWhatHappened: "Qué pasó",
+  sectionYourLaps: "Tus vueltas",
+  sectionHowItWent: "Cómo te fue",
+  linkFullResults: "Ver resultados completos",
+  viewResults: "Ver tus vueltas",
+
+  labelFastestLap: "Vuelta más rápida de la carrera",
+  labelRepeatability: "Constancia",
+  labelRepeatabilityHint: "Tu mejor vuelta contra tu vuelta típica — menos es más constante.",
+  labelImprovement: "Tiempo ganado",
+  labelImprovementHint: "El primer tercio de la carrera contra el último.",
+  labelBestOnLap: "Mejor en la vuelta {n}",
+  labelFieldSpread: "Diferencia del grupo",
+  labelFieldSpreadHint: "De la mejor vuelta más rápida a la más lenta.",
+  labelMostImproved: "Mayor progreso",
+  labelGapToFastest: "Diferencia con el líder",
+  labelNoImprovement: "Ritmo constante",
+  levelUpTitle: "Siguiente nivel",
+  levelUpChasing: "{time} para {level} — te faltan {gap}.",
+  levelUpAchieved: "Tu mejor vuelta es ritmo de {level}. Pide en recepción que te suban.",
+  labelNothingYet: "No hay vueltas cronometradas en esta carrera.",
 };
 
 export type Locale = "en" | "es";
