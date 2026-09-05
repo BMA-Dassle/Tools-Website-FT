@@ -4,9 +4,11 @@ import {
   dobTokenOf,
   firstNameAffinity,
   lastSeenFromDescription,
+  membershipsFromDescription,
   nameFromDescription,
   rankSearchResults,
   scoreSearchResult,
+  substanceTier,
 } from "./office-search";
 
 const DESC_FULL = "JANE DOE (239) 555-1212 zip: 33901 Last seen: 3/1/2024";
@@ -105,5 +107,100 @@ describe("rankSearchResults", () => {
       2,
     );
     expect(ranked.map((r) => r.localId)).toEqual(["new", "mid"]);
+  });
+});
+
+// ── substance ranking ───────────────────────────────────────────────────────
+// Shapes copied from a live `search/person` answer (names/DOBs fictionalized).
+// This is the case that broke the phone sign-in: one number on hundreds of
+// records, the real account old, every recent duplicate a value-less stub.
+const REAL_ACCOUNT =
+  "JANE DOE (3/14/2001) zip: 33901 phone: 2395551212, 2395551212 Last seen: 7/1/2026 " +
+  "Memberships: Default, Default Membership, Customer Registration, License Fee, Turbo Pass, " +
+  "Qualified Intermediate, Qualified Pro";
+const RECENT_STUB = "JANE DOE phone: 2395551212 Last seen: 8/22/2026";
+const REGISTERED_STUB =
+  "WEB USER (1/1/1990) phone: 2395551212 Last seen: 8/13/2026 Memberships: Customer Registration";
+
+describe("membershipsFromDescription", () => {
+  it("splits the Memberships tail; empty when absent", () => {
+    expect(membershipsFromDescription(REAL_ACCOUNT)).toEqual([
+      "Default",
+      "Default Membership",
+      "Customer Registration",
+      "License Fee",
+      "Turbo Pass",
+      "Qualified Intermediate",
+      "Qualified Pro",
+    ]);
+    expect(membershipsFromDescription(RECENT_STUB)).toEqual([]);
+  });
+});
+
+describe("substanceTier", () => {
+  it("2 for racing value, 1 for an identified human, 0 for a bare stub", () => {
+    expect(substanceTier(REAL_ACCOUNT)).toBe(2);
+    expect(substanceTier("JANE DOE (3/14/2001) phone: 2395551212")).toBe(1);
+    expect(substanceTier("JANE DOE zip: 33901 phone: 2395551212")).toBe(1);
+    expect(substanceTier(RECENT_STUB)).toBe(0);
+  });
+
+  it("the auto-granted memberships are NOT substance", () => {
+    // "Customer Registration" / "Default Membership" ride along on every
+    // web-registered stub, so on their own they must not lift a record.
+    expect(substanceTier(REGISTERED_STUB)).toBe(1); // the DOB, not the membership
+    expect(substanceTier("WEB USER phone: 2395551212 Memberships: Customer Registration")).toBe(0);
+    expect(substanceTier("WEB USER phone: 2395551212 Memberships: Default Membership")).toBe(0);
+  });
+});
+
+describe("rankSearchResults — substance beats recency", () => {
+  it("surfaces the licensed account over newer value-less duplicates", () => {
+    // Distinct names so nothing collapses — this asserts the ORDER only.
+    const ranked = rankSearchResults(
+      [
+        { localId: "stub-newest", description: RECENT_STUB.replace("JANE DOE", "JAN DOE") },
+        { localId: "stub-registered", description: REGISTERED_STUB },
+        { localId: "real", description: REAL_ACCOUNT },
+      ],
+      10,
+    );
+    expect(ranked[0].localId).toBe("real");
+    expect(ranked.map((r) => r.tier)).toEqual([2, 1, 0]);
+  });
+
+  it("keeps the SUBSTANTIVE copy when duplicates share a name, not the newest", () => {
+    // The bug in one assertion: collapsing by name on recency alone threw the
+    // real account away before the ordering could ever surface it.
+    const ranked = rankSearchResults(
+      [
+        { localId: "stub-newest", description: RECENT_STUB },
+        { localId: "real", description: REAL_ACCOUNT },
+      ],
+      10,
+    );
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0].localId).toBe("real");
+  });
+
+  it("still prefers the most recent copy among records of equal substance", () => {
+    // The owner's 2026-07-21 rule, intact where it belongs.
+    const ranked = rankSearchResults(
+      [
+        { localId: "older", description: REAL_ACCOUNT },
+        {
+          localId: "newer",
+          description: REAL_ACCOUNT.replace("Last seen: 7/1/2026", "Last seen: 9/1/2026"),
+        },
+      ],
+      10,
+    );
+    expect(ranked[0].localId).toBe("newer");
+  });
+
+  it("a parenthesised area code is not a birthdate", () => {
+    // `(\d` used to match "(239) 555-1212" and score it as a DOB.
+    expect(substanceTier("JANE DOE (239) 555-1212")).toBe(0);
+    expect(scoreSearchResult("JANE DOE (239) 555-1212")).toBe(0);
   });
 });

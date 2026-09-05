@@ -7,7 +7,11 @@ import {
 } from "~/features/booking/service/race-products";
 import { hasActiveLicenseMembership } from "~/features/booking/service/license";
 import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
-import { rankSearchResults, type SearchCandidate } from "~/features/booking/service/office-search";
+import {
+  OFFICE_SEARCH_MAX_RESULTS,
+  rankSearchResults,
+  type SearchCandidate,
+} from "~/features/booking/service/office-search";
 import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
 
 export interface PersonData {
@@ -99,13 +103,14 @@ type Phase =
  * login code (`code=…`) so the server-side gate on person/deposits admits it.
  *
  * Accepts multiple queries because phones are stored in mixed formats upstream:
- * a guest saved as "12397762044" or "+12397762044" only matches the 1-prefixed
+ * a guest saved as "12395551234" or "+12395551234" only matches the 1-prefixed
  * search, never the bare 10 digits. Results are merged before ranking.
  *
- * Ranking (owner 2026-07-21): keep the TOP 10 candidates ordered by most
- * recent use first (Last seen), then the description completeness score —
- * so the account the guest actually uses surfaces instead of whichever
- * duplicate the API happened to list first.
+ * Ranking: keep the TOP 10 candidates ordered by SUBSTANCE first (a licence /
+ * pass / qualification beats a value-less stub), then most recent use, then
+ * description completeness — see `byRank` in office-search.ts for why recency
+ * alone (the original owner rule, 2026-07-21) drops the very account the guest
+ * came to sign into once duplicates pile up.
  */
 async function searchCandidates(queries: string | string[]): Promise<SearchCandidate[]> {
   const qs = Array.isArray(queries) ? queries : [queries];
@@ -113,7 +118,7 @@ async function searchCandidates(queries: string | string[]): Promise<SearchCandi
     qs.map(async (query) => {
       try {
         const searchRes = await fetch(
-          `/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`,
+          `/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=${OFFICE_SEARCH_MAX_RESULTS}`,
         );
         if (!searchRes.ok) return [];
         return (await searchRes.json()) as Array<{ localId: string; description: string }>;
@@ -123,8 +128,9 @@ async function searchCandidates(queries: string | string[]): Promise<SearchCandi
     }),
   );
 
-  // Dedupe by id, then one candidate per person NAME (most recent copy wins,
-  // ties on completeness) — shared rule, see office-search.ts.
+  // Dedupe by id, then one candidate per person NAME — the copy that carries
+  // the most value wins, recency only breaking ties between equals. Shared
+  // rule, see office-search.ts.
   return rankSearchResults(batches.flat(), 10);
 }
 

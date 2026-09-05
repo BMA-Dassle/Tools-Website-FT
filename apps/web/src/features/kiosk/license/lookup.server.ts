@@ -49,6 +49,7 @@ import {
   dobTokenOf,
   firstNameAffinity,
   lastSeenFromDescription,
+  OFFICE_SEARCH_MAX_RESULTS,
 } from "~/features/booking/service/office-search";
 import { personIdForCode, rememberCodes } from "./code-cache";
 import { pickPublishableLoginCode } from "./types";
@@ -166,7 +167,8 @@ async function officeSearchPerson(
 ): Promise<SearchHit[]> {
   const token = await getOfficeToken(clientKey);
   const path =
-    `/api/${clientKey}/search/person` + `?token=${encodeURIComponent(searchToken)}&maxResults=500`;
+    `/api/${clientKey}/search/person` +
+    `?token=${encodeURIComponent(searchToken)}&maxResults=${OFFICE_SEARCH_MAX_RESULTS}`;
   const headers = {
     Authorization: `Bearer ${token}`,
     "x-fast-version": SMS_VERSION,
