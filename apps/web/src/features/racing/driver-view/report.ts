@@ -28,6 +28,7 @@
  * PURE. Feed it rows, get a report. No Redis, no Neon, no clock.
  */
 import { formatLapTime, numberLaps, summarise, type LapSummary } from "./laps";
+import { isMuted } from "./muted";
 import type { DriverLap, TrackKey } from "./types";
 
 /** A finishing line, as the archive stores it. */
@@ -256,6 +257,10 @@ export function buildReport(args: {
   const reportable: EventRow[] = [];
   for (const e of events) {
     if (!REPORTABLE.has(e.kind)) continue;
+    // Muted kinds stay out of the history as well as off the screen. The rows
+    // already in the table are left where they are — invisible while the mute
+    // holds, and there to study when we redesign it. See muted.ts.
+    if (isMuted(e.kind)) continue;
     reportable.push(e);
     if (!e.kart) continue;
     const list = eventsByKart.get(e.kart);

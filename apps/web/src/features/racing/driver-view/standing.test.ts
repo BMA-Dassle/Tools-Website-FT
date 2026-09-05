@@ -64,9 +64,12 @@ describe("currentTakeover", () => {
     expect(currentTakeover(f, T + 21_000)).toBeNull();
   });
 
-  it("honours the venue's own expiry on a caution", () => {
-    const f = feed(a("caution", 0, { expiresAtMs: T + 20_000 }));
-    expect(currentTakeover(f, T + 19_000)?.kind).toBe("caution");
+  it("honours the venue's own expiry", () => {
+    // Uses `crash` rather than `caution`: the expiry rule is the same, and the
+    // yellow is currently muted (see muted.ts) so it never reaches a screen to
+    // be expired. Point this back at caution if the mute is ever lifted.
+    const f = feed(a("crash", 0, { expiresAtMs: T + 20_000 }));
+    expect(currentTakeover(f, T + 19_000)?.kind).toBe("crash");
     expect(currentTakeover(f, T + 21_000)).toBeNull();
   });
 
@@ -122,8 +125,8 @@ describe("currentTakeover", () => {
     expect(currentTakeover(f, T + 75_000)).toBeNull(); // back to the pit board
   });
 
-  it("lets a newer red flag win over a standing caution", () => {
-    const f = feed(a("caution", 0, { expiresAtMs: T + 20_000 }), a("red", 5_000));
+  it("lets a newer red flag win over a standing crash screen", () => {
+    const f = feed(a("crash", 0, { expiresAtMs: T + 20_000 }), a("red", 5_000));
     expect(currentTakeover(f, T + 8_000)?.kind).toBe("red");
   });
 

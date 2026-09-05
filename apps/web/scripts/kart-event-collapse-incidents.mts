@@ -40,7 +40,11 @@ if (!process.env.DATABASE_URL) {
 const APPLY = process.argv.includes("--apply");
 
 const { neon } = await import("@neondatabase/serverless");
-const { collapseIncidents } = await import("../src/features/racing/driver-view/report.ts");
+// Extensionless: this file is NOT `_`-prefixed, so tsconfig includes it and
+// `next build` typechecks it — and a `.ts` specifier needs
+// `allowImportingTsExtensions`, which this project does not set. It broke the
+// production build once (2026-09-05). tsx resolves the extensionless form.
+const { collapseIncidents } = await import("../src/features/racing/driver-view/report");
 
 const sql = neon(process.env.DATABASE_URL!);
 

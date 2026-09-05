@@ -28,6 +28,7 @@
  * even when older entries are still nominally alive — handled by scanning for
  * clears before deciding.
  */
+import { isMuted } from "./muted";
 import type { AlertKind, DriverAlert } from "./types";
 
 /**
@@ -119,6 +120,9 @@ export function currentTakeover(alerts: readonly DriverAlert[], nowMs: number): 
   for (let i = 0; i < alerts.length; i++) {
     const a = alerts[i];
     if (a.level !== "takeover") continue;
+    // A muted kind never reaches a screen, even if one is still sitting in a
+    // live feed from before the mute — feeds have a six-hour TTL. See muted.ts.
+    if (isMuted(a.kind)) continue;
 
     // The venue's own expiry always wins when it gave us one.
     if (a.expiresAtMs !== null && nowMs >= a.expiresAtMs) continue;
@@ -174,6 +178,7 @@ export function visibleInline(
   const out: DriverAlert[] = [];
   for (const a of alerts) {
     if (a.level !== "inline") continue;
+    if (isMuted(a.kind)) continue;
     if (nowMs - a.atMs > windowMs) continue;
     if (seen.has(a.kind)) continue;
     seen.add(a.kind);

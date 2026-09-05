@@ -39,6 +39,7 @@ import {
   type IncidentState,
 } from "./incident-session";
 import { isPersonalBest, numberLaps } from "./laps";
+import { isMuted } from "./muted";
 import { readSessionLaps, saveEvent, saveLap } from "./store.server";
 import type { DriverAlert, KartNumber } from "./types";
 
@@ -173,8 +174,12 @@ async function handleCrash(rec: VenueRecord, arrivedAtMs: number): Promise<void>
     }
   }
 
-  // THE YELLOW: raised once, by the crash that opened the incident.
-  if (!joined.isNew) return;
+  // THE YELLOW: raised once, by the crash that opened the incident — and
+  // currently muted altogether. On a Starter grid karts spin constantly, so
+  // even one-per-incident is dozens an hour and a flag that is always up is not
+  // a flag. See muted.ts; the incident above is still tracked, so nothing the
+  // redesign needs is lost.
+  if (!joined.isNew || isMuted("caution")) return;
 
   const others = (await kartsInSession(sessionId)).filter((k) => k !== kart);
   let stored = false;
