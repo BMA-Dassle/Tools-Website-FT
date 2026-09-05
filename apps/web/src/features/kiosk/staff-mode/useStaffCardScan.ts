@@ -29,7 +29,16 @@ export function useStaffCardScan(): (raw: string) => boolean {
     (raw: string) => {
       if (!surface || !kioskStaffModeEnabled()) return false;
       const account = staffCardAccountFromScan(raw);
-      if (!account) return false;
+      if (!account) {
+        // Shapes only, never content — so "I scanned and nothing happened" has
+        // a breadcrumb in the kiosk console (2026-09-04, the unpadded 597195).
+        console.info(
+          `[staff-card] declined scan: ${raw.length} chars, ` +
+            `${/^\d+$/.test(raw) ? "all digits" : "not a digit run"}`,
+        );
+        return false;
+      }
+      console.info(`[staff-card] card ····${cardTail(account)} — checking`);
       if (inflight.current) return true;
       inflight.current = true;
       void resolveStaffCardClient({
