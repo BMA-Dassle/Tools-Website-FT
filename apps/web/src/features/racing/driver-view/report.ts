@@ -176,6 +176,59 @@ export function medianGapOf(timedMs: readonly number[]): number | null {
   return mid - sorted[0];
 }
 
+/**
+ * Kinds that describe a TRACK CONDITION rather than a moment, and so must
+ * appear once per incident however many rows carry them.
+ *
+ * A crash is one incident until every kart clears, and the venue re-announces
+ * it every second or two per kart while it lasts.
+ */
+const CONDITION_KINDS = new Set(["caution", "crash", "red"]);
+
+/** How close two rows of the same condition have to be to be the same incident.
+ *  Matches INCIDENT_IDLE_MS in incident-session.ts. */
+const COLLAPSE_WINDOW_MS = 90_000;
+
+/**
+ * One incident, one line.
+ *
+ * The ingest now writes a single row per incident, but 8,615 caution rows were
+ * already stored before it did — one session alone had 2,239 across nine karts
+ * — and a race history is a permanent record a guest can open at any time. So
+ * the read side collapses too: it repairs the existing data without a
+ * destructive migration, and it is a second line of defence if the venue ever
+ * finds a new way to repeat itself.
+ *
+ * Collapsing is per KIND and per KART, so two different karts spinning in the
+ * same incident still each get their own crash line — that is a real fact about
+ * the race. Only the repetition goes.
+ */
+export function collapseIncidents(
+  events: readonly EventRow[],
+  windowMs = COLLAPSE_WINDOW_MS,
+): EventRow[] {
+  const sorted = [...events].sort((a, b) => a.atMs - b.atMs);
+  const lastSeen = new Map<string, number>();
+  const out: EventRow[] = [];
+  for (const e of sorted) {
+    if (!CONDITION_KINDS.has(e.kind)) {
+      out.push(e);
+      continue;
+    }
+    const key = `${e.kind}|${e.kart ?? ""}`;
+    const prev = lastSeen.get(key);
+    if (prev !== undefined && e.atMs - prev <= windowMs) {
+      // Same incident, still going. Keep the window rolling so a spin that
+      // lasts two minutes stays one line rather than becoming two.
+      lastSeen.set(key, e.atMs);
+      continue;
+    }
+    lastSeen.set(key, e.atMs);
+    out.push(e);
+  }
+  return out;
+}
+
 export function parseHeatNumber(heatName: string | null): number | null {
   if (!heatName) return null;
   const m = /(?:\[HEAT\]|Heat)?\s*(\d+)\s*-/.exec(heatName);
@@ -200,16 +253,16 @@ export function buildReport(args: {
   }
 
   const eventsByKart = new Map<string, EventRow[]>();
-  const timeline: EventRow[] = [];
+  const reportable: EventRow[] = [];
   for (const e of events) {
     if (!REPORTABLE.has(e.kind)) continue;
-    timeline.push(e);
+    reportable.push(e);
     if (!e.kart) continue;
     const list = eventsByKart.get(e.kart);
     if (list) list.push(e);
     else eventsByKart.set(e.kart, [e]);
   }
-  timeline.sort((a, b) => a.atMs - b.atMs);
+  const timeline = collapseIncidents(reportable);
 
   /**
    * The scoreboard drives the roster. A kart with crossings but no standing row

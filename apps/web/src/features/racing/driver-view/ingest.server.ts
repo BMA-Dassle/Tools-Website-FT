@@ -31,6 +31,13 @@ import {
   learnBindings,
   readBinding,
 } from "./binding";
+import {
+  clearKart,
+  INCIDENT_IDLE_MS,
+  isStale,
+  joinIncident,
+  type IncidentState,
+} from "./incident-session";
 import { isPersonalBest, numberLaps } from "./laps";
 import { readSessionLaps, saveEvent, saveLap } from "./store.server";
 import type { DriverAlert, KartNumber } from "./types";
@@ -72,21 +79,180 @@ async function targetKarts(rec: VenueRecord): Promise<KartNumber[]> {
   return [];
 }
 
+const incidentKey = (sessionId: string) => `kart:incident:${sessionId}`;
+const INCIDENT_TTL_SECONDS = 30 * 60;
+
+async function readIncident(sessionId: string): Promise<IncidentState | null> {
+  try {
+    const raw = await redis.get(incidentKey(sessionId));
+    return raw ? (JSON.parse(raw) as IncidentState) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeIncident(state: IncidentState): Promise<void> {
+  try {
+    await redis.set(
+      incidentKey(state.sessionId),
+      JSON.stringify(state),
+      "EX",
+      INCIDENT_TTL_SECONDS,
+    );
+  } catch {
+    /* losing an incident costs a duplicate yellow, never a crash */
+  }
+}
+
 /**
- * A crash is the one record that concerns EVERY driver on the track, not just
- * the kart it names: the owner's rule is that a caution fires automatically on
- * any crash detected on track. So the kart it names gets the crash takeover and
- * everyone else on that track gets the caution.
+ * A crash, folded into the session's ONE open incident.
+ *
+ * The old shape wrote a caution per kart per re-fire and produced 8,615 rows in
+ * a night — 2,239 in one session. Now the first crash of an incident raises the
+ * yellow and is the only thing written down; every later crash, from any kart,
+ * joins it silently. See incident-session.ts.
  */
-async function crashAudience(rec: VenueRecord): Promise<KartNumber[]> {
+async function handleCrash(rec: VenueRecord, arrivedAtMs: number): Promise<void> {
   const kart = str(rec.RentalObjectName);
-  if (!kart) return [];
+  if (!kart) return;
+
   // CrashNotification carries NO SessionId and NO ResourceId — verified across
   // 32h of traffic. The only way to know which track it happened on is the
   // binding for the kart that crashed.
   const binding = await readBinding(kart);
-  const others = binding?.sessionId ? await kartsInSession(binding.sessionId) : [];
-  return Array.from(new Set<KartNumber>([kart, ...others]));
+  const sessionId = binding?.sessionId ?? null;
+
+  const ctxFor = (k: KartNumber, b: Awaited<ReturnType<typeof readBinding>>): RoutingContext => ({
+    kart: k,
+    participantId: b?.participantId ?? null,
+    sessionId: b?.sessionId ?? null,
+    resourceId: b?.resourceId ?? null,
+  });
+
+  // The crashing kart always gets its own screen — it is the one with something
+  // to do. Re-fires are harmless live (the standing rule collapses by kind) but
+  // must not each become a row, so the stored id is the INCIDENT's.
+  const own = classify(rec, ctxFor(kart, binding), arrivedAtMs);
+
+  if (!sessionId) {
+    // Unbound kart: no session, so no incident and no audience. Show its own
+    // driver the crash screen and store nothing further.
+    if (own) {
+      await pushFeed(own);
+      await saveEvent(own, {
+        participantId: binding?.participantId ?? null,
+        personId: binding?.personId ?? null,
+        resourceId: binding?.resourceId ?? null,
+      });
+    }
+    return;
+  }
+
+  const eventId = str(rec.Id) ?? `crash:${arrivedAtMs}`;
+  const prev = await readIncident(sessionId);
+  const joined = joinIncident(isStale(prev, arrivedAtMs) ? null : prev, {
+    sessionId,
+    kart,
+    atMs: arrivedAtMs,
+    eventId,
+  });
+  await writeIncident(joined.state);
+
+  if (own) {
+    await pushFeed(own);
+    // One crash row per kart per incident, not per re-fire.
+    if (joined.isNewKart) {
+      await saveEvent(
+        { ...own, eventId: `crash:${joined.state.id}:${kart}` },
+        {
+          participantId: binding?.participantId ?? null,
+          personId: binding?.personId ?? null,
+          resourceId: binding?.resourceId ?? null,
+        },
+      );
+    }
+  }
+
+  // THE YELLOW: raised once, by the crash that opened the incident.
+  if (!joined.isNew) return;
+
+  const others = (await kartsInSession(sessionId)).filter((k) => k !== kart);
+  let stored = false;
+  for (const other of others) {
+    const b = await readBinding(other);
+    const alert = classify(rec, ctxFor(other, b), arrivedAtMs);
+    if (!alert) continue;
+    // The yellow stands until the incident closes, not until this one crash's
+    // 20s ExpireTime — "treated as a crash till all karts have cleared". The
+    // cap is a safety valve for a close that never arrives.
+    const caution: DriverAlert = {
+      ...alert,
+      expiresAtMs: arrivedAtMs + INCIDENT_IDLE_MS,
+      eventId: `caution:${joined.state.id}:${other}`,
+    };
+    await pushFeed(caution);
+    // ONE row for the whole incident, keyed on the incident rather than the
+    // recipient — this is the line that used to multiply by the grid size.
+    if (!stored) {
+      stored = true;
+      await saveEvent(
+        { ...caution, eventId: `caution:${joined.state.id}`, kart, value: kart },
+        {
+          participantId: binding?.participantId ?? null,
+          personId: null,
+          resourceId: binding?.resourceId ?? null,
+        },
+      );
+    }
+  }
+}
+
+/**
+ * A kart has recovered. The incident survives until they all have, and the
+ * clear that empties it is what lifts the yellow from everyone.
+ */
+async function handleUnCrash(rec: VenueRecord, arrivedAtMs: number): Promise<void> {
+  const kart = str(rec.RentalObjectName);
+  if (!kart) return;
+  const binding = await readBinding(kart);
+  const sessionId = binding?.sessionId ?? null;
+
+  const own = classify(
+    rec,
+    {
+      kart,
+      participantId: binding?.participantId ?? null,
+      sessionId,
+      resourceId: binding?.resourceId ?? null,
+    },
+    arrivedAtMs,
+  );
+  if (own) await pushFeed(own);
+
+  if (!sessionId) return;
+  const prev = await readIncident(sessionId);
+  const { state, closed } = clearKart(prev, { sessionId, kart, atMs: arrivedAtMs });
+  if (state) await writeIncident(state);
+  if (!closed || !state) return;
+
+  // Track is clean. Lift the yellow everywhere — `recovered` is in caution's
+  // clear set, so this is what takes the screens back to the pit board.
+  for (const other of await kartsInSession(sessionId)) {
+    if (other === kart) continue;
+    await pushFeed({
+      kind: "recovered",
+      level: "inline",
+      atMs: arrivedAtMs,
+      kart: other,
+      sessionId,
+      sessionName: null,
+      note: null,
+      value: null,
+      expiresAtMs: null,
+      eventId: `clear:${state.id}:${other}`,
+      source: "UnCrashNotification",
+    });
+  }
 }
 
 async function pushFeed(alert: DriverAlert): Promise<void> {
@@ -198,8 +364,13 @@ async function ingestRecord(rec: VenueRecord, arrivedAtMs: number): Promise<void
     return;
   }
 
-  // 2b. Everything else is an alert, routed to whoever it concerns.
-  const audience = type === "CrashNotification" ? await crashAudience(rec) : await targetKarts(rec);
+  // 2b. Crashes have their own path: one incident, one yellow, however many
+  //     karts and however many times the venue re-announces it.
+  if (type === "CrashNotification") return handleCrash(rec, arrivedAtMs);
+  if (type === "UnCrashNotification") return handleUnCrash(rec, arrivedAtMs);
+
+  // 2c. Everything else is an alert, routed to whoever it concerns.
+  const audience = await targetKarts(rec);
   if (audience.length === 0) return;
 
   for (const kart of audience) {

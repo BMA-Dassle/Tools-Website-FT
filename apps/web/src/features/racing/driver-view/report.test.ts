@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildReport, driverInReport, headline, levelUpFor, parseHeatNumber } from "./report";
+import {
+  buildReport,
+  collapseIncidents,
+  driverInReport,
+  headline,
+  levelUpFor,
+  parseHeatNumber,
+} from "./report";
 
 const T = Date.parse("2026-09-05T03:30:00.000Z");
 
@@ -199,6 +206,69 @@ describe("levelUpFor", () => {
       summary: { ...driverInReport(REPORT, "15")!.summary, best: null },
     };
     expect(levelUpFor(REPORT, noLaps, target)).toBeNull();
+  });
+});
+
+describe("collapseIncidents", () => {
+  const ev = (kind: string, kart: string | null, atMs: number, eventId: string) => ({
+    eventId,
+    kind,
+    kart,
+    note: null,
+    value: null,
+    atMs,
+  });
+
+  it("turns one kart's re-fired crash into a single line", () => {
+    // The venue re-announces crash detect every second or two while a kart sits
+    // stopped. This is what produced 2,239 rows in one session.
+    const rows = Array.from({ length: 30 }, (_, i) => ev("crash", "6", T + i * 1500, `r${i}`));
+    const out = collapseIncidents(rows);
+    expect(out).toHaveLength(1);
+    expect(out[0].eventId).toBe("r0");
+  });
+
+  it("keeps a genuinely separate incident later in the heat", () => {
+    const out = collapseIncidents([
+      ev("crash", "6", T, "a"),
+      ev("crash", "6", T + 5_000, "b"),
+      ev("crash", "6", T + 400_000, "c"),
+    ]);
+    expect(out.map((e) => e.eventId)).toEqual(["a", "c"]);
+  });
+
+  it("keeps a different kart's crash — that is a real fact about the race", () => {
+    const out = collapseIncidents([
+      ev("crash", "6", T, "a"),
+      ev("crash", "28", T + 300, "b"),
+      ev("crash", "6", T + 1_200, "c"),
+    ]);
+    expect(out.map((e) => e.eventId)).toEqual(["a", "b"]);
+  });
+
+  it("rolls the window so a long spin stays one line", () => {
+    // Re-fires 60s apart for five minutes: still one incident, not five.
+    const rows = Array.from({ length: 6 }, (_, i) => ev("caution", null, T + i * 60_000, `w${i}`));
+    expect(collapseIncidents(rows)).toHaveLength(1);
+  });
+
+  it("never collapses a moment — only a track condition", () => {
+    // Three personal bests in a row are three real things that happened.
+    const out = collapseIncidents([
+      ev("personalBest", "15", T, "p1"),
+      ev("personalBest", "15", T + 1_000, "p2"),
+      ev("blue", "15", T + 2_000, "b1"),
+      ev("blue", "15", T + 3_000, "b2"),
+    ]);
+    expect(out).toHaveLength(4);
+  });
+
+  it("orders by time regardless of the order it was handed", () => {
+    const out = collapseIncidents([
+      ev("personalBest", "15", T + 5_000, "late"),
+      ev("personalBest", "15", T, "early"),
+    ]);
+    expect(out.map((e) => e.eventId)).toEqual(["early", "late"]);
   });
 });
 
