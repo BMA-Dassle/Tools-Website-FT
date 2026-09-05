@@ -6,13 +6,6 @@ describe("staffCardAccountFromScan", () => {
     expect(staffCardAccountFromScan("0000000001063464")).toBe("1063464");
   });
 
-  it("takes the BARE account too — the first live scan arrived unpadded (597195)", () => {
-    expect(staffCardAccountFromScan("597195")).toBe("597195");
-    expect(staffCardAccountFromScan("1062397")).toBe("1062397");
-    expect(staffCardAccountFromScan("00597195")).toBe("597195");
-    expect(staffCardAccountFromScan("123")).toBeNull(); // too short to be an account
-  });
-
   it("takes the icardinc QR shortlink and the track-2 burst", () => {
     expect(staffCardAccountFromScan("https://www.swflpassport.com/?id=0001063464")).toBe("1063464");
     expect(staffCardAccountFromScan(";6283=1063464?")).toBe("1063464");

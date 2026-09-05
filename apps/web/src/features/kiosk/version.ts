@@ -15,14 +15,6 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
- * 1.32.2 — A BARE CARD NUMBER ARMS STAFF MODE TOO (owner 2026-09-04: "I just
- *         scanned my card 597195 and nothing happened"). The scanner handed the
- *         account over UNPADDED, and a 6-digit run is `promo` to the shape
- *         classifier, so the staff gate declined it silently. On a roster screen
- *         the gate only sees scans that were neither a licence nor a member QR,
- *         where a bare digit run means nothing else — so any 4–20 digit run is
- *         now taken as a card there (worst case: one "isn't linked" notice).
- *         Declined scans log a shapes-only breadcrumb to the kiosk console.
  * 1.32.1 — STAFF CHIPS GREY UNTIL THE GUEST IS ON-SITE (owner 2026-09-04: "just
  *         disable the buttons if it's not local yet"). Pandora writes land on the
  *         center's LOCAL server; a guest created cloud-side (web booking, desk)
@@ -1207,7 +1199,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.32.2";
+export const KIOSK_VERSION = "1.32.1";
 
 let bootVersion: string | null = null;
 let captured = false;
