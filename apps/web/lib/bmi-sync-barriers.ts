@@ -722,9 +722,46 @@ export async function partySeatedBarrier(
     if (!seated) missing.push(`${seat.personId}@${seat.heatStart.slice(11, 16)}`);
   }
 
-  return missing.length === 0
-    ? open(`${ready.detail}; all ${wanted.length} racer-heat(s) on the grid`)
-    : closed(
-        `${missing.length}/${wanted.length} racer(s) not on the grid: ${missing.slice(0, 4).join(", ")}`,
-      );
+  if (missing.length === 0) {
+    return open(`${ready.detail}; all ${wanted.length} racer-heat(s) on the grid`);
+  }
+
+  /**
+   * "NOT YET POSSIBLE" IS NOT "NOT WORKING" (2026-09-05).
+   *
+   * A party checks in well before they race — that is the whole point of checking
+   * in — so between check-in and the heat, NOBODY is on the grid and this gate
+   * reports `N/N racer(s) not on the grid`. That sentence is indistinguishable
+   * from the real fault it was written for, and it is on screen for the majority
+   * of a row's life: measured on the 108 rows that landed, the median took 2.5 min
+   * but p95 took 96 and the worst 153 — nearly all of it spent legitimately
+   * waiting for a heat that had not run.
+   *
+   * It cost real attention today: row #5460 was read as a stuck queue at 14:41
+   * while its heat was at 15:12, still half an hour out, with a give-up deadline
+   * at 22:15 and nothing wrong with it at all.
+   *
+   * So when the earliest heat we are waiting on is still in the FUTURE, say that
+   * instead. Same `closed` verdict, same retry behaviour — this changes only what
+   * a human reads, which is exactly the thing that was broken. Once the heat is
+   * behind us the original wording returns, because then it IS the fault.
+   */
+  const nowKey = nyWallClockKey(new Date().toISOString());
+  const earliest = wanted
+    .map((s) => s.heatStart.slice(0, 16))
+    .sort((a, b) => a.localeCompare(b))[0];
+  if (earliest && earliest > nowKey) {
+    const minsOut = Math.max(
+      0,
+      Math.round((Date.parse(`${earliest}:00Z`) - Date.parse(`${nowKey}:00Z`)) / 60000),
+    );
+    return closed(
+      `waiting for the ${earliest.slice(11)} heat — ${minsOut} min away, nothing on the grid yet is expected ` +
+        `(${missing.length}/${wanted.length} racer-heat(s) still to seat)`,
+    );
+  }
+
+  return closed(
+    `${missing.length}/${wanted.length} racer(s) not on the grid: ${missing.slice(0, 4).join(", ")}`,
+  );
 }
