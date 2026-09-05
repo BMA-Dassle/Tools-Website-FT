@@ -1999,52 +1999,63 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
                       /r/{code}/wallet enforces: a session persisted before the
                       2026-09-05 fix can still carry an Intercard card number
                       here, and a QR the route will bounce must never render. */}
-                  {m.loginCode && RACER_PUBLIC_CODE_RE.test(m.loginCode) && (
-                    <LicenceWalletChip
-                      loginCode={m.loginCode}
-                      brand={kioskCfg?.brand}
-                      label={t("peopleUi.licenceAdd")}
-                      scanHint={t("peopleUi.licenceScan")}
-                      closeLabel={t("peopleUi.licenceClose")}
-                      ariaLabel={t("peopleUi.aria.licenceQr", { name: m.firstName })}
-                    />
-                  )}
-                  {/* FAMILY ON THIS ACCOUNT — a pill beside the licence chip,
-                      not a strip below the roster (owner 2026-09-05: "what if
-                      multiple people had family, this would fill up fast").
-                      Only this member's un-added relatives; the pill vanishes
-                      once they have all been added. */}
-                  {linkedFor(m.id).length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLinkedSel(new Set());
-                        setLinkedOpen(m.id);
-                      }}
-                      aria-label={t("peopleUi.aria.family", { name: m.firstName })}
-                      className="k-tap mt-[10px] flex items-center gap-[10px] rounded-full border-[1.5px] border-[#00e2e5]/45 bg-[#00e2e5]/5 px-[20px] py-[10px] text-[22px] font-bold text-[#00e2e5]"
-                    >
-                      <svg
-                        width="24"
-                        height="24"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                        <circle cx="9" cy="7" r="4" />
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                      </svg>
-                      {t("peopleUi.family.pill", { n: linkedFor(m.id).length })}
-                    </button>
+                  {/* One chip ROW, one gap: the licence chip and the family
+                      pill used to carry their own top margins and different
+                      metrics, so they stacked at mismatched sizes (owner
+                      2026-09-05: "spacing could be better"). Spacing lives
+                      here now — LicenceWalletChip has no margin of its own. */}
+                  {(linkedFor(m.id).length > 0 ||
+                    (m.loginCode && RACER_PUBLIC_CODE_RE.test(m.loginCode))) && (
+                    <div className="mt-[14px] flex flex-wrap items-center gap-[12px]">
+                      {m.loginCode && RACER_PUBLIC_CODE_RE.test(m.loginCode) && (
+                        <LicenceWalletChip
+                          loginCode={m.loginCode}
+                          brand={kioskCfg?.brand}
+                          label={t("peopleUi.licenceAdd")}
+                          scanHint={t("peopleUi.licenceScan")}
+                          closeLabel={t("peopleUi.licenceClose")}
+                          ariaLabel={t("peopleUi.aria.licenceQr", { name: m.firstName })}
+                        />
+                      )}
+                      {/* FAMILY ON THIS ACCOUNT — a pill beside the licence
+                          chip, not a strip below the roster (owner 2026-09-05:
+                          "what if multiple people had family, this would fill
+                          up fast"). Only this member's un-added relatives; it
+                          vanishes once they have all been added. Metrics match
+                          the licence chip so the two read as one set. */}
+                      {linkedFor(m.id).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLinkedSel(new Set());
+                            setLinkedOpen(m.id);
+                          }}
+                          aria-label={t("peopleUi.aria.family", { name: m.firstName })}
+                          className="k-tap inline-flex items-center gap-[10px] rounded-full border border-[#00e2e5]/40 bg-[#00e2e5]/10 px-[18px] py-[8px] text-[20px] font-semibold text-[#00e2e5]"
+                        >
+                          <svg
+                            width="22"
+                            height="22"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                            <circle cx="9" cy="7" r="4" />
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                          </svg>
+                          {t("peopleUi.family.pill", { n: linkedFor(m.id).length })}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
-                <div className="flex shrink-0 flex-col items-end gap-[12px]">
+                <div className="flex shrink-0 flex-col items-end gap-[16px] pl-[20px]">
                   {!ready && !checking && (
                     <button
                       type="button"
@@ -2062,7 +2073,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
                     type="button"
                     onClick={() => removeMember(m.id)}
                     aria-label={t("peopleUi.aria.remove", { name: m.firstName })}
-                    className="text-[22px] text-white/40"
+                    className="k-tap px-[12px] py-[6px] text-[22px] text-white/40"
                   >
                     {t("peopleUi.remove")}
                   </button>

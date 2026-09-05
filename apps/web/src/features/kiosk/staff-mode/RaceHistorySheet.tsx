@@ -14,7 +14,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import { fetchStaffAccount } from "./client";
 import { formatGapMs, formatLapMs, type TrackKey } from "./race-history";
 import type { StaffAccountView } from "./service.server";
-import { SheetCancel, SheetError, SheetGo, SheetLabel, StaffSheetFrame } from "./StaffSheetFrame";
+import {
+  STAFF_EYEBROW,
+  SheetCancel,
+  SheetError,
+  SheetGo,
+  SheetLabel,
+  StaffSheetFrame,
+} from "./StaffSheetFrame";
 import { closeStaffSheet, openStaffSheet, useStaffMode } from "./store";
 import type { StaffSurfaceContextValue } from "./StaffModeSurface";
 import type { StaffTarget } from "./types";
@@ -181,6 +188,11 @@ export function RaceHistorySheet({
                     })}
                   </tbody>
                 </table>
+                {account.heats.length > 8 && (
+                  <div className="pt-[14px] text-center text-[22px] text-white/40">
+                    Scroll for all {account.heats.length} heats
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -192,7 +204,10 @@ export function RaceHistorySheet({
             ) : account.memberships.length === 0 ? (
               <div className="text-[24px] text-white/45">None on file.</div>
             ) : (
-              <div className="flex flex-wrap gap-[10px]">
+              // Bounded: one racer carried 35 "License Fee" rows (34 expired),
+              // and an unbounded wrap pushed the credits off the sheet. Active
+              // ones sort first, so the useful rows are the ones in view.
+              <div className="flex max-h-[240px] flex-wrap gap-[10px] overflow-y-auto">
                 {account.memberships.map((m, i) => (
                   <span
                     key={`${m.name}-${i}`}
@@ -220,7 +235,7 @@ export function RaceHistorySheet({
             ) : account.credits.length === 0 ? (
               <div className="text-[24px] text-white/45">No balances.</div>
             ) : (
-              <div className="flex flex-wrap gap-[12px]">
+              <div className="flex max-h-[200px] flex-wrap gap-[12px] overflow-y-auto">
                 {account.credits.map((c) => (
                   <span
                     key={c.kind}
@@ -255,7 +270,7 @@ function Stat({
   return (
     <div className="rounded-[16px] border border-white/10 bg-white/[0.04] px-[18px] py-[16px]">
       <div
-        className="k-eyebrow text-[17px] tracking-[0.18em] text-white/45"
+        className={`${STAFF_EYEBROW} text-[17px] tracking-[0.18em] text-white/45`}
         style={color ? { color } : undefined}
       >
         {label}
@@ -269,7 +284,7 @@ function Stat({
 function Th({ children, right }: { children: ReactNode; right?: boolean }) {
   return (
     <th
-      className={`k-eyebrow pb-[8px] pr-[10px] text-[17px] tracking-[0.18em] text-white/45 ${right ? "text-right" : ""}`}
+      className={`${STAFF_EYEBROW} pb-[8px] pr-[10px] text-[17px] tracking-[0.18em] text-white/45 ${right ? "text-right" : ""}`}
     >
       {children}
     </th>

@@ -22,6 +22,7 @@ import {
   staffActionHint,
   usePersonLocal,
 } from "./local-status";
+import { STAFF_EYEBROW } from "./StaffSheetFrame";
 import { openStaffSheet, useStaffMode } from "./store";
 import { useStaffSurface } from "./StaffModeSurface";
 import type { StaffSheetKind, StaffTarget } from "./types";
@@ -70,7 +71,10 @@ export function StaffPersonActions({ member }: { member: Member }) {
   const canRecheck = !!probeId && (status === "not-local" || status === "unknown");
   return (
     <div className="mt-[18px] flex flex-wrap items-center gap-[12px] border-t border-dashed border-[#46d68c]/35 pt-[18px]">
-      <span className="k-eyebrow mr-[6px] text-[18px] tracking-[0.24em] text-[#46d68c]">Staff</span>
+      {/* STAFF_EYEBROW, not k-eyebrow — the latter would force 24px cyan. */}
+      <span className={`${STAFF_EYEBROW} mr-[6px] text-[18px] tracking-[0.24em] text-[#46d68c]`}>
+        Staff
+      </span>
       {STAFF_ACTIONS.map(({ kind, label, Icon }) => {
         const enabled = staffActionEnabled(kind, !!target, status);
         return (

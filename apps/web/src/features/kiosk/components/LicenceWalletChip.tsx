@@ -69,7 +69,7 @@ export default function LicenceWalletChip({
         type="button"
         onClick={() => setOpen(true)}
         aria-label={ariaLabel}
-        className="mt-[10px] inline-flex items-center gap-[10px] rounded-full border border-[#00e2e5]/40 bg-[#00e2e5]/10 px-[18px] py-[8px] text-[20px] font-semibold text-[#00e2e5]"
+        className="inline-flex items-center gap-[10px] rounded-full border border-[#00e2e5]/40 bg-[#00e2e5]/10 px-[18px] py-[8px] text-[20px] font-semibold text-[#00e2e5]"
       >
         <span aria-hidden="true">▣</span>
         {label}
@@ -78,7 +78,7 @@ export default function LicenceWalletChip({
   }
 
   return (
-    <div className="mt-[10px] flex items-center gap-[20px] rounded-2xl border border-[#00e2e5]/30 bg-[#00e2e5]/5 p-[16px]">
+    <div className="flex items-center gap-[20px] rounded-2xl border border-[#00e2e5]/30 bg-[#00e2e5]/5 p-[16px]">
       {/* White plate: a QR needs a light quiet zone to scan reliably off a
           dark kiosk panel. */}
       <div className="rounded-xl bg-white p-[8px]">

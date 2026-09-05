@@ -10,6 +10,14 @@
  */
 import type { ReactNode } from "react";
 
+/** The eyebrow/label look, deliberately WITHOUT `k-eyebrow`:
+ *  `.kiosk-canvas .k-eyebrow` is two classes deep in unlayered css, so it beats
+ *  any single-class utility — every `text-[20px]`/`text-[#46d68c]` layered on it
+ *  was silently doing nothing, and staff green rendered cyan at 24px. Callers
+ *  bring their own size, tracking and colour, which now actually apply.
+ *  Declared at module top so it can never land in a TDZ. See tasks/lessons.md. */
+export const STAFF_EYEBROW = "font-bold uppercase leading-none";
+
 export function StaffSheetFrame({
   eyebrow,
   title,
@@ -33,7 +41,13 @@ export function StaffSheetFrame({
         aria-label={`${eyebrow}: ${title}`}
       >
         <div>
-          <div className="k-eyebrow text-[#46d68c]">{eyebrow}</div>
+          {/* NOT `k-eyebrow`: `.kiosk-canvas .k-eyebrow` is two classes deep in
+              unlayered css, so it beats a single-class utility and this staff
+              GREEN was rendering cyan. Same reason the labels below are spelled
+              out. See tasks/lessons.md. */}
+          <div className={`${STAFF_EYEBROW} text-[24px] tracking-[0.28em] text-[#46d68c]`}>
+            {eyebrow}
+          </div>
           <div className="k-display mt-[8px] text-[52px]">{title}</div>
           {subtitle && <div className="mt-[6px] text-[26px] text-white/60">{subtitle}</div>}
         </div>
@@ -47,7 +61,7 @@ export function StaffSheetFrame({
 /** Field label — small caps eyebrow in the muted tone. */
 export function SheetLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="k-eyebrow mb-[10px] text-[20px] tracking-[0.18em] text-white/45">
+    <div className={`${STAFF_EYEBROW} mb-[10px] text-[20px] tracking-[0.18em] text-white/45`}>
       {children}
     </div>
   );

@@ -15,6 +15,28 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.33.2 — THE STAFF SHEETS HAD THE SAME FONT BUG, AND BIG ACCOUNTS NOW FIT
+ *         (owner 2026-09-05). The `k-eyebrow` trap fixed in 1.33.1 was
+ *         COPIED FROM staff mode, so it was live there too: the sheet eyebrow
+ *         rendered cyan instead of staff GREEN, SheetLabel at 24px not 20px,
+ *         the per-card "Staff" chip cyan not green, and Race history's stat
+ *         labels + column headers at 24px cyan. All five now use STAFF_EYEBROW
+ *         (Add membership / Add comp inherit the frame). NOTE: ~60 more
+ *         `k-eyebrow` colour overrides across the kiosk are still losing to
+ *         the same rule — every amber/green/red eyebrow renders cyan. That is
+ *         PRE-EXISTING and a one-line css change; left alone deliberately
+ *         because it repaints every screen at once.
+ *         Volume: memberships + credits were unbounded `flex-wrap` (one racer
+ *         carries 35 membership rows), so they now scroll inside a bounded
+ *         height on both sheets. Heats render in FULL and the table scrolls —
+ *         a row cap was the wrong instinct (owner: "can you scroll to get more
+ *         heats?"), since on a kiosk a truncated table has no other way in;
+ *         a "Scroll for all N heats" hint sits under it. Every heat with a
+ *         start time is returned, with lap detail where the venue recorded it
+ *         and an em-dash where it did not.
+ *         Spacing: the licence chip and family pill each carried their own top
+ *         margin at mismatched metrics, so they stacked crookedly — one chip
+ *         row, one gap, matching sizes, and Remove gets a real tap target.
  * 1.33.1 — SHEETS COVER THE SCREEN AGAIN, AND THE LABELS STOP SHOUTING (owner
  *         2026-09-05, on glass). Two cascade traps, both mine, both invisible
  *         to tsc/eslint/tests/a11y because none of them lay anything out:
@@ -1266,7 +1288,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.33.1";
+export const KIOSK_VERSION = "1.33.2";
 
 let bootVersion: string | null = null;
 let captured = false;

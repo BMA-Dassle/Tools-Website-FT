@@ -94,6 +94,15 @@ const TRACK_LABEL: Record<TrackKey, string> = { blue: "Blue", red: "Red", mega: 
 const TRACK_COLOR: Record<TrackKey, string> = { blue: "#4fa9ff", red: "#e53935", mega: "#f0b341" };
 const TRACKS: TrackKey[] = ["blue", "red", "mega"];
 
+/**
+ * EVERY heat is rendered — the table is its own scroller (owner 2026-09-05:
+ * "can you scroll to get more heats?"). A cap was the wrong instinct: a racer
+ * with hundreds of heats wants to reach the old ones, and hiding them behind a
+ * "showing 60 of N" line makes the rest unreachable on a kiosk with no other
+ * way in. Rows are plain table cells, so a few hundred cost little; if a
+ * genuinely huge account ever drags, virtualise rather than truncate.
+ */
+
 interface GuestAccount {
   licenseActive: boolean | null;
   credits: Array<{ kind: string; balance: number }> | null;
@@ -121,7 +130,7 @@ export function GuestRaceHistoryActions({
     <button
       type="button"
       onClick={() => ctx.open({ personId, name })}
-      className="k-tap flex items-center gap-[10px] rounded-full border-[1.5px] border-[#00e2e5]/45 bg-[#00e2e5]/5 px-[24px] py-[12px] text-[22px] font-bold text-[#00e2e5]"
+      className="k-tap flex shrink-0 items-center gap-[10px] rounded-full border-[1.5px] border-[#00e2e5]/45 bg-[#00e2e5]/5 px-[22px] py-[11px] text-[22px] font-bold whitespace-nowrap text-[#00e2e5]"
     >
       <svg
         width="24"
@@ -289,7 +298,9 @@ function GuestRaceHistorySheet({
                 ) : account.credits.length === 0 ? (
                   <div className="text-[24px] text-white/45">{t("rh.noCredits")}</div>
                 ) : (
-                  <div className="flex flex-wrap gap-[12px]">
+                  // Bounded: a long-standing account carries a lot of deposit
+                  // kinds, and an unbounded wrap pushed the heats off the sheet.
+                  <div className="flex max-h-[200px] flex-wrap gap-[12px] overflow-y-auto">
                     {account.credits.map((c) => (
                       <span
                         key={c.kind}
@@ -354,6 +365,11 @@ function GuestRaceHistorySheet({
                         })}
                       </tbody>
                     </table>
+                    {account.heats.length > 8 && (
+                      <div className="pt-[14px] text-center text-[22px] text-white/40">
+                        {t("rh.scrollForAll", { total: account.heats.length })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
