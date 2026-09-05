@@ -15,6 +15,14 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.32.4 — THE SIGNED-IN BAR STAYS AT THE BOTTOM OF THE CHOOSER (owner
+ *         2026-09-05: sign in inside racing, hit back, and the crew bar sat at
+ *         the TOP of the category screen instead of where the empty "sign in"
+ *         strip sits). The strip content is one piece now; the chooser docks it
+ *         in the empty door's slot above the utility grid (and under the shelf
+ *         on the category screens, hold countdown riding along) while every
+ *         other screen keeps the top banner. chrome() grew a hideSessionBanner
+ *         opt so the chooser doesn't render it twice.
  * 1.32.3 — STAFF CARDS RESOLVE NOW (owner 2026-09-04: "I just scanned my card and
  *         nothing happened" → "not linked to a staff member"). Two findings from
  *         live probes: the Office token search finds the card fine (token=597195
@@ -1208,7 +1216,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.32.3";
+export const KIOSK_VERSION = "1.32.4";
 
 let bootVersion: string | null = null;
 let captured = false;

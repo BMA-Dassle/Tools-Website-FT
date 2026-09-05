@@ -135,8 +135,16 @@ export interface KioskCategoriesProps {
    *  (owner 2026-09-01 — "needs a better spot other than the top"; picked
    *  option A of four mocks). Undefined = no strip; the CALLER owns BOTH gates
    *  (the crew kill switch AND "session is empty" — once anyone is signed in,
-   *  the chrome's top banner is the door instead). */
+   *  the caller passes `sessionStrip` instead and it takes this same slot). */
   onOpenCrew?: () => void;
+  /** The LIVE session strip (signed-in who-door + hold countdown), prebuilt by
+   *  the caller and docked HERE — in the empty crew door's slot on the chooser,
+   *  and pinned under the shelf on the category screens — instead of the
+   *  chrome's top banner (owner 2026-09-05: after signing in mid-flow and
+   *  backing out, the bar jumped to the top; it must sit exactly where the
+   *  sign-in strip sits when nobody is signed in). Mutually exclusive with
+   *  onOpenCrew: the caller passes one or the other, never both. */
+  sessionStrip?: React.ReactNode;
   /** Coupon/voucher entry (kioskPromoEnabled) — undefined hides the chip. */
   onOpenCodeEntry?: () => void;
   /** Race Sims (PLACEHOLDER PHASE 2026-08, FastTrax FM only — the CALLER owns
@@ -179,6 +187,7 @@ export function KioskCategories({
   onOpenRaceGrid,
   onOpenWaiver,
   onOpenCrew,
+  sessionStrip,
   onOpenCodeEntry,
   onOpenRaceSim,
   raceSimUnlocked = false,
@@ -511,25 +520,27 @@ export function KioskCategories({
         {/* "Your Crew" door, EMPTY state — the chrome's signed-in strip in the
             state it never has: nobody yet (hollow dot). Docked HERE, above the
             utility doors, because it IS one of the "not booking" actions — the
-            top of the screen stays status-only. Gone the moment anyone signs
-            in: the caller stops passing onOpenCrew and the chrome's banner
-            takes over as the door. */}
-        {onOpenCrew && (
-          <button
-            type="button"
-            onClick={onOpenCrew}
-            className="k-glass k-tap mt-[24px] flex w-full shrink-0 items-center gap-[18px] px-[28px] py-[18px] text-left"
-          >
-            <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
-              <span
-                className="h-[12px] w-[12px] shrink-0 rounded-full border-2 border-white/40"
-                aria-hidden="true"
-              />
-              <span className="truncate">{t("crew.banner.empty")}</span>
-            </span>
-            <IconChevronRight size={26} className="shrink-0 text-white/40" aria-hidden="true" />
-          </button>
-        )}
+            top of the screen stays status-only. The moment anyone signs in the
+            caller swaps onOpenCrew for `sessionStrip`, which renders in this
+            SAME slot (owner 2026-09-05: the signed-in bar must not jump to the
+            top of the screen). */}
+        {sessionStrip ??
+          (onOpenCrew && (
+            <button
+              type="button"
+              onClick={onOpenCrew}
+              className="k-glass k-tap mt-[24px] flex w-full shrink-0 items-center gap-[18px] px-[28px] py-[18px] text-left"
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
+                <span
+                  className="h-[12px] w-[12px] shrink-0 rounded-full border-2 border-white/40"
+                  aria-hidden="true"
+                />
+                <span className="truncate">{t("crew.banner.empty")}</span>
+              </span>
+              <IconChevronRight size={26} className="shrink-0 text-white/40" aria-hidden="true" />
+            </button>
+          ))}
 
         {/* No shortcut row here (owner 2026-07-28). VIP Experience is dropped —
             the Experiences card already leads to it, so it was a second door
@@ -754,6 +765,10 @@ export function KioskCategories({
         </div>
         <div className="k-scroll-fade" />
       </div>
+      {/* The live session strip stays docked at the BOTTOM on the shelf screens
+          too — the chrome's top banner is off for this whole mount, and the
+          hold countdown must never disappear while a guest browses a shelf. */}
+      {sessionStrip}
       {raceSimPinOpen && (
         <RaceSimPinSheet
           onClose={() => setRaceSimPinOpen(false)}

@@ -1587,39 +1587,61 @@ export function KioskFlow({
       )}
     </>
   );
-  const sessionBanner =
+  const sessionLive =
     (session.party.length > 0 || cartCount > 0 || hasGameCards || showHoldBar) &&
     !cartActive &&
     !checkoutActive &&
-    !upsellActive ? (
-      <div className="k-glass mx-[48px] mt-[12px] flex shrink-0 items-center gap-[18px] px-[28px] py-[10px] text-left">
-        {crewDoor ? (
-          <button
-            type="button"
-            aria-label={t("crew.banner.manage")}
-            onClick={openCrew}
-            className="k-tap flex min-w-0 flex-1 items-center gap-[14px] text-left text-[22px] text-white/70"
-          >
-            {bannerWho}
-            <IconChevronRight size={26} className="shrink-0 text-white/40" aria-hidden="true" />
-          </button>
-        ) : (
-          <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
-            {bannerWho}
-          </span>
-        )}
-        {showHoldBar && (
-          <KioskHoldBar
-            ref={timerRef}
-            inline
-            bmiBillId={session.bmiBillId}
-            qamfHoldId={qamfHoldId}
-            qamfCenterId={qamfCenterId}
-            onExpired={handleReservationExpired}
-          />
-        )}
-      </div>
-    ) : null;
+    !upsellActive;
+  // The strip's CONTENT (who-door + hold countdown) is one piece; only its
+  // position differs per screen — the top banner everywhere, except the
+  // category chooser, which docks it at the bottom (see sessionStripDocked).
+  // Both wrappers are built from this one body, so only one ever mounts and
+  // the KioskHoldBar ref cannot double-attach.
+  const sessionStripBody = (
+    <>
+      {crewDoor ? (
+        <button
+          type="button"
+          aria-label={t("crew.banner.manage")}
+          onClick={openCrew}
+          className="k-tap flex min-w-0 flex-1 items-center gap-[14px] text-left text-[22px] text-white/70"
+        >
+          {bannerWho}
+          <IconChevronRight size={26} className="shrink-0 text-white/40" aria-hidden="true" />
+        </button>
+      ) : (
+        <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
+          {bannerWho}
+        </span>
+      )}
+      {showHoldBar && (
+        <KioskHoldBar
+          ref={timerRef}
+          inline
+          bmiBillId={session.bmiBillId}
+          qamfHoldId={qamfHoldId}
+          qamfCenterId={qamfCenterId}
+          onExpired={handleReservationExpired}
+        />
+      )}
+    </>
+  );
+  const sessionBanner = sessionLive ? (
+    <div className="k-glass mx-[48px] mt-[12px] flex shrink-0 items-center gap-[18px] px-[28px] py-[10px] text-left">
+      {sessionStripBody}
+    </div>
+  ) : null;
+  // The category screens dock the SAME strip at the bottom instead — handed to
+  // KioskCategories as `sessionStrip`, in the exact slot the empty-state crew
+  // door occupies, with the empty door's geometry (owner 2026-09-05: after
+  // signing in mid-flow and backing out, the bar jumped to the top of the
+  // chooser; it must sit where the sign-in strip sits when nobody is signed
+  // in). The chooser's chrome call hides the top banner to match.
+  const sessionStripDocked = sessionLive ? (
+    <div className="k-glass mt-[24px] flex w-full shrink-0 items-center gap-[18px] px-[28px] py-[18px] text-left">
+      {sessionStripBody}
+    </div>
+  ) : null;
 
   // Exit-confirm sheet (owner 2026-07-18: "are you sure" before Start over /
   // before Main menu drops an unfinished flow). Same canvas-native pattern as
@@ -1756,7 +1778,14 @@ export function KioskFlow({
 
   // Podium chrome — the fixed canvas as a flex column: optional full-bleed photo
   // backdrop (z0) · content region (z2) · pinned util strip · overlays.
-  const chrome = (children: React.ReactNode, bg?: string | null) => (
+  // `hideSessionBanner` is for the ONE screen that renders the session strip
+  // itself (the category chooser docks it at the bottom) — everywhere else the
+  // strip is this top banner.
+  const chrome = (
+    children: React.ReactNode,
+    bg?: string | null,
+    opts?: { hideSessionBanner?: boolean },
+  ) => (
     <div className="k-flow">
       {bg ? (
         <div
@@ -1769,7 +1798,7 @@ export function KioskFlow({
         />
       ) : null}
       <div className="relative z-[2] flex min-h-0 flex-1 flex-col">
-        {sessionBanner}
+        {opts?.hideSessionBanner ? null : sessionBanner}
         {children}
       </div>
       {utilityStrip}
@@ -2394,9 +2423,14 @@ export function KioskFlow({
           // at the top (owner 2026-09-01: "needs a better spot other than the
           // top"; picked option A of four mocks). Both gates live HERE like
           // every other door: the kill switch, and "the session is empty" —
-          // once anyone signs in (or holds a cart), `sessionBanner` renders in
-          // the chrome and its tappable WHO half is the door instead.
-          onOpenCrew={crewDoor && !sessionBanner ? openCrew : undefined}
+          // once anyone signs in (or holds a cart), `sessionStrip` below takes
+          // over the SAME slot and its tappable WHO half is the door instead
+          // (owner 2026-09-05: the signed-in bar must not jump to the top).
+          onOpenCrew={crewDoor && !sessionLive ? openCrew : undefined}
+          // The LIVE session strip, docked at the bottom in the empty door's
+          // slot. Mutually exclusive with onOpenCrew by the sessionLive gate.
+          // The chrome call's hideSessionBanner keeps the top copy off.
+          sessionStrip={sessionStripDocked}
           onOpenRaceGrid={
             config.center === "fort-myers" && kioskRaceInfoEnabled()
               ? () => {
@@ -2444,6 +2478,10 @@ export function KioskFlow({
           pendingGzCardCount={pendingGzCards.length}
         />
       </>,
+      null,
+      // The chooser renders the session strip itself, docked at the bottom
+      // (sessionStrip above) — the chrome's top banner would be a duplicate.
+      { hideSessionBanner: true },
     );
   }
 
