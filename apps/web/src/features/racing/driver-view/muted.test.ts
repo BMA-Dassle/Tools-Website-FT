@@ -63,6 +63,22 @@ describe("muted kinds never reach a screen", () => {
   });
 });
 
+describe("the mute is honoured at every layer, not just where it is drawn", () => {
+  it("is applied in each of the four places a caution could escape", async () => {
+    // A screen-only filter would still hand cautions out of the API for six
+    // hours (the live-feed TTL) and leave them in the stored history. This
+    // asserts the mute is consulted at the emit, the API, the screen and the
+    // report — so "muted" means it does not leave the server, not merely that
+    // nothing paints it.
+    const { readFileSync } = await import("node:fs");
+    const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+    expect(read("./ingest.server.ts"), "ingest must not emit").toContain("isMuted(");
+    expect(read("./service.server.ts"), "API must not return").toContain("isMuted(");
+    expect(read("./standing.ts"), "screen must not surface").toContain("isMuted(");
+    expect(read("./report.ts"), "history must not render").toContain("isMuted(");
+  });
+});
+
 describe("muted kinds never reach the history", () => {
   it("keeps the caution rows already stored out of the timeline", () => {
     const report = buildReport({

@@ -17,6 +17,7 @@ import "server-only";
 import { readBinding } from "./binding";
 import { readFeed } from "./ingest.server";
 import { numberLaps } from "./laps";
+import { isMuted } from "./muted";
 import { currentTakeover } from "./standing";
 import { readSessionLaps } from "./store.server";
 import type { DriverViewState, KartNumber } from "./types";
@@ -34,7 +35,14 @@ export async function readDriverView(
   kart: KartNumber,
   nowMs = Date.now(),
 ): Promise<DriverViewState> {
-  const [binding, alerts] = await Promise.all([readBinding(kart), readFeed(kart)]);
+  const [binding, rawAlerts] = await Promise.all([readBinding(kart), readFeed(kart)]);
+
+  // Muted kinds are dropped HERE, not just where they would be drawn. The
+  // render path filters too, but a live feed keeps entries for six hours, so
+  // without this the API would keep handing out cautions written before the
+  // mute — invisible today, and resurfacing the moment any new consumer reads
+  // `alerts` directly. Muted means it does not leave the server. See muted.ts.
+  const alerts = rawAlerts.filter((a) => !isMuted(a.kind));
 
   // Laps come from Neon, not the feed: the feed is 50 entries and six hours, and
   // a driver reviewing their heat wants every crossing, including the ones from
