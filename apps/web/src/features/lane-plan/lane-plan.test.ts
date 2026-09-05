@@ -261,18 +261,48 @@ describe("spread vs backfill — the owner's rule", () => {
 });
 
 describe("candidate enumeration", () => {
-  it("offers only contiguous sets when contiguous sets exist", () => {
+  it("offers whole pairs only — 2+3 is adjacent but it is two settees", () => {
+    // Lanes 2 and 3 are free and touching, and it is still the wrong answer: 2 belongs to
+    // pair 1-2 and 3 to pair 3-4, so that party sits astride two settees and two ball
+    // returns. Owner rule 2026-09-05.
     expect(enumerateCandidates([1, 2, 3, 7, 8], 2)).toEqual([
       [1, 2],
-      [2, 3],
       [7, 8],
     ]);
   });
 
-  it("falls back to non-contiguous rather than refusing a group", () => {
-    const out = enumerateCandidates([1, 5, 9], 2);
-    expect(out.length).toBeGreaterThan(0);
-    expect(out[0]).toEqual([1, 5]);
+  it("offers NOTHING rather than a set QAMF will reject", () => {
+    // This used to return [[1,5],[5,9]] "so a big group still gets placed". It never got
+    // placed — QAMF answers a non-adjacent `Lanes` array with a 400 validation error, so
+    // those were two guaranteed-wasted round-trips. Naples X89042, 2026-09-04.
+    expect(enumerateCandidates([1, 5, 9], 2)).toEqual([]);
+
+    // ...and end to end, no candidates is a SAFE answer, not a lost booking: the caller
+    // drops `Lanes` and QAMF assigns — which is how X89042 ended up correctly on 23+24.
+    const fragmented = grid([busy(2, 0, 2), busy(3, 0, 2), busy(6, 0, 2), busy(7, 0, 2)], 8);
+    const { best } = chooseLanes(
+      fragmented,
+      {
+        laneCount: 2,
+        startMs: T0,
+        endMs: T0 + 1.5 * HOUR,
+        players: 8,
+        webOfferId: 152,
+        allowedLanes: null,
+      },
+      DEFAULT_POLICY,
+    );
+    expect(best).toBeNull();
+  });
+
+  it("aligns an odd-sized block to a pair boundary too", () => {
+    // 3 lanes: 13+14 is a whole pair and 15 opens the next one. Starting at 14 would split
+    // the party across pairs at BOTH ends.
+    expect(enumerateCandidates([13, 14, 15, 16], 3)).toEqual([[13, 14, 15]]);
+  });
+
+  it("leaves single lanes alone — one lane cannot straddle a pair", () => {
+    expect(enumerateCandidates([2, 3, 9], 1)).toEqual([[2], [3], [9]]);
   });
 });
 
@@ -577,6 +607,27 @@ describe("reading QAMF's refusals", () => {
     expect(v.tryNextLane).toBe(false);
     expect(v.code).toBe("unknown");
     expect(shouldFailOpen("500 Internal Server Error")).toBe(true);
+  });
+
+  it("names a 400 on the Lanes field instead of calling it unknown", () => {
+    // The exact refusal behind Naples X89042, 2026-09-04 — a NON-contiguous set, which the
+    // vendor rejects on shape rather than availability. `wholePairSets` should make this
+    // unreachable; naming it means a regression shows up in the decision log as itself.
+    const v = classifyPinFailure(
+      `createReservation(3148) failed: 400 {"title":"One or more validation errors occurred.","status":400,"errors":{"Lanes":["Lanes must be adjacent"]}}`,
+    );
+    expect(v.code).toBe("lanes_invalid");
+    // NOT recoverable: a malformed set means the next one is malformed the same way.
+    expect(v.tryNextLane).toBe(false);
+  });
+
+  it("still reads LanesNotCompatible as a lane-group refusal, not a bad set", () => {
+    // That 409 also says "validation errors" — the two must not collide.
+    const v = classifyPinFailure(
+      `createReservation(9172) failed: 409 {"detail":"weboffer has validation errors: [{Type: LanesNotCompatible, Reason: 'Lanes passed are not compatible with web offer configuration (Lane Groups)'}]"}`,
+    );
+    expect(v.code).toBe("lanes_not_compatible");
+    expect(v.tryNextLane).toBe(true);
   });
 });
 

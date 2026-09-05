@@ -8,7 +8,7 @@
  * A create is just a sweep with one new reservation added, which is why they share the
  * scoring path rather than being two systems.
  */
-import { byReservation, freeLanes, isMovable, pairOf } from "./grid";
+import { byReservation, freeLanes, isMovable, pairOf, wholePairSets } from "./grid";
 import { candidateLanes, explain, scorePlacement, spreadBias } from "./score";
 import type {
   BusyInterval,
@@ -22,28 +22,16 @@ import type {
 /**
  * Candidate lane sets of size k, drawn from the lanes free for the window.
  *
- * For k > 1 only contiguous sets are offered — a party's lanes must sit together — and
- * we fall back to non-contiguous sets only when nothing contiguous exists, so a big group
- * still gets placed rather than refused.
+ * A multi-lane set must be contiguous AND start on an odd lane, so it takes whole pairs.
+ * See `wholePairSets` for why both halves of that are hard constraints rather than
+ * preferences — one is a vendor 400, the other is the owner's rule.
+ *
+ * This used to fall back to non-contiguous sets "so a big group still gets placed rather
+ * than refused". That was wrong on its own terms: a scattered set is not a placement, it
+ * is a 400, and the group ends up fail-open anyway — three wasted round-trips later.
  */
 export function enumerateCandidates(free: number[], k: number): number[][] {
-  if (k <= 0) return [];
-  if (k === 1) return free.map((l) => [l]);
-
-  const contiguous: number[][] = [];
-  for (let i = 0; i + k <= free.length; i++) {
-    const window = free.slice(i, i + k);
-    if (window[k - 1] - window[0] === k - 1) contiguous.push(window);
-  }
-  if (contiguous.length) return contiguous;
-
-  // Nothing contiguous — offer the tightest spans available so the group at least lands
-  // near itself. Bounded so a fragmented house can't blow up the search.
-  const loose: number[][] = [];
-  for (let i = 0; i + k <= free.length && loose.length < 200; i++) {
-    loose.push(free.slice(i, i + k));
-  }
-  return loose;
+  return wholePairSets(free, k);
 }
 
 /** Rank every viable placement for one request, best first. */

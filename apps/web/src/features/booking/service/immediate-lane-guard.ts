@@ -20,8 +20,16 @@
  * `openLanesFrom` — `Status === "Closed"` means free to start now — is the same predicate
  * the per-lane QR flow and self-service check-in already trust. It simply was never applied
  * on the ordinary hold path.
+ *
+ * ONE THING IS SHARED with the arrangement engine, deliberately: `wholePairSets`, which
+ * decides what a legal multi-lane set even is. This file used to keep its own copy on the
+ * grounds that a correctness guard must not depend on a pilot — but the rule it encodes is
+ * the VENDOR's (a non-adjacent `Lanes` array is a 400) plus the owner's pairing rule, not
+ * the engine's opinion, and two copies of it is precisely how the 2026-09-04 refusals got
+ * shipped. It is a pure function over lane numbers with no flag behind it.
  */
 import { listLanes } from "@/lib/qamf-bowling";
+import { wholePairSets } from "~/features/lane-plan/grid";
 import { openLanesFrom } from "./bowl-now";
 import { bowlingLaneCount } from "./bowling-offer";
 
@@ -44,29 +52,6 @@ export const MAX_GUARD_CANDIDATES = 3;
  */
 export function immediateLaneGuardEnabled(): boolean {
   return process.env.IMMEDIATE_LANE_GUARD !== "false";
-}
-
-/**
- * Lane sets of `count` lanes drawn from `free`, contiguous first.
- *
- * A party's lanes have to sit together, so adjacent runs are offered before scattered
- * ones — and scattered ones are still offered, because a big group split across the house
- * beats a big group refused. Kept local rather than shared with the arrangement engine:
- * this guard is correctness and ships on its own, and it must not acquire a dependency on
- * a feature that is still a pilot.
- */
-function laneSetsOfSize(free: number[], count: number): number[][] {
-  if (count <= 0) return [];
-  if (count === 1) return free.map((l) => [l]);
-
-  const contiguous: number[][] = [];
-  const loose: number[][] = [];
-  for (let i = 0; i + count <= free.length; i++) {
-    const set = free.slice(i, i + count);
-    if (set[count - 1] - set[0] === count - 1) contiguous.push(set);
-    else loose.push(set);
-  }
-  return contiguous.length ? contiguous : loose;
 }
 
 /** Is this booking starting now-ish, i.e. is the guest about to walk to the lane? */
@@ -123,7 +108,7 @@ export async function freeLaneCandidates(opts: {
     }
 
     return {
-      candidates: laneSetsOfSize(free, bowlingLaneCount(opts.players)).slice(
+      candidates: wholePairSets(free, bowlingLaneCount(opts.players)).slice(
         0,
         MAX_GUARD_CANDIDATES,
       ),

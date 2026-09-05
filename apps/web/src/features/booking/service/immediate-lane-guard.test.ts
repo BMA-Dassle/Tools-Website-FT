@@ -84,12 +84,51 @@ describe("candidates come only from lanes nobody is on", () => {
     expect(sets.flat()).toEqual([3]);
   });
 
-  it("gives a big party the lanes it needs, together", async () => {
+  it("gives a big party the lanes it needs, on one settee", async () => {
     listLanes.mockResolvedValue([1, 2, 3, 4, 5, 6, 7, 8].map((n) => lane(n, "Closed")));
-    // 8 players at 6 per lane = 2 lanes, and they must sit next to each other.
+    // 8 players at 6 per lane = 2 lanes, and they must be a true pair — not merely touching.
     const { candidates: sets } = await freeLaneCandidates({ centerId: 11542, players: 8 });
-    expect(sets[0]).toHaveLength(2);
-    expect(sets[0][1] - sets[0][0]).toBe(1);
+    expect(sets).toEqual([
+      [1, 2],
+      [3, 4],
+      [5, 6],
+    ]);
+  });
+
+  it("will not straddle two settees just because the lanes touch", async () => {
+    // Lane 1 running, so 2+3 is the only adjacent pair of free lanes — and it is two
+    // settees, with lane 2's other half belonging to whoever is on lane 1. We say nothing
+    // and let QAMF assign rather than seat a party across strangers. Owner rule 2026-09-05.
+    listLanes.mockResolvedValue([
+      lane(1, "Open"),
+      lane(2, "Closed"),
+      lane(3, "Closed"),
+      lane(4, "Open"),
+    ]);
+    const { candidates: sets } = await freeLaneCandidates({ centerId: 11542, players: 8 });
+    expect(sets).toEqual([]);
+  });
+
+  it("never offers a scattered set — QAMF answers those with a 400", async () => {
+    // 1+5 and 5+9 were previously offered as a last resort. They are not placements, they
+    // are validation errors. Naples X89042, 2026-09-04.
+    listLanes.mockResolvedValue([
+      lane(1, "Closed"),
+      lane(2, "Open"),
+      lane(3, "Open"),
+      lane(4, "Open"),
+      lane(5, "Closed"),
+      lane(6, "Open"),
+      lane(7, "Open"),
+      lane(8, "Open"),
+      lane(9, "Closed"),
+    ]);
+    const { candidates: sets, freeLanes } = await freeLaneCandidates({
+      centerId: 11542,
+      players: 8,
+    });
+    expect(freeLanes).toEqual([1, 5, 9]);
+    expect(sets).toEqual([]);
   });
 
   it("keeps the arrangement engine's ORDER but drops what the floor says is busy", async () => {

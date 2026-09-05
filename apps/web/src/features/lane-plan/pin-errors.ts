@@ -34,6 +34,17 @@
  * and would happily return the occupied lane we had just avoided. A guest could be sent to
  * a lane somebody was on, by the very code meant to prevent it.
  *
+ * One refusal is NOT recoverable, and is called out on its own because it means the bug is
+ * ours:
+ *
+ *   400 validation error on `Lanes`             the set we asked for is not a legal set —
+ *                                               in practice, not adjacent. Naples X89042,
+ *                                               2026-09-04: 17+19, 19+21, 21+23 all refused,
+ *                                               and QAMF then seated it on 23+24 itself.
+ *                                               `wholePairSets` now makes this unreachable;
+ *                                               it is named so that if it ever returns, the
+ *                                               decision log says so instead of `unknown`.
+ *
  * Anything else is not something a different lane would fix, so stop trying lanes and fall
  * open: drop `Lanes` and let QAMF assign. A lane preference is never worth a lost booking.
  */
@@ -42,7 +53,7 @@ export interface PinFailure {
   /** Would a different lane plausibly succeed? */
   tryNextLane: boolean;
   /** Short machine-ish reason, for logging into `lane_plan_decisions`. */
-  code: "lanes_not_compatible" | "lane_unavailable" | "unknown";
+  code: "lanes_not_compatible" | "lane_unavailable" | "lanes_invalid" | "unknown";
   /** Human-readable, for staff-facing output. */
   why: string;
 }
@@ -84,6 +95,19 @@ export function classifyPinFailure(message: string): PinFailure {
       tryNextLane: true,
       code: "lane_unavailable",
       why: "409 — lane already taken for that window (QAMF refused the double-book)",
+    };
+  }
+
+  // A 400 on the `Lanes` field is the vendor rejecting the SHAPE of the set, not its
+  // availability — contention is always a 409. `tryNextLane: false` on purpose: a malformed
+  // set means the enumerator is wrong, and the next set it produced is malformed the same
+  // way, so retrying just burns the budget. Fall open and let QAMF choose, which is exactly
+  // what recovered X89042.
+  if (m.includes("validation error") && m.includes('"lanes"')) {
+    return {
+      tryNextLane: false,
+      code: "lanes_invalid",
+      why: "400 — QAMF rejected the lane set itself (lanes must be adjacent)",
     };
   }
 

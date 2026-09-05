@@ -26,6 +26,53 @@ export function isTruePair(a: number, b: number): boolean {
   return hi - lo === 1 && lo % 2 === 1;
 }
 
+/** Does a run beginning here align to a pair boundary? Odd lanes open a pair, even ones
+ *  close the previous one. */
+export function startsPair(lane: number): boolean {
+  return lane % 2 === 1;
+}
+
+/**
+ * Lane sets of `k` lanes drawn from `free` — contiguous, and starting on an odd lane.
+ *
+ * THE ONLY ENUMERATOR. Both the arrangement engine and the always-on availability guard
+ * call this, because offering a set that breaks either rule below is not a worse option,
+ * it is a wasted request or a bad seat, and getting it wrong in one of two copies is how
+ * we shipped the 2026-09-04 refusals.
+ *
+ * Two constraints, from two different authorities, and they agree:
+ *
+ *  - CONTIGUOUS — the vendor's. QAMF rejects a non-adjacent `Lanes` array with a **400
+ *    validation error**, not a 409, so a scattered set can never be booked at all. Naples
+ *    X89042 (12 players, 2026-09-04) was offered 17+19, then 19+21, then 21+23 — three
+ *    guaranteed 400s — before we fell open and QAMF seated it on 23+24 itself.
+ *
+ *  - STARTS ON AN ODD LANE — the owner's, and stricter. Adjacency alone still allows
+ *    14+15, which is one party spread across TWO settees and two ball returns; the whole
+ *    point of the feature is to stop exactly that. Starting odd means the set consumes
+ *    whole pairs: 13+14 ✓, 14+15 ✗, 13+14+15+16 ✓.
+ *
+ * Returns empty when no such set exists. That is a real answer, not a failure: every
+ * caller treats "no candidates" as "no opinion" and lets the vendor assign, which is the
+ * fail-open contract — a lane preference must never cost a booking. Offering an even-start
+ * pair as a consolation would be seating the party astride two strangers' settees, which
+ * is the complaint we are here to fix.
+ */
+export function wholePairSets(free: readonly number[], k: number): number[][] {
+  if (k <= 0) return [];
+  const lanes = [...new Set(free)].sort((a, b) => a - b);
+  if (k === 1) return lanes.map((l) => [l]);
+
+  const sets: number[][] = [];
+  for (let i = 0; i + k <= lanes.length; i++) {
+    const set = lanes.slice(i, i + k);
+    if (set[k - 1] - set[0] !== k - 1) continue;
+    if (!startsPair(set[0])) continue;
+    sets.push(set);
+  }
+  return sets;
+}
+
 /** Half-open overlap: [aStart, aEnd) vs [bStart, bEnd). Touching does not overlap. */
 export function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
   return aStart < bEnd && bStart < aEnd;
