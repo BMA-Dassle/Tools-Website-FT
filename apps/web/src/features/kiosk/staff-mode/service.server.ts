@@ -1,6 +1,6 @@
 import "server-only";
 import { addMembership } from "@/lib/pandora-memberships";
-import { addDeposit } from "@/lib/pandora-deposits";
+import { addDeposit, getDepositOverview } from "@/lib/pandora-deposits";
 import { PANDORA_LOCATION_MAP } from "@/lib/pandora-locations";
 import {
   fetchOfficePerson,
@@ -56,7 +56,9 @@ import {
  * chips come back on their own once the sync lands and the kiosk re-checks.
  *
  * READS: the account view is Office person (memberships, raw, with dates) +
- * Office deposit history (balances) + Office `personStats/races` (every
+ * ON-SITE deposit balances (Pandora DPS_OVERVIEW — the ledger the writes above
+ * land on, so a just-granted comp shows immediately; Office deposit history is
+ * the fallback — see fetchStaffCredits) + Office `personStats/races` (every
  * finished heat, owner 2026-09-04) shaped by race-history.ts into rows, a best
  * per track and the closest climb to the next level.
  */
@@ -257,6 +259,35 @@ export interface StaffAccountView {
   summary: RaceHistorySummary | null;
 }
 
+/**
+ * Credit balances for the account view — ON-SITE ledger first, cloud Office
+ * history as fallback. The comp/membership writes above land on the on-site
+ * server, and the cloud mirror lags by minutes — long enough that a comp
+ * granted seconds ago doesn't show in this very sheet, so staff grant it AGAIN
+ * (2026-09-05: three guests double-comped inside two minutes). Same wide
+ * filter both ways: every kind with a positive balance, not just race credits.
+ */
+async function fetchStaffCredits(
+  personId: string,
+  location: StaffLocation,
+): Promise<Array<{ kind: string; balance: number }> | null> {
+  try {
+    const rows = await getDepositOverview(personId, pandoraLocationId(location));
+    return rows
+      .filter(
+        (r) => typeof r?.OUT_DPS_AMOUNT === "number" && r.OUT_DPS_AMOUNT > 0 && r.OUT_DPK_NAME,
+      )
+      .map((r) => ({ kind: String(r.OUT_DPK_NAME), balance: r.OUT_DPS_AMOUNT }));
+  } catch {
+    const deposits = await fetchOfficeDepositHistory(personId, clientKeyForStaffLocation(location));
+    return deposits
+      ? deposits
+          .filter((d) => typeof d?.balance === "number" && d.balance > 0 && d.depositKind)
+          .map((d) => ({ kind: String(d.depositKind), balance: d.balance as number }))
+      : null;
+  }
+}
+
 /** The account view for the Race history sheet. Each source is independent
  *  and fail-open (null = that read failed, [] = genuinely nothing). */
 export async function readStaffAccount(
@@ -264,9 +295,9 @@ export async function readStaffAccount(
   location: StaffLocation,
 ): Promise<StaffAccountView> {
   const clientKey = clientKeyForStaffLocation(location);
-  const [person, deposits, races] = await Promise.all([
+  const [person, credits, races] = await Promise.all([
     fetchOfficePerson(personId, clientKey),
-    fetchOfficeDepositHistory(personId, clientKey),
+    fetchStaffCredits(personId, location),
     fetchOfficeRaceHistory(personId, clientKey),
   ]);
   const now = Date.now();
@@ -295,11 +326,6 @@ export async function readStaffAccount(
       raw as Array<{ name?: unknown; stops?: string | null }>,
     );
   }
-  const credits = deposits
-    ? deposits
-        .filter((d) => typeof d?.balance === "number" && d.balance > 0 && d.depositKind)
-        .map((d) => ({ kind: String(d.depositKind), balance: d.balance as number }))
-    : null;
   const heats = races ? shapeRaceHistory(races) : null;
   return {
     memberships,

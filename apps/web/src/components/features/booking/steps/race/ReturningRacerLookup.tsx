@@ -6,7 +6,7 @@ import {
   tierFromMemberships,
 } from "~/features/booking/service/race-products";
 import { hasActiveLicenseMembership } from "~/features/booking/service/license";
-import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
+import { fetchLiveCreditBalances } from "~/features/booking/data/credit-balance-client";
 import {
   OFFICE_SEARCH_MAX_RESULTS,
   rankSearchResults,
@@ -169,15 +169,10 @@ async function fetchAccountDetails(
           .map((m: { name: string }) => m.name)
           .filter((n: string, i: number, a: string[]) => a.indexOf(n) === i);
 
-        let creditBalances: FoundAccount["creditBalances"] = [];
-        try {
-          const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${p.id}${proofQs}`);
-          if (depRes.ok) {
-            creditBalances = creditBalancesFromDeposits(await depRes.json());
-          }
-        } catch {
-          /* non-fatal */
-        }
+        // On-site read first (cloud lags fresh grants by minutes) — the proof
+        // qs only matters to the Office fallback.
+        const creditBalances: FoundAccount["creditBalances"] =
+          (await fetchLiveCreditBalances(String(p.id), { officeQs: proofQs })) ?? [];
 
         // lastLineUp is often absent on the person record even when the search
         // description carried "Last seen:" — trust whichever is more recent.
@@ -483,13 +478,8 @@ export function ReturningRacerLookup({
           // Fetch the racer's credit balances — the login-code path previously
           // skipped this (only the phone/email path fetched them), so anyone who
           // logged in with their code saw NO race credits at checkout.
-          let creditBalances: PersonData["creditBalances"] = [];
-          try {
-            const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${p.id}`);
-            if (depRes.ok) creditBalances = creditBalancesFromDeposits(await depRes.json());
-          } catch {
-            /* non-fatal */
-          }
+          const creditBalances: PersonData["creditBalances"] =
+            (await fetchLiveCreditBalances(String(p.id))) ?? [];
           const person: PersonData = {
             personId: String(p.id),
             fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),

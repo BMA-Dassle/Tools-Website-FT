@@ -13,7 +13,10 @@
  * shape-identical to the snapshot they replace:
  *  - Office person   → memberships (stops-filtered + isRelevantMembership),
  *                      exactly ReturningRacerLookup.fetchAccountDetails' filter.
- *  - Office deposits → creditBalancesFromDeposits (credit kinds + balances).
+ *  - On-site deposits (Pandora DPS_OVERVIEW; cloud Office history as fallback)
+ *                      → credit kinds + balances. Local-first because every
+ *                      credit WRITE lands on-site and the cloud mirror lags
+ *                      minutes behind — see fetchLiveCreditBalances below.
  *  - Pandora person  → waiverValid (waiverExpiry > now) + authoritative
  *                      birthdate (same read /api/pandora GET does).
  *
@@ -23,10 +26,14 @@
  * (17-digit Office ids exceed Number.MAX_SAFE_INTEGER — never Number() them).
  */
 import { fetchOfficePerson, fetchOfficeDepositHistory } from "@/lib/bmi-office-actions";
+import { getDepositOverview } from "@/lib/pandora-deposits";
 import { PANDORA_DEFAULT_LOCATION_ID, PANDORA_LOCATION_MAP } from "@/lib/pandora-locations";
 import { isRelevantMembership } from "~/features/booking/service/race-products";
 import { hasActiveLicenseMembership } from "~/features/booking/service/license";
-import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
+import {
+  creditBalancesFromDeposits,
+  creditBalancesFromOverview,
+} from "~/features/booking/data/race-credits";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 
@@ -123,6 +130,33 @@ async function fetchWaiverStatus(
 }
 
 /**
+ * Credit balances — ON-SITE server first, cloud Office history as fallback.
+ *
+ * Credits are WRITTEN on-site (staff-page comps, pack grants — all Pandora
+ * `addDeposit`), and the charge path validates against that same on-site
+ * ledger; the cloud history only sees a deposit after BMI's on-site → cloud
+ * sync, measured at 1.5–12 minutes (2026-09-05: staff re-granted comps
+ * because nothing showed, every guest got doubles). Read the local ledger
+ * with the same id precedence the write uses. Null = both reads failed
+ * (caller omits the field — fail open, same as before).
+ */
+async function fetchLiveCreditBalances(
+  m: QualificationRefreshMember,
+  locationKey: string | undefined,
+): Promise<Array<{ kind: string; balance: number }> | null> {
+  const locationId =
+    (locationKey && PANDORA_LOCATION_MAP[locationKey]) || PANDORA_DEFAULT_LOCATION_ID;
+  try {
+    return creditBalancesFromOverview(
+      await getDepositOverview(m.pandoraPersonId || m.bmiPersonId, locationId),
+    );
+  } catch {
+    const deposits = await fetchOfficeDepositHistory(m.bmiPersonId);
+    return deposits ? creditBalancesFromDeposits(deposits) : null;
+  }
+}
+
+/**
  * Re-fetch live qualifications for each member. All members and all sources run
  * concurrently; each row carries only the fields whose fetch succeeded.
  */
@@ -132,9 +166,9 @@ export async function gatherQualifications(
 ): Promise<QualificationRow[]> {
   return Promise.all(
     members.map(async (m) => {
-      const [person, deposits, waiver] = await Promise.all([
+      const [person, creditBalances, waiver] = await Promise.all([
         fetchOfficePerson(m.bmiPersonId),
-        fetchOfficeDepositHistory(m.bmiPersonId),
+        fetchLiveCreditBalances(m, locationKey),
         // Waiver read on the id signatures land on (short Pandora id when
         // resolved) — see QualificationRefreshMember.pandoraPersonId.
         fetchWaiverStatus(m.pandoraPersonId || m.bmiPersonId, locationKey),
@@ -147,7 +181,7 @@ export async function gatherQualifications(
         // (service/license.ts explains why).
         row.licenseActive = hasActiveLicense(person);
       }
-      if (deposits) row.creditBalances = creditBalancesFromDeposits(deposits);
+      if (creditBalances) row.creditBalances = creditBalances;
       if (waiver) {
         row.waiverValid = waiver.waiverValid;
         if (waiver.birthdate) row.birthdate = waiver.birthdate;

@@ -21,8 +21,8 @@ import {
 import {
   memberEligibleCreditTotal,
   memberEligibleBreakdown,
-  creditBalancesFromDeposits,
 } from "~/features/booking/data/race-credits";
+import { fetchLiveCreditBalances } from "~/features/booking/data/credit-balance-client";
 import {
   bowlingReserve,
   bowlingTerminalPrepare,
@@ -381,11 +381,10 @@ export function CheckoutStep({
     );
     void Promise.allSettled(
       members.map(async ({ id, pid }) => {
-        const res = await fetch(
-          `/api/bmi-office?action=deposits&personId=${encodeURIComponent(pid)}`,
-        );
-        if (!res.ok) return;
-        const fresh = creditBalancesFromDeposits(await res.json());
+        // On-site read first (cloud lags a staff comp / fresh pack by minutes)
+        // — the same ledger the charge path validates against.
+        const fresh = await fetchLiveCreditBalances(pid);
+        if (!fresh) return;
         dispatch({ type: "updatePartyMember", id, patch: { creditBalances: fresh } });
         // Newly eligible → default their opt-in ON (the creditChoices mount
         // initializer ran before this fetch landed) — unless BOGO is pairing

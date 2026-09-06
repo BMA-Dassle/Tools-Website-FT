@@ -4,10 +4,8 @@ import { useState } from "react";
 import type { PartyMember, RaceItem, StepDef } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
-import {
-  creditBalancesFromDeposits,
-  creditTypeForDepositName,
-} from "~/features/booking/data/race-credits";
+import { creditTypeForDepositName } from "~/features/booking/data/race-credits";
+import { fetchLiveCreditBalances } from "~/features/booking/data/credit-balance-client";
 import { comboMinHeadcount, getComboSpecial } from "~/features/combos/combo-specials";
 import { ExperiencePicker } from "./ExperiencePicker";
 import { ReturningRacerLookup, type PersonData } from "./ReturningRacerLookup";
@@ -301,12 +299,8 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
           : undefined;
         // Pull this linked racer's OWN race credits so they can redeem too
         // (previously omitted — linked family could never use their credits).
-        try {
-          const depRes = await fetch(`/api/bmi-office?action=deposits&personId=${bmiPersonId}`);
-          if (depRes.ok) creditBalances = creditBalancesFromDeposits(await depRes.json());
-        } catch {
-          /* non-fatal */
-        }
+        // On-site read first: cloud lags fresh grants by minutes.
+        creditBalances = (await fetchLiveCreditBalances(bmiPersonId)) ?? creditBalances;
       }
     } catch {
       /* non-fatal — add without BMI ID / memberships */

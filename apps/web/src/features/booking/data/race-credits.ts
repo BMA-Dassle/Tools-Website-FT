@@ -160,6 +160,22 @@ export function creditBalancesFromDeposits(
     .map((d) => ({ kind: d.depositKind ?? "", balance: d.balance as number }));
 }
 
+/**
+ * Same derivation, from a Pandora DPS_OVERVIEW read (the ON-SITE server —
+ * `getDepositOverview` / `/api/pandora/deposits/[personId]`). Credits are
+ * WRITTEN on-site (staff comps, pack grants) and take minutes to reach the
+ * cloud Office `deposit/history` read, so freshness-sensitive surfaces read
+ * this shape instead; the filter stays identical so both sources agree.
+ */
+export function creditBalancesFromOverview(
+  rows: Array<{ OUT_DPK_NAME?: string | null; OUT_DPS_AMOUNT?: number | null }> | null | undefined,
+): Array<{ kind: string; balance: number }> {
+  if (!Array.isArray(rows)) return [];
+  return creditBalancesFromDeposits(
+    rows.map((r) => ({ depositKind: r?.OUT_DPK_NAME ?? null, balance: r?.OUT_DPS_AMOUNT ?? null })),
+  );
+}
+
 /** Is this credit type redeemable on the given race date (day-lock check)? */
 export function isTypeEligibleOnDate(type: RaceCreditType, raceDate: string | null): boolean {
   if (!type.dayLock) return true;
