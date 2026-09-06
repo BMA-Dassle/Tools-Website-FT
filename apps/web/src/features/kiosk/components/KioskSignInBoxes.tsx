@@ -8,7 +8,11 @@
  *   1. Sign in from your phone — mobile-join QR, rendered INLINE and scannable;
  *      tapping enlarges it to a focused sheet (owner 2026-07-23). Wears the
  *      amber `k-join-signing` glow while a phone is mid sign-in.
- *   2. Scan your license — driver's license / state ID at the COM scanner.
+ *   2. Scan your driver's license — driver's license / state ID at the COM
+ *      scanner. THE RECOMMENDED ROUTE (owner 2026-09-05: "people don't notice
+ *      it"): it wears the only ranking badge — an amber RECOMMENDED pill with
+ *      the steady `k-recommended` glow — and the phone tile's badge stopped
+ *      claiming "Fastest" in the same pass, so exactly one tile ranks itself.
  *   3. Scan your FastTrax license — the racer's FastTrax license at the same
  *      scanner.
  *
@@ -187,7 +191,7 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
                 }`}
               >
                 <span className="text-[18px] font-bold uppercase tracking-[0.16em] text-[#00e2e5]">
-                  {t("signin.phone.fastest")}
+                  {t("signin.phone.badge")}
                 </span>
                 {phone!.qrDataUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -223,16 +227,16 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
           {/* Driver's license — presentational prompt; the scan itself is handled by
           the consumer's useLicenseScan. Not a button: the guest just scans. */}
           {scanListening && (
-            <div className="flex flex-col items-center gap-[14px] rounded-[26px] border-2 border-[#f0b341]/35 bg-[#f0b341]/[0.05] p-[24px] text-center">
-              <span className="text-[18px] font-bold uppercase tracking-[0.16em] text-[#f0b341]">
+            <div className="k-recommended flex flex-col items-center gap-[14px] rounded-[26px] border-2 border-[#f0b341]/65 bg-[#f0b341]/[0.09] p-[24px] text-center">
+              <span className="inline-flex items-center rounded-full border border-[#f0b341]/50 bg-[#f0b341]/[0.16] px-[18px] py-[6px] text-[18px] font-bold uppercase tracking-[0.16em] text-[#f0b341]">
                 {t("signin.license.badge")}
               </span>
-              <IconLicense size={72} stroke={1.5} className="text-[#f0b341]" aria-hidden="true" />
+              <IconLicense size={84} stroke={1.5} className="text-[#f0b341]" aria-hidden="true" />
               <span>
-                <span className="block text-[27px] font-bold text-white">
+                <span className="block text-[27px] font-extrabold text-white">
                   {t("signin.license.title")}
                 </span>
-                <span className="mt-[4px] block text-[19px] text-white/50">
+                <span className="mt-[4px] block text-[19px] text-white/60">
                   {t("signin.license.sub")}
                 </span>
               </span>

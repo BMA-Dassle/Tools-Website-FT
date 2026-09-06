@@ -383,10 +383,32 @@
   border-color: rgba(240, 179, 65, 0.55);
   animation: k-join-signing 2.4s ease-in-out infinite;
 }
+
+/* The RECOMMENDED sign-in tile (KioskSignInBoxes' driver's-license box): a
+   steady amber breathe so the recommended route reads as such at a glance.
+   Deliberately its OWN keyframes, not k-join-signing — that pulse means "a
+   phone is mid sign-in" and also swings the border, which is too loud for a
+   tile that glows all day. Shadow only; the tile keeps its own border color. */
+@keyframes k-recommended {
+  0%,
+  100% {
+    box-shadow: 0 0 16px rgba(240, 179, 65, 0.16);
+  }
+  50% {
+    box-shadow: 0 0 44px rgba(240, 179, 65, 0.36);
+  }
+}
+.k-recommended {
+  animation: k-recommended 2.4s ease-in-out infinite;
+}
 @media (prefers-reduced-motion: reduce) {
   .k-join-signing {
     animation: none;
     box-shadow: 0 0 40px rgba(240, 179, 65, 0.4);
+  }
+  .k-recommended {
+    animation: none;
+    box-shadow: 0 0 30px rgba(240, 179, 65, 0.26);
   }
 }
 

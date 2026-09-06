@@ -15,6 +15,24 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.34.0 — THE DRIVER'S-LICENSE SCAN IS THE RECOMMENDED WAY IN (owner
+ *         2026-09-05: "people don't notice it" — the phone tile wore the only
+ *         badge, and it said FASTEST, while the license sat as a passive
+ *         second-of-three panel). Same three tiles, same order, same sizes;
+ *         what changed is who ranks itself: the license tile now carries an
+ *         amber RECOMMENDED pill, a stronger border (35→65) on a warmer fill
+ *         (5→9), and a new steady `k-recommended` breathe (deliberately NOT
+ *         k-join-signing, whose pulse means "a phone is mid sign-in" and
+ *         swings the border), while the phone badge softens from "Fastest" to
+ *         "On your phone" so exactly one tile claims to be the way to go.
+ *         Title corrected to "Scan your driver's license" (it said "Scan your
+ *         license", which read as the FastTrax license one tile over); the
+ *         old "No typing" badge copy folded into the sub. Built from the
+ *         owner-picked "Proposed" artboard on the License-First Sign-In
+ *         canvas. EN + ES. Known limit, deliberate: the row still folds
+ *         behind "More ways to add people" once someone is on the roster —
+ *         defaulting it open / naming the license in the folded bar were
+ *         offered and not picked up this pass.
  * 1.33.3 — A PHONE THAT MATCHES ONLY STUB RECORDS CAN STILL SIGN IN (owner
  *         2026-09-05). The phone/email OTP sign-in (kiosk people step, mobile
  *         join, web /book/race + race-packs) dropped every account whose tags
@@ -1304,7 +1322,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.33.3";
+export const KIOSK_VERSION = "1.34.0";
 
 let bootVersion: string | null = null;
 let captured = false;
