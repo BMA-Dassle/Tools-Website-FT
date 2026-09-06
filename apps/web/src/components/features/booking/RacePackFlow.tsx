@@ -10,7 +10,7 @@ import {
   type RacePack,
 } from "~/features/booking/data/packs";
 import { webPackSkus } from "~/features/booking/service/race-pack-kiosk";
-import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
+import { pickPublishableLoginCode, preferCodedAccounts } from "~/features/kiosk/license/types";
 
 /**
  * v2 race-pack purchase — `/book/race-pack/v2`.
@@ -179,8 +179,9 @@ export function RacePackFlow() {
         }
       }),
     );
-    return details
-      .filter((d): d is FoundAccount => d !== null)
+    // Code-less stubs LIST only when the search matched nothing else
+    // (preferCodedAccounts) — same rule as every other account lookup.
+    return preferCodedAccounts(details.filter((d): d is FoundAccount => d !== null))
       .sort((a, b) => {
         if (a.memberships.length !== b.memberships.length)
           return b.memberships.length - a.memberships.length;

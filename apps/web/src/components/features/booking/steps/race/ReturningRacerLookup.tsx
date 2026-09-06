@@ -12,7 +12,7 @@ import {
   rankSearchResults,
   type SearchCandidate,
 } from "~/features/booking/service/office-search";
-import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
+import { pickPublishableLoginCode, preferCodedAccounts } from "~/features/kiosk/license/types";
 
 export interface PersonData {
   personId: string;
@@ -213,18 +213,13 @@ async function fetchAccountDetails(
     }),
   );
 
-  // Owner ranking (2026-07-21, tiers extended 2026-09-05): substance first —
-  // membership/credit holders, then code-holding racers, then the code-less
-  // stubs our own bookings mint — each tier by most recent visit, so the
-  // account the guest actually uses lands on top and stubs sink to the bottom.
-  const valid = details.filter((d): d is FoundAccount => d !== null);
-  const substance = (a: FoundAccount) =>
-    a.memberships.length > 0 || a.creditBalances.some((c) => c.balance > 0)
-      ? 2
-      : a.loginCode
-        ? 1
-        : 0;
-  valid.sort((a, b) => substance(b) - substance(a) || b.lastSeenAt - a.lastSeenAt);
+  // Coded accounts win outright (preferCodedAccounts): stubs only list when
+  // the number matched nothing else. Within what's shown, owner ranking
+  // (2026-07-21): membership/credit holders first, then most recent visit.
+  const valid = preferCodedAccounts(details.filter((d): d is FoundAccount => d !== null));
+  const topTier = (a: FoundAccount) =>
+    a.memberships.length > 0 || a.creditBalances.some((c) => c.balance > 0) ? 1 : 0;
+  valid.sort((a, b) => topTier(b) - topTier(a) || b.lastSeenAt - a.lastSeenAt);
   return valid.slice(0, 10);
 }
 

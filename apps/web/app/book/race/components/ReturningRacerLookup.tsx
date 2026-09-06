@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { bmiGet, isRelevantMembership } from "../data";
-import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
+import { pickPublishableLoginCode, preferCodedAccounts } from "~/features/kiosk/license/types";
 
 export interface PersonData {
   personId: string;
@@ -182,22 +182,17 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
         return null;
       }
     });
-    // Code-less accounts LIST (loginCode "" — booking-minted stubs): dropping
-    // them stranded guests whose OTP had already consumed the code, so every
-    // retry read "expired" (2026-09-05). Substance decides the order instead —
-    // membership/credit holders, then code-holding racers, then stubs.
-    const allDetails = (await Promise.all(detailPromises)).filter(
-      (d): d is FoundAccount => d !== null,
+    // Code-less stubs LIST only when the search matched nothing else
+    // (preferCodedAccounts): dropping them outright stranded guests whose OTP
+    // had already consumed the code, so every retry read "expired" (2026-09-05).
+    const allDetails = preferCodedAccounts(
+      (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null),
     );
-    const substance = (a: FoundAccount) =>
-      a.memberships.length > 0 || (a.creditBalances ?? []).some((c) => c.balance > 0)
-        ? 2
-        : a.loginCode
-          ? 1
-          : 0;
-    allDetails.sort(
-      (a, b) => substance(b) - substance(a) || (b.lastSeen || "").localeCompare(a.lastSeen || ""),
-    );
+    allDetails.sort((a, b) => {
+      if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
+      if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
+      return (b.lastSeen || "").localeCompare(a.lastSeen || "");
+    });
     return allDetails.slice(0, 5);
   }
 

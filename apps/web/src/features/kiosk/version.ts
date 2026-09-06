@@ -23,10 +23,14 @@
  *         screen where the same code could only ever read "expired", forever.
  *         Proven live: a guest's number matched 5 booking-minted stub records,
  *         all tag-less, all dropped (a control number with kind-9 tags sailed
- *         through). Code-less accounts now LIST — identity is the OTP'd phone;
- *         the wallet chip and /racer already hide when the code is absent —
- *         and substance orders the list: membership/credit holders, then
- *         code-holding racers, then stubs, each by most recent visit.
+ *         through). Rule (owner): a coded account always wins — code-less
+ *         records LIST ONLY when the search matched nothing else, so the
+ *         stranded guest gets in but nobody else wades through their family's
+ *         stubs. One helper (preferCodedAccounts) applies it on EVERY account
+ *         search — phone/email OTP sign-in, DL scan, member QR, race-packs —
+ *         and substance still orders what shows: membership/credit holders
+ *         first, then most recent visit. Identity is the OTP'd phone; the
+ *         wallet chip and /racer already hide when the code is absent.
  * 1.33.2 — THE STAFF SHEETS HAD THE SAME FONT BUG, AND BIG ACCOUNTS NOW FIT
  *         (owner 2026-09-05). The `k-eyebrow` trap fixed in 1.33.1 was
  *         COPIED FROM staff mode, so it was live there too: the sheet eyebrow

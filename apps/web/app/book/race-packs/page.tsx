@@ -9,7 +9,7 @@ import PaymentForm from "@/components/square/PaymentForm";
 import type { PaymentResult } from "@/components/square/PaymentForm";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
-import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
+import { pickPublishableLoginCode, preferCodedAccounts } from "~/features/kiosk/license/types";
 
 // ── Pack catalog ────────────────────────────────────────────────────────────
 
@@ -372,8 +372,10 @@ export default function RacePacksPage() {
         return null;
       }
     });
-    const allDetails = (await Promise.all(detailPromises)).filter(
-      (d): d is FoundAccount => d !== null,
+    // Code-less stubs LIST only when the search matched nothing else
+    // (preferCodedAccounts) — same rule as every other account lookup.
+    const allDetails = preferCodedAccounts(
+      (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null),
     );
     allDetails.sort((a, b) => {
       if (a.memberships.length > 0 && b.memberships.length === 0) return -1;

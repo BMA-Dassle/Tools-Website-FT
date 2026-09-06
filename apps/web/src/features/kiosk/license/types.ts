@@ -102,6 +102,20 @@ export function pickPublishableLoginCode(
 }
 
 /**
+ * Owner rule (2026-09-05): a code-holding account always beats a code-less
+ * stub, and stubs LIST only when the search matched nothing else. Guests whose
+ * number knows only booking-minted stubs still get in (dropping them stranded
+ * guests on a consumed OTP that could only ever read "expired"), while a guest
+ * with a real racing account never wades through their family's stubs. Every
+ * account-list search applies this SAME rule — sign-in, DL scan, member QR,
+ * race-packs — so the surfaces can't drift.
+ */
+export function preferCodedAccounts<T extends { loginCode?: string | null }>(accounts: T[]): T[] {
+  const coded = accounts.filter((a) => a.loginCode);
+  return coded.length > 0 ? coded : accounts;
+}
+
+/**
  * One matched account. Mirrors ReturningRacerLookup's FoundAccount (so the
  * existing AccountCard renders it structurally) plus the contact + waiver
  * status the lookup's Pandora probe already established.

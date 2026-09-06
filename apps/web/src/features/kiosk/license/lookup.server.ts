@@ -52,7 +52,7 @@ import {
   OFFICE_SEARCH_MAX_RESULTS,
 } from "~/features/booking/service/office-search";
 import { personIdForCode, rememberCodes } from "./code-cache";
-import { pickPublishableLoginCode } from "./types";
+import { pickPublishableLoginCode, preferCodedAccounts } from "./types";
 import type { LicenseMatch } from "./types";
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
@@ -318,7 +318,11 @@ export async function lookupLicenseMatches(input: LicenseLookupInput): Promise<L
   // the active "Alex" one — seen live 2026-07-23.)
   const plausible = (m: LicenseMatch) =>
     firstNameAffinity(m.fullName.split(/\s+/)[0], input.firstName) > 0 ? 1 : 0;
-  return matches.sort((a, b) => plausible(b) - plausible(a) || b.lastSeenAt - a.lastSeenAt);
+  // Code-less stubs list only when nothing coded matched (owner 2026-09-05) —
+  // the same preferCodedAccounts rule as every other account lookup.
+  return preferCodedAccounts(matches).sort(
+    (a, b) => plausible(b) - plausible(a) || b.lastSeenAt - a.lastSeenAt,
+  );
 }
 
 /**
@@ -368,7 +372,7 @@ export async function lookupMemberMatches(
   if (matches.length === 1) {
     await rememberCodes(matches[0].personId, [code]);
   }
-  return matches.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  return preferCodedAccounts(matches).sort((a, b) => b.lastSeenAt - a.lastSeenAt);
 }
 
 /**
@@ -398,7 +402,7 @@ export async function lookupMemberMatchesAt(
   const matches = (await Promise.all(hits.map((h) => buildMatch(h, {}, clientKey)))).filter(
     (m): m is LicenseMatch => m !== null,
   );
-  return matches.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  return preferCodedAccounts(matches).sort((a, b) => b.lastSeenAt - a.lastSeenAt);
 }
 
 /**

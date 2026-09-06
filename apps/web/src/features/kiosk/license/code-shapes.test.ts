@@ -7,7 +7,12 @@
  * sign-in barcode, and a newly minted BILLED pass.
  */
 import { describe, it, expect } from "vitest";
-import { RACER_LOGIN_CODE_RE, RACER_PUBLIC_CODE_RE, pickPublishableLoginCode } from "./types";
+import {
+  RACER_LOGIN_CODE_RE,
+  RACER_PUBLIC_CODE_RE,
+  pickPublishableLoginCode,
+  preferCodedAccounts,
+} from "./types";
 
 /** Real shapes, measured on a live Office record 2026-08-06. */
 const SHORT_NUMERIC = "781136"; // 6-char, looks like a counter
@@ -155,5 +160,23 @@ describe("pickPublishableLoginCode — tags are not all login codes", () => {
       const code = pickPublishableLoginCode(tags);
       expect(code === "" || RACER_PUBLIC_CODE_RE.test(code), code).toBe(true);
     }
+  });
+});
+
+describe("preferCodedAccounts — stubs list only when nothing coded matched", () => {
+  const coded = { personId: "1", loginCode: "gexsshy7mzxbs" };
+  const stubA = { personId: "2", loginCode: "" };
+  const stubB = { personId: "3", loginCode: "" };
+
+  it("hides code-less stubs when a coded account matched", () => {
+    expect(preferCodedAccounts([stubA, coded, stubB])).toEqual([coded]);
+  });
+
+  it("keeps the stubs when they are all there is — an empty list stranded the guest on a consumed OTP (2026-09-05)", () => {
+    expect(preferCodedAccounts([stubA, stubB])).toEqual([stubA, stubB]);
+  });
+
+  it("empty in, empty out", () => {
+    expect(preferCodedAccounts([])).toEqual([]);
   });
 });
