@@ -15,6 +15,18 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.33.3 — A PHONE THAT MATCHES ONLY STUB RECORDS CAN STILL SIGN IN (owner
+ *         2026-09-05). The phone/email OTP sign-in (kiosk people step, mobile
+ *         join, web /book/race + race-packs) dropped every account whose tags
+ *         hold no publishable login code — but the OTP had already VERIFIED
+ *         and consumed the texted code, so the guest bounced back to the code
+ *         screen where the same code could only ever read "expired", forever.
+ *         Proven live: a guest's number matched 5 booking-minted stub records,
+ *         all tag-less, all dropped (a control number with kind-9 tags sailed
+ *         through). Code-less accounts now LIST — identity is the OTP'd phone;
+ *         the wallet chip and /racer already hide when the code is absent —
+ *         and substance orders the list: membership/credit holders, then
+ *         code-holding racers, then stubs, each by most recent visit.
  * 1.33.2 — THE STAFF SHEETS HAD THE SAME FONT BUG, AND BIG ACCOUNTS NOW FIT
  *         (owner 2026-09-05). The `k-eyebrow` trap fixed in 1.33.1 was
  *         COPIED FROM staff mode, so it was live there too: the sheet eyebrow
@@ -1288,7 +1300,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.33.2";
+export const KIOSK_VERSION = "1.33.3";
 
 let bootVersion: string | null = null;
 let captured = false;

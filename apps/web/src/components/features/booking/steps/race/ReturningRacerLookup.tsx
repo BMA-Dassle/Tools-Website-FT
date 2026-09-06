@@ -153,11 +153,14 @@ async function fetchAccountDetails(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const p = (await res.json()) as any;
         // Kind-9 login code / app-QR UUID only — never the most-recent raw tag,
-        // which can be an Intercard card number (2026-09-05). A record with no
-        // publishable code was never a code-holding racer, so dropping it here
-        // keeps the account list to ones the guest can actually sign into.
+        // which can be an Intercard card number (2026-09-05). "" is a VALID
+        // result and the account still lists: dropping code-less records here
+        // stranded guests whose number matches only booking-minted stubs — their
+        // OTP verified (consuming the code), then zero accounts survived, and
+        // retrying the same code could only ever read "expired" (2026-09-05).
+        // Identity is the OTP'd phone; the code is decoration the wallet chip
+        // and /racer already know to hide when absent.
         const loginCode = pickPublishableLoginCode(p.tags);
-        if (!loginCode) return null;
         const memberships = (p.memberships || [])
           .filter(
             (m: { stops?: string; name: string }) =>
@@ -210,14 +213,18 @@ async function fetchAccountDetails(
     }),
   );
 
-  // Owner ranking (2026-07-21): accounts that carry a relevant membership
-  // (license / intermediate / pro / …) or a credit deposit form the TOP tier,
-  // ordered by most recent visit; everything else sits below, also by most
-  // recent visit — so the account the guest actually uses lands on top.
+  // Owner ranking (2026-07-21, tiers extended 2026-09-05): substance first —
+  // membership/credit holders, then code-holding racers, then the code-less
+  // stubs our own bookings mint — each tier by most recent visit, so the
+  // account the guest actually uses lands on top and stubs sink to the bottom.
   const valid = details.filter((d): d is FoundAccount => d !== null);
-  const topTier = (a: FoundAccount) =>
-    a.memberships.length > 0 || a.creditBalances.some((c) => c.balance > 0) ? 1 : 0;
-  valid.sort((a, b) => topTier(b) - topTier(a) || b.lastSeenAt - a.lastSeenAt);
+  const substance = (a: FoundAccount) =>
+    a.memberships.length > 0 || a.creditBalances.some((c) => c.balance > 0)
+      ? 2
+      : a.loginCode
+        ? 1
+        : 0;
+  valid.sort((a, b) => substance(b) - substance(a) || b.lastSeenAt - a.lastSeenAt);
   return valid.slice(0, 10);
 }
 
