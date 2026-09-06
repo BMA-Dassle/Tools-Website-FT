@@ -1649,22 +1649,35 @@ function Rail({
    * would be about the wrong people, the exact bug the pill note above records.
    */
   const railHost = karts ? (karts.host ?? null) : (session?.host ?? null);
-  const withHost = (text: string) => (railHost ? `${text} · ${railHost}` : text);
 
-  /** The left half's instruction, from the same four states as before. */
-  const leftText = karts
-    ? withHost(`${kartsName} in karts`)
+  /**
+   * THE LEFT HALF'S INSTRUCTION, and the name line BENEATH it.
+   *
+   * The name used to ride the instruction's own line ("Seat Session 24 now ·
+   * Christopher"). At 40px italic caps the half has room for about thirty
+   * characters, and the instruction is deliberately unshrinkable (see the span
+   * below) — so a long name did not fit, it ran under the divider and through
+   * "Pit in" (owner 2026-09-05: "we seem to have some overlap issues"). The
+   * second line is sized to the instruction above it and ellipsises on its
+   * own, so nothing on this half can cross the divider again.
+   */
+  const left: { text: string; detail: string | null } = karts
+    ? { text: `${kartsName} in karts`, detail: railHost }
     : !session
-      ? racing?.host
-        ? `Nothing to seat · ${racing.host} running ${racing.heatNumber ?? "the race"}`
-        : "Nothing to seat"
+      ? {
+          text: "Nothing to seat",
+          detail: racing?.host ? `${racing.host} running ${racing.heatNumber ?? "the race"}` : null,
+        }
       : kind === "racing"
-        ? withHost(`${sessionName} racing`)
+        ? { text: `${sessionName} racing`, detail: railHost }
         : session.inHolding
-          ? withHost(`Seat ${sessionName} now`)
+          ? { text: `Seat ${sessionName} now`, detail: railHost }
           : session.briefedAtMs != null
-            ? withHost(`In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`)
-            : withHost(`${sessionName} checking in`);
+            ? {
+                text: `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`,
+                detail: railHost,
+              }
+            : { text: `${sessionName} checking in`, detail: railHost };
   // Not a call to action while somebody is strapped in — the green "go" belongs
   // to the seat instruction, and there is nothing to seat until the karts clear.
   const leftGo = !karts && kind === "seat" && session?.inHolding === true;
@@ -1723,24 +1736,61 @@ function Rail({
           gap: 26,
           padding: `0 ${PAD_X}px`,
           borderTop: `4px solid ${readyToSend ? GREEN : leftGo ? GREEN : withAlpha(accent, 0.55)}`,
+          // THE DIVIDER IS A WALL. Whatever this half cannot fit is clipped at
+          // its own edge, never drawn over "Pit in" (owner 2026-09-05). Clip
+          // horizontally only — the italic caps overshoot their line box and
+          // `hidden` would slice their ascenders (see the header's note).
+          overflowX: "clip",
+          overflowY: "visible",
         }}
       >
-        <span
-          className="tv-display"
+        {/* Two lines, ONE width: the column is sized by the instruction alone
+            (the detail declares width 0 so it adds nothing to the measure) and
+            the detail then stretches to that width and ellipsises inside it. */}
+        <div
           style={{
-            fontSize: 40,
-            whiteSpace: "nowrap",
-            // On the flashing box the ink comes from the keyframes, which swing
-            // it dark-on-green then white-on-dim. Setting a colour here would
-            // outrank that and leave green text on a green ground.
-            ...(readyToSend ? null : { color: leftGo ? GREEN : "rgba(245,236,238,0.85)" }),
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 6,
             // NOT shrinkable. This is the instruction; the pill beside it is the
             // detail. Letting flex ellipsise it produced "SEAT SE…" on the wall.
             flexShrink: 0,
           }}
         >
-          {leftText}
-        </span>
+          <span
+            className="tv-display"
+            style={{
+              fontSize: 40,
+              whiteSpace: "nowrap",
+              // On the flashing box the ink comes from the keyframes, which swing
+              // it dark-on-green then white-on-dim. Setting a colour here would
+              // outrank that and leave green text on a green ground.
+              ...(readyToSend ? null : { color: leftGo ? GREEN : "rgba(245,236,238,0.85)" }),
+            }}
+          >
+            {left.text}
+          </span>
+          {left.detail && (
+            <span
+              className="tv-display"
+              style={{
+                fontSize: 26,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                width: 0,
+                minWidth: "100%",
+                // Dimmer by opacity, not by colour, so it still follows the
+                // flash keyframes' ink swing on a READY TO SEND box.
+                opacity: 0.6,
+                ...(readyToSend ? null : { color: "rgba(245,236,238,0.85)" }),
+              }}
+            >
+              {left.detail}
+            </span>
+          )}
+        </div>
         {pre ? <PreRacePill label={pre.label} tone={pre.tone} /> : null}
       </div>
 

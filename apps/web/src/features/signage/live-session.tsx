@@ -479,11 +479,15 @@ export function LiveSessionChip({
           fontSize: compact ? 17 : 26,
           color: "rgba(245,236,238,0.75)",
           letterSpacing: "0.04em",
+          whiteSpace: "nowrap",
         }}
       >
         {paused ? "Paused" : label}
       </span>
-      <span className="tv-num" style={{ fontSize: compact ? 26 : 40, color: "#fff" }}>
+      <span
+        className="tv-num"
+        style={{ fontSize: compact ? 26 : 40, color: "#fff", whiteSpace: "nowrap" }}
+      >
         {formatRemaining(clock.remainingMs)}
       </span>
       {who && (
@@ -491,11 +495,20 @@ export function LiveSessionChip({
           <span aria-hidden style={{ fontSize: compact ? 17 : 26, color: "rgba(245,236,238,0.3)" }}>
             ·
           </span>
+          {/* CAPPED. The pill sits at the end of rows that make room for it —
+              the pit header clips its session block to do so — and a long first
+              name ellipsises here rather than pushing the pill into what stands
+              beside it. (The camera strip's compact chip is never handed a host:
+              its 200px clock reserve is what lets a 12-kart grid fit.) */}
           <span
             style={{
               fontSize: compact ? 17 : 26,
               color: "rgba(245,236,238,0.55)",
               letterSpacing: "0.04em",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              maxWidth: compact ? 80 : 220,
             }}
           >
             {who}

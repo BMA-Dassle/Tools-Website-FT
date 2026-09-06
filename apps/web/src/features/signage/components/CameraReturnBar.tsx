@@ -44,7 +44,7 @@
  *     numbers and nothing else — no names, no rosters, no PII.
  */
 import { formatSinceFlag } from "../briefing/camera-return";
-import { LiveSessionChip, type OnTrackHost } from "../live-session";
+import { LiveSessionChip } from "../live-session";
 import { TRACK_ACCENTS } from "../track";
 import { withAlpha } from "../color";
 import type { TrackKey } from "~/features/reservations-admin/race-live-state";
@@ -213,7 +213,6 @@ export function CameraReturnBar({
   stale,
   padX,
   clockTrack,
-  onTrackHost,
   accent,
 }: {
   stillOut: CameraReturnBox[];
@@ -233,8 +232,6 @@ export function CameraReturnBar({
    * the clock stops sitting on the artwork. Do not "restore" it to the corner.
    */
   clockTrack: TrackKey | null;
-  /** The marshal running the heat on track, printed after the clock. */
-  onTrackHost?: OnTrackHost | null;
   accent: string;
 }) {
   const empty = stillOut.length + incoming.length === 0;
@@ -284,7 +281,7 @@ export function CameraReturnBar({
           {stale ? "Cameras — list unavailable" : "Cameras all in"}
         </span>
         <div style={{ marginLeft: "auto" }}>
-          <LiveSessionChip track={clockTrack} accent={accent} compact host={onTrackHost ?? null} />
+          <LiveSessionChip track={clockTrack} accent={accent} compact />
         </div>
       </div>
     );
@@ -347,7 +344,7 @@ export function CameraReturnBar({
           300 px of the row and colliding with the last box on a full grid). It is
           secondary information on this band — the boards' own clocks are big. */}
       <div style={{ marginLeft: "auto", flex: "0 0 auto" }}>
-        <LiveSessionChip track={clockTrack} accent={accent} compact host={onTrackHost ?? null} />
+        <LiveSessionChip track={clockTrack} accent={accent} compact />
       </div>
     </div>
   );

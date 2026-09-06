@@ -436,7 +436,9 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           stale={cameraReturn.stale}
           padX={PAD_X}
           clockTrack={liveTrack}
-          onTrackHost={onTrackHost}
+          // No marshal on THIS chip: the strip budgets 200px for the clock so a
+          // full 12-kart grid fits (camera-return.test), and the name does not.
+          // The room names them over the film and on the welcome-back board.
           accent={accent}
         />
       )}

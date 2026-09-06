@@ -1041,6 +1041,7 @@ function StatusChip({
         fontWeight: 800,
         letterSpacing: "0.03em",
         fontVariantNumeric: "tabular-nums",
+        whiteSpace: "nowrap",
         color,
       }}
     >
@@ -1062,7 +1063,17 @@ function StatusChip({
             ? `PAUSED ${formatRemaining(clock.remainingMs)}`
             : "TRACK CLEAR"}
       {running && host && (
-        <span style={{ color: PORTAL_DARK.muted, fontWeight: 600 }}>· {host}</span>
+        <span
+          style={{
+            color: PORTAL_DARK.muted,
+            fontWeight: 600,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            maxWidth: 140,
+          }}
+        >
+          · {host}
+        </span>
       )}
     </span>
   );
