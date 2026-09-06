@@ -32,7 +32,13 @@ import type { OnTimeSnapshot } from "~/features/racing/on-time";
 import TrackTimingLine from "../components/TrackTimingLine";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { withAlpha } from "../color";
-import { LiveSessionChip, useLiveSessionClock } from "../live-session";
+import {
+  LiveSessionChip,
+  hostForClock,
+  laneOnTrackHost,
+  useLiveSessionClock,
+  type OnTrackHost,
+} from "../live-session";
 import { useRaceClockForRace } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "../briefing/room-return";
 import { buildStageRail, type StageRow } from "../briefing/stage-rail";
@@ -265,6 +271,16 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     (liveClock.state === "finished" ||
       (liveClock.state === "running" && liveClock.counting && liveClock.remainingMs <= 500));
 
+  /**
+   * WHO IS OUT THERE (owner 2026-09-05: "show the name of the marshal when they
+   * are on-track"). The racing slot's marshal, for the clock chip, the idle
+   * wall's caption and the bottom rail. The chip and the caption print it only
+   * while the socket's heat is the lane's racing heat (hostForClock); the rail
+   * speaks for the lane itself, so it names them whatever the socket says.
+   */
+  const onTrackHost = laneOnTrackHost(lane);
+  const onTrackHostName = hostForClock(onTrackHost, liveClock?.heatName);
+
   const rail = pitRailState({
     stagedInHolding: session?.inHolding ?? false,
     stagedStartedAtMs: stagedArmed ? null : (session?.startedAtMs ?? (stagedRacing ? 0 : null)),
@@ -461,6 +477,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         timeOfDay={venueTimeOfDay(nowMs)}
         calledCheckinAt={calledCheckinAt}
         returning={feed?.checkinReturning ?? null}
+        onTrackHost={onTrackHost}
       />
     );
   }
@@ -714,7 +731,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               briefly lived here were not part of the approved mockup and the
               mockup is the target (owner 2026-08-13). */}
           <div style={{ marginLeft: 44, flexShrink: 0 }}>
-            <LiveSessionChip track={track} accent={accent} />
+            <LiveSessionChip track={track} accent={accent} host={onTrackHost} />
           </div>
         </header>
 
@@ -782,7 +799,12 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
               liveClock
                 ? {
                     text: railClock(liveClock.remainingMs),
-                    caption: liveClock.state === "paused" ? "Paused" : "On track",
+                    caption:
+                      liveClock.state === "paused"
+                        ? "Paused"
+                        : onTrackHostName
+                          ? `On track · ${onTrackHostName}`
+                          : "On track",
                     paused: liveClock.state === "paused",
                   }
                 : null
@@ -805,6 +827,11 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         session={session}
         karts={lane.karts}
         pitIn={lane.pitIn}
+        racing={
+          lane.racing
+            ? { heatNumber: lane.racing.heatNumber, host: lane.racing.host ?? null }
+            : null
+        }
       />
     </div>
   );
@@ -1385,6 +1412,7 @@ function SessionTracker({
   timeOfDay,
   calledCheckinAt,
   returning,
+  onTrackHost,
 }: {
   accent: string;
   /** Our own on-time picture — the tracker shows the mega heat's predicted
@@ -1397,6 +1425,8 @@ function SessionTracker({
   timeOfDay: string;
   calledCheckinAt: string | null;
   returning: TvFeed["checkinReturning"];
+  /** The marshal running the mega heat, for the header's clock chip. */
+  onTrackHost: OnTrackHost | null;
 }) {
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
@@ -1467,7 +1497,7 @@ function SessionTracker({
             {timeOfDay}
           </span>
           <span style={{ marginLeft: "auto" }}>
-            <LiveSessionChip track="mega" accent={accent} />
+            <LiveSessionChip track="mega" accent={accent} host={onTrackHost} />
           </span>
         </header>
 
@@ -1541,6 +1571,7 @@ function Rail({
   session,
   karts,
   pitIn,
+  racing,
 }: {
   kind: "info" | "seat" | "hold" | "racing";
   accent: string;
@@ -1597,6 +1628,14 @@ function Rail({
     postRaceAtMs: number | null;
     postRaceDurationS: number | null;
   } | null;
+  /**
+   * THE GROUP OUT ON TRACK AND THEIR MARSHAL (owner 2026-09-05: "when it says
+   * 'Nothing to seat' put the on track name there"). Only read when there is
+   * nothing else for the left half to say — every other line already names its
+   * own group's host. "Alex running 58", not "Alex on track" (owner, same day:
+   * the chip above already says on track; the rail says who has which heat).
+   */
+  racing: { heatNumber: number | null; host: string | null } | null;
 }) {
   const sessionName =
     session?.heatNumber != null ? `Session ${session.heatNumber}` : "Next session";
@@ -1616,7 +1655,9 @@ function Rail({
   const leftText = karts
     ? withHost(`${kartsName} in karts`)
     : !session
-      ? "Nothing to seat"
+      ? racing?.host
+        ? `Nothing to seat · ${racing.host} running ${racing.heatNumber ?? "the race"}`
+        : "Nothing to seat"
       : kind === "racing"
         ? withHost(`${sessionName} racing`)
         : session.inHolding

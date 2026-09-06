@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   displayRemainingMs,
   formatRemaining,
+  hostForClock,
+  laneOnTrackHost,
   nextCountingState,
   parseLiveFrame,
   type CountingTracker,
   type LiveClockFrame,
 } from "./live-session";
+import { EMPTY_PIT_LANE, type PitLaneFeed } from "./pit/pit-board";
 
 describe("nextCountingState — the two-phase start's counting verdict", () => {
   const frame = (over: Partial<LiveClockFrame>): LiveClockFrame => ({
@@ -169,5 +172,43 @@ describe("displayRemainingMs — the two-phase start must not tick early", () =>
     expect(
       displayRemainingMs({ ...base, state: "running", counting: true, nowMs: SYNC - 5_000 }),
     ).toBe(480_000);
+  });
+});
+
+describe("the marshal on the clock — laneOnTrackHost / hostForClock", () => {
+  const lane = (racing: PitLaneFeed["racing"]): PitLaneFeed => ({ ...EMPTY_PIT_LANE, racing });
+  const racing = (over: Partial<NonNullable<PitLaneFeed["racing"]>> = {}) =>
+    ({
+      sessionId: "s58",
+      heatNumber: 58,
+      raceType: "Intermediate",
+      room: "blue",
+      atMs: 0,
+      host: "Alex",
+      ...over,
+    }) as NonNullable<PitLaneFeed["racing"]>;
+
+  it("reads the racing slot's host with the heat it belongs to", () => {
+    expect(laneOnTrackHost(lane(racing()))).toEqual({ name: "Alex", heatNumber: 58 });
+  });
+
+  it("is null with nobody out, or nobody claimed at the tablet", () => {
+    expect(laneOnTrackHost(null)).toBeNull();
+    expect(laneOnTrackHost(lane(null))).toBeNull();
+    expect(laneOnTrackHost(lane(racing({ host: null })))).toBeNull();
+  });
+
+  it("names the marshal only when the clock's heat is the lane's racing heat", () => {
+    const host = { name: "Alex", heatNumber: 58 };
+    expect(hostForClock(host, "Heat 58")).toBe("Alex");
+    expect(hostForClock(host, "[HEAT] #58 Intermediate")).toBe("Alex");
+    // A desk-started heat the lane never saw must not wear the previous marshal.
+    expect(hostForClock(host, "Heat 59")).toBeNull();
+  });
+
+  it("refuses to guess across an unnumbered heat on either side", () => {
+    expect(hostForClock({ name: "Alex", heatNumber: null }, "Heat 58")).toBeNull();
+    expect(hostForClock({ name: "Alex", heatNumber: 58 }, "Corporate Event 2024")).toBeNull();
+    expect(hostForClock(null, "Heat 58")).toBeNull();
   });
 });

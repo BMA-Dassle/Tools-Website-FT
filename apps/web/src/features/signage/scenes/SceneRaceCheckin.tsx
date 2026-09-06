@@ -24,7 +24,7 @@ import { withAlpha } from "../color";
 import { formatLap, nextLevelTarget } from "~/features/racing/qualify";
 import { CALL_LEAD_MIN } from "~/features/racing/on-time";
 import type { NextCheckIn } from "~/features/racing/session-call";
-import { LiveSessionChip } from "../live-session";
+import { LiveSessionChip, laneOnTrackHost, type OnTrackHost } from "../live-session";
 import {
   TRACK_ACCENTS,
   TRACK_LABELS,
@@ -244,6 +244,7 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
         checkedIn={feed?.raceCheckin?.checkedIn ?? null}
         total={feed?.raceCheckin?.total ?? null}
         showRecordsQr={config.showRecordsQr}
+        onTrackHost={laneOnTrackHost(feed?.pitLanes?.mega)}
         // Labeled from the SAME feed record the send is keyed on, never the
         // client session poll — the poll may already have rolled to the next
         // heat, and this instruction must name the group it is for.
@@ -394,7 +395,11 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
               clock /leaderboards shows (owner 2026-08-11: "add to the sign-in
               board view for each track"). Renders nothing between heats. */}
           <div style={{ marginLeft: "auto" }}>
-            <LiveSessionChip track={track} accent={accent} />
+            <LiveSessionChip
+              track={track}
+              accent={accent}
+              host={laneOnTrackHost(feed?.pitLanes?.[track])}
+            />
           </div>
         </header>
 
@@ -811,6 +816,7 @@ export function CheckinFeed({
   total,
   showRecordsQr,
   announce,
+  onTrackHost,
 }: {
   accent: string;
   race: { heatNumber: number; raceType: string } | null;
@@ -831,6 +837,8 @@ export function CheckinFeed({
     heatNumber: number | null;
     raceType: string | null;
   } | null;
+  /** The marshal running the mega heat, for the header's clock chip. */
+  onTrackHost?: OnTrackHost | null;
 }) {
   const roomAccent = announce?.room ? TRACK_ACCENTS[announce.room] : accent;
   return (
@@ -879,7 +887,7 @@ export function CheckinFeed({
           >
             {/* Live clock for the heat on track — the feed board is the busiest
                 wall on a Mega night and the first place people look for it. */}
-            <LiveSessionChip track="mega" accent={accent} />
+            <LiveSessionChip track="mega" accent={accent} host={onTrackHost ?? null} />
             {/* THE COUNT BELONGS TO THE SESSION, so it leaves with the session.
                 `raceCheckin` is built from `pandora:last-race:*`, which
                 deliberately OUTLIVES the heat so a session line does not blink

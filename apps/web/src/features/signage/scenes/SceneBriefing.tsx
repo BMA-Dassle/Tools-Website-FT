@@ -42,7 +42,12 @@ import { sendWindow } from "../briefing/pull-to-room";
 import { roomBlockedAlertAt } from "../briefing/room-blocked";
 import { incomingForRoom, normaliseCameraReturn } from "../briefing/camera-return";
 import { resolveFilmTier, tierForRaceType, type BriefingRoom } from "../briefing/types";
-import { LiveSessionChip, formatRemaining, useLiveSessionClock } from "../live-session";
+import {
+  LiveSessionChip,
+  formatRemaining,
+  laneOnTrackHost,
+  useLiveSessionClock,
+} from "../live-session";
 import { trackDisplay, verdictLabel } from "~/features/racing/on-time-display";
 import { liveHeatNumber } from "../briefing/room-return";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
@@ -154,6 +159,9 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
    * order every render or they run wrong.
    */
   const railClockNow = useLiveSessionClock(liveTrack);
+  // The marshal running the heat out there, for the on-track chip wherever it
+  // lands on this wall (owner 2026-09-05). Same lane the rail below reads.
+  const onTrackHost = laneOnTrackHost(feed?.pitLanes?.[liveTrack ?? "mega"]);
   // The track's punctuality, for the rail's header chip (owner 2026-08-24:
   // "we're missing the delay status on these screens").
   const railPunctual = trackDisplay(trackStatus?.onTime ?? null, liveTrack ?? "mega", null);
@@ -428,6 +436,7 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           stale={cameraReturn.stale}
           padX={PAD_X}
           clockTrack={liveTrack}
+          onTrackHost={onTrackHost}
           accent={accent}
         />
       )}
@@ -464,7 +473,9 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
               vanishing — a briefing room without the on-track time is a
               downgrade on what shipped 8/11. Renders nothing when no heat is
               live. */}
-          {!cameraReturn && <LiveSessionChip track={liveTrack} accent={accent} />}
+          {!cameraReturn && (
+            <LiveSessionChip track={liveTrack} accent={accent} host={onTrackHost} />
+          )}
         </div>
       )}
 

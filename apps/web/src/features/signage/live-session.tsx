@@ -24,6 +24,8 @@ import { useEffect, useRef, useState } from "react";
 import { withAlpha } from "./color";
 import type { TrackKey } from "./track";
 import { useRaceClockForTrack } from "~/features/racing/use-race-clocks";
+import { liveHeatNumber } from "./briefing/room-return";
+import type { PitLaneFeed } from "./pit/pit-board";
 
 const WS_HOST = "webserver22.sms-timing.com";
 const WS_PORT = 10015;
@@ -388,15 +390,57 @@ export function useLiveSessionClockFromCloudSocket(
  * and PAUSED when the timing system pauses a heat. Renders NOTHING when no heat
  * is live — an empty corner beats a dead clock.
  */
+/**
+ * WHO IS RUNNING THE HEAT ON TRACK (owner 2026-09-05: "show the name of the
+ * marshal when they are on-track … putting it with the on track timer feels
+ * better").
+ *
+ * The name is the lane's `racing` slot host — stamped server-side from the
+ * briefing tablet's punch-ID press (staff/session-host.ts), first name only,
+ * and already on every screen that reads the lane. It travels WITH the heat
+ * number it belongs to so the clock can refuse it: the timing socket and the
+ * lane are two authorities, and a desk-started heat the lane never saw would
+ * otherwise wear the previous group's marshal.
+ */
+export interface OnTrackHost {
+  name: string;
+  heatNumber: number | null;
+}
+
+/** The racing slot's host, shaped for the clock. Null when nobody is out, or
+ *  nobody claimed them at the tablet. */
+export function laneOnTrackHost(lane: PitLaneFeed | null | undefined): OnTrackHost | null {
+  const racing = lane?.racing;
+  if (!racing?.host) return null;
+  return { name: racing.host, heatNumber: racing.heatNumber ?? null };
+}
+
+/**
+ * The name to print beside a live clock, or null. Only when the clock's heat IS
+ * the lane's racing heat — an unnumbered heat on either side (group events,
+ * custom races) cannot be matched, and prints nothing rather than a guess.
+ */
+export function hostForClock(
+  host: OnTrackHost | null | undefined,
+  heatName: string | null | undefined,
+): string | null {
+  if (!host || host.heatNumber == null) return null;
+  return liveHeatNumber(heatName) === host.heatNumber ? host.name : null;
+}
+
 export function LiveSessionChip({
   track,
   accent,
   label = "On track",
   compact,
+  host,
 }: {
   track: TrackKey | null;
   accent: string;
   label?: string;
+  /** The marshal running the heat on track — printed after the time, dimmer,
+   *  the way the race type already carries a name on the pit board's header. */
+  host?: OnTrackHost | null;
   /** Sized to sit inside a 44px band — the briefing rooms' camera strip when it
    *  is collapsed to its all-clear whisper. Same pill, two thirds the type. */
   compact?: boolean;
@@ -405,6 +449,7 @@ export function LiveSessionChip({
   if (!clock) return null;
 
   const paused = clock.state === "paused";
+  const who = hostForClock(host, clock.heatName);
   return (
     <div
       className="tv-display"
@@ -441,6 +486,22 @@ export function LiveSessionChip({
       <span className="tv-num" style={{ fontSize: compact ? 26 : 40, color: "#fff" }}>
         {formatRemaining(clock.remainingMs)}
       </span>
+      {who && (
+        <>
+          <span aria-hidden style={{ fontSize: compact ? 17 : 26, color: "rgba(245,236,238,0.3)" }}>
+            ·
+          </span>
+          <span
+            style={{
+              fontSize: compact ? 17 : 26,
+              color: "rgba(245,236,238,0.55)",
+              letterSpacing: "0.04em",
+            }}
+          >
+            {who}
+          </span>
+        </>
+      )}
     </div>
   );
 }

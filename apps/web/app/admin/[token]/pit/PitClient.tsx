@@ -58,7 +58,12 @@ import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import { PORTAL_DARK, ADMIN_SANS } from "~/components/features/admin-skin/theme";
-import { formatRemaining, useLiveSessionClock } from "~/features/signage/live-session";
+import {
+  formatRemaining,
+  hostForClock,
+  laneOnTrackHost,
+  useLiveSessionClock,
+} from "~/features/signage/live-session";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import {
   isStaySeatedFile,
@@ -874,7 +879,11 @@ function TrackCard({
         <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: "0.02em", color: tone }}>
           {track.toUpperCase()}
         </span>
-        <StatusChip holdLive={holdLive} clock={liveClock} />
+        <StatusChip
+          holdLive={holdLive}
+          clock={liveClock}
+          host={hostForClock(laneOnTrackHost(lane), liveClock?.heatName)}
+        />
       </div>
 
       {/* ── PRE — the group going out ── */}
@@ -1007,9 +1016,14 @@ function TrackCard({
 function StatusChip({
   holdLive,
   clock,
+  host,
 }: {
   holdLive: boolean;
   clock: ReturnType<typeof useLiveSessionClock>;
+  /** The marshal running the heat on track — the wall's clock names them, so
+   *  the station's does too (owner 2026-09-05). Null unless the socket's heat
+   *  is the lane's racing heat. */
+  host: string | null;
 }) {
   const running = clock?.state === "running";
   const paused = clock?.state === "paused";
@@ -1047,6 +1061,9 @@ function StatusChip({
           : paused
             ? `PAUSED ${formatRemaining(clock.remainingMs)}`
             : "TRACK CLEAR"}
+      {running && host && (
+        <span style={{ color: PORTAL_DARK.muted, fontWeight: 600 }}>· {host}</span>
+      )}
     </span>
   );
 }
