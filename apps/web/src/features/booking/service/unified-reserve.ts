@@ -124,6 +124,7 @@ import { mintComboVoucherIfNeeded } from "~/features/combos/combo-voucher";
 import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
 import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
+import { fetchLoyaltyBalance, fetchRewardTier } from "~/features/loyalty";
 import { computeBogoScheduledFree, type BogoScheduledFree } from "./bogo-scheduled";
 import {
   isWorldCupBowlingItem,
@@ -2166,8 +2167,59 @@ async function unifiedReserveInner(
   // ── 4. Loyalty reward ─────────────────────────────────────────────
   let loyaltyRewardId: string | undefined;
   const rewardDiscountCents = input.rewardDiscountCents ?? 0;
+  // Pre-reward combined total — the terminal rail prices its deposit from this.
+  const preRewardDayofTotalCents = dayofTotalCents;
+  // KIOSK direct-Terminal rail (prepare pass OR the finalize that follows a
+  // reader capture). Its deposit is computed TWICE — once to arm the reader,
+  // once to verify the captured payment — and the two must agree to the cent.
+  // A Square reward can't be created on the prepare pass (points would leave
+  // the account before any money moved; a walk-away would strand them), so on
+  // this rail the reward is priced as a FLAT discount taken from Square's tier
+  // definition — the same number on both passes by construction — and the
+  // Square reward itself is created on finalize only. The browser's
+  // `rewardDiscountCents` is a claim: it must match the tier or the reward is
+  // refused (kiosks are unattended public surfaces).
+  const terminalRail = prepareOnly || !!input.externalPayment;
 
-  if (input.rewardTierId && input.loyaltyAccountId && SQUARE_TOKEN) {
+  if (terminalRail && rewardDiscountCents > 0) {
+    if (!input.rewardTierId || !input.loyaltyAccountId || !SQUARE_TOKEN) {
+      console.error(
+        `[unified-reserve] REWARD REFUSED (terminal): discount=${rewardDiscountCents}c without ` +
+          `tier=${input.rewardTierId ?? "-"} account=${input.loyaltyAccountId ?? "-"} token=${SQUARE_TOKEN ? "yes" : "NO"}`,
+      );
+      throw new RewardFailedError();
+    }
+    const tier = await fetchRewardTier(input.rewardTierId);
+    if (
+      !tier ||
+      tier.fixedDiscountCents == null ||
+      tier.fixedDiscountCents !== rewardDiscountCents
+    ) {
+      console.error(
+        `[unified-reserve] REWARD REFUSED (terminal): claimed ${rewardDiscountCents}c but tier ` +
+          `${input.rewardTierId} prices ${tier?.fixedDiscountCents ?? "unpriceable"}c (${tier?.name ?? "unknown tier"})`,
+      );
+      throw new RewardFailedError();
+    }
+    if (prepareOnly) {
+      // Refuse an unaffordable tier BEFORE the reader is armed — after the tap
+      // the same refusal would strand a captured payment.
+      const balance = await fetchLoyaltyBalance(input.loyaltyAccountId);
+      if (balance == null || balance < tier.points) {
+        console.error(
+          `[unified-reserve] REWARD REFUSED (prepare): account ${input.loyaltyAccountId} balance ` +
+            `${balance ?? "unreadable"} < tier ${tier.id} cost ${tier.points}`,
+        );
+        throw new RewardFailedError();
+      }
+      console.log(
+        `[unified-reserve] PREPARE reward priced flat: tier=${tier.id} (${tier.name}) −${rewardDiscountCents}c, ` +
+          `balance ${balance} ≥ ${tier.points}; Square reward is created on finalize`,
+      );
+    }
+  }
+
+  if (!prepareOnly && input.rewardTierId && input.loyaltyAccountId && SQUARE_TOKEN) {
     try {
       const createRes = await fetch(`${SQUARE_BASE}/loyalty/rewards`, {
         method: "POST",
@@ -2230,8 +2282,20 @@ async function unifiedReserveInner(
     }
   }
 
-  if (rewardDiscountCents > 0 && !loyaltyRewardId) {
-    throw new RewardFailedError();
+  if (rewardDiscountCents > 0 && !loyaltyRewardId && !prepareOnly) {
+    if (input.externalPayment) {
+      // The reader has ALREADY captured the discounted amount (prepare verified
+      // the tier + balance before arming it). Refusing here would strand a
+      // paid booking over a points ledger entry — finish the booking, keep the
+      // guest's price, and make the missing redemption loud for ops.
+      console.error(
+        `[unified-reserve] REWARD NOT ISSUED AFTER CAPTURE: tier=${input.rewardTierId} account=${input.loyaltyAccountId} ` +
+          `discount=${rewardDiscountCents}c order=${squareDayofOrderId} payment=${input.externalPayment.paymentId} — ` +
+          `booking proceeds at the discounted price; points were NOT deducted`,
+      );
+    } else {
+      throw new RewardFailedError();
+    }
   }
 
   // Note: no separate displayed==charged guard here. The USA250 reduction is
@@ -2247,7 +2311,14 @@ async function unifiedReserveInner(
   // depositPct% of that combined total, so the one shared gift card is loaded
   // with the full amount and each order's settlement can draw its own share.
   const rawDepositCents = Math.round((dayofTotalCents * depositPct) / 100);
-  const depositCents = Math.max(0, rawDepositCents - (loyaltyRewardId ? 0 : rewardDiscountCents));
+  // Terminal rail: pre-reward total minus the verified FLAT tier discount —
+  // identical on the prepare pass (no Square reward yet) and on finalize (the
+  // reward now discounts the day-of order, but the reader already captured this
+  // exact figure, so the finalize sum check must land on it too). The web rail
+  // keeps pricing from Square's post-reward order total.
+  const depositCents = terminalRail
+    ? Math.max(0, Math.round((preRewardDayofTotalCents * depositPct) / 100) - rewardDiscountCents)
+    : Math.max(0, rawDepositCents - (loyaltyRewardId ? 0 : rewardDiscountCents));
 
   let depositResult: {
     depositOrderId: string | null;

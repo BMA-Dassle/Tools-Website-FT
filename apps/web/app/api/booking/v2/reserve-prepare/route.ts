@@ -33,6 +33,18 @@ export async function POST(req: NextRequest) {
       contact: ContactInfo;
       /** What the review screen showed — logged against the server total. */
       expectedCents?: number;
+      /**
+       * HeadPinz/FastTrax Rewards tier the guest selected on the review screen
+       * — the SAME three fields reserve-all carries. Prepare must price the
+       * deposit net of the reward or the reader is armed with the full amount
+       * while the screen showed the discounted one (the "price didn't add up"
+       * abort when the tier is $25+, a silent full-price charge when smaller).
+       * The discount is verified against Square's tier definition server-side;
+       * the browser's number is a claim, never a charge input.
+       */
+      loyaltyAccountId?: string;
+      rewardTierId?: string;
+      rewardDiscountCents?: number;
     };
 
     if (!body.session?.items?.length) {
@@ -46,6 +58,9 @@ export async function POST(req: NextRequest) {
       session: body.session,
       contact: body.contact,
       expectedCents: typeof body.expectedCents === "number" ? body.expectedCents : undefined,
+      loyaltyAccountId: body.loyaltyAccountId,
+      rewardTierId: body.rewardTierId,
+      rewardDiscountCents: body.rewardDiscountCents,
     });
 
     // Persist the session server-side (2026-08-10, W59702): completing a paid

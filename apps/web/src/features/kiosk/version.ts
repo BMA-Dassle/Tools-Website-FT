@@ -15,6 +15,17 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.34.2 — A REWARDS TIER NO LONGER TRIPS "THE PRICE DIDN'T ADD UP" (owner
+ *         2026-09-06). The racing/mixed-cart reader prepare sent session +
+ *         contact only, so the server armed the reader at the FULL price while
+ *         the review screen showed the tier's $-off: a $25+ tier hit the gate's
+ *         drift backstop and aborted; a smaller one charged full price and
+ *         quietly dropped the reward. Prepare now carries the same three
+ *         loyalty fields reserve-all does; the server prices the reward FLAT
+ *         from Square's own tier definition (the browser's figure must match),
+ *         refuses an unaffordable tier before the reader is armed, and creates
+ *         the Square reward on finalize only — so no points move before money
+ *         does. Bowling-only carts already did this on their own rail.
  * 1.34.1 — EVERY ACCOUNT ON THE PHONE SHOWS, AND NOTHING MINTS ON TOP OF ONE
  *         (owner 2026-09-06: "we should be showing all accounts by that phone
  *         number… I don't want to mint two on top of each other"). Measured
@@ -1341,7 +1352,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.34.1";
+export const KIOSK_VERSION = "1.34.2";
 
 let bootVersion: string | null = null;
 let captured = false;

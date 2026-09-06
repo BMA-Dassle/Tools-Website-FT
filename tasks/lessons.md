@@ -5621,3 +5621,29 @@ person who owns it, forever.
    argument — no default is the safe default.
 3. **Examples in shipped docs are copied.** A real number in a vendor handoff doc is both a privacy
    leak and the seed of the next 628 records, because the next person pastes what the doc shows.
+
+## A split rail must carry the same inputs on both halves (2026-09-06)
+
+**What broke.** Picking a HeadPinz/FastTrax Rewards tier on the kiosk ended in "The price didn't
+add up — please see the front desk" for any $25+ tier, and a silent full-price charge (reward
+dropped, points still deducted at finalize) for smaller ones. The kiosk's direct-Terminal rail
+splits reserve into PREPARE (arm the reader) and FINALIZE (verify + book). The reward fields
+(`loyaltyAccountId` / `rewardTierId` / `rewardDiscountCents`) were only ever plumbed into the
+second half — `reserve-all` — so prepare priced the reader at the undiscounted total while the
+review screen showed the discounted one, and the gate's $25 drift backstop did its job.
+
+1. **When one call becomes two, diff the input types.** `UnifiedReserveInput` already had the
+   three fields; the prepare route's body type and the gate's `fetch` body simply never listed
+   them. Grep every caller of the shared service for each optional input — an optional field is
+   exactly what a split forgets.
+2. **A prepare/finalize pair must compute the charge from the SAME numbers.** The finalize sum
+   check is exact-cents. Anything the prepare pass can't reproduce on finalize (here: Square's
+   post-reward order total, which only exists once the reward is created) must be replaced by a
+   deterministic figure on both passes — the reward is priced FLAT from Square's tier definition
+   and created only at finalize, so no points move before money does.
+3. **A browser number that becomes a charge input must be verified server-side.** The moment the
+   flat discount fed `depositCents`, `rewardDiscountCents` stopped being a display hint. It is
+   checked against the tier's `fixed_discount_money` on both passes, and the balance is checked
+   before the reader is armed so a refusal never strands a captured payment.
+4. **The web rail working proves nothing about the kiosk rail.** Same service, different entry
+   point. Test the split rail with the feature, not the rail that never split.
