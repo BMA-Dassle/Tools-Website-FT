@@ -52,14 +52,26 @@ export function calendarYmdET(now: Date = new Date()): string {
   return etParts(now).ymd;
 }
 
-export function businessDayYmdET(now: Date = new Date()): string {
+/**
+ * The ET business-day date for ANY rollover hour.
+ *
+ * Extracted so a second system's day can be computed without a second copy of
+ * the DST-safe arithmetic below. The HeadPinz portal's day rolls at 5 AM rather
+ * than our 2 — see features/staff/portal-roster.ts, which asks for the day IT
+ * is showing rather than making us both guess.
+ */
+export function businessDayYmdAtRolloverET(rolloverHour: number, now: Date = new Date()): string {
   const { ymd, hour } = etParts(now);
-  if (hour >= RACE_DAY_ROLLOVER_HOUR) return ymd;
-  // Before 2 AM — still the prior race day. Anchor at noon UTC so
+  if (hour >= rolloverHour) return ymd;
+  // Before the rollover — still the prior day. Anchor at noon UTC so
   // subtracting a day is exact regardless of DST.
   const d = new Date(`${ymd}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
+}
+
+export function businessDayYmdET(now: Date = new Date()): string {
+  return businessDayYmdAtRolloverET(RACE_DAY_ROLLOVER_HOUR, now);
 }
 
 /**

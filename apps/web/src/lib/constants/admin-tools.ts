@@ -178,5 +178,25 @@ export function isDeviceTokenTool(slug: string): boolean {
   return DEVICE_TOKEN_TOOLS.has(slug);
 }
 
+/**
+ * The HeadPinz portal — the other half of the estate, and the owner of the
+ * schedule (shifts, punches, pit board positions) the way we own the races.
+ *
+ * ONE PLACE FOR THE HOST. Both directions of the integration are built on it:
+ * the TV link staff open from the check-in board, and the roster read behind
+ * the Track Ops pills (features/staff/portal-roster.ts).
+ */
+export const PORTAL_ORIGIN = "https://portal.headpinz.com";
+
 /** The HeadPinz portal's public pit board TV — unauthenticated, so no token in it, ever. */
-export const PORTAL_PIT_BOARD_TV_URL = "https://portal.headpinz.com/tv/pit-board";
+export const PORTAL_PIT_BOARD_TV_URL = `${PORTAL_ORIGIN}/tv/pit-board`;
+
+/**
+ * FastTrax Fort Myers, as the portal's location registry numbers it.
+ *
+ * The portal serves three centers off one endpoint and defaults to none, so a
+ * roster read without this would be asking "who is on Track Ops" of a bowling
+ * alley. Hard-coded rather than configured for the same reason the briefings
+ * endpoint hard-codes `VENUE = "FT"`: there is exactly one karting floor.
+ */
+export const PORTAL_PIT_BOARD_LOCATION_ID = "467486";
