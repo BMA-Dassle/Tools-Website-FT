@@ -42,7 +42,7 @@ const spec = {
       "**Idempotency**: video / e-ticket mutating endpoints (resend, bulk-resend, block) are NOT",
       "idempotent — each call sends a fresh SMS / hits the VT3 disable endpoint. Confirm before retrying.",
     ].join("\n"),
-    version: "1.2.0",
+    version: "1.3.0",
     contact: {
       name: "FastTrax Operations",
       email: "ops@fasttraxent.com",
@@ -68,6 +68,11 @@ const spec = {
       description:
         "Bowling reservation admin: list, cancel, reschedule, resend confirmation, force-confirm stuck reservations.",
     },
+    {
+      name: "Briefings",
+      description:
+        "Safety-briefing counts per pit staff member. Gated by the portal admin token (`x-admin-token`), NOT `x-api-key`.",
+    },
   ],
   security: [{ ApiKeyAuth: [] }],
   components: {
@@ -78,6 +83,20 @@ const spec = {
         name: "x-api-key",
         description:
           "API key issued by FastTrax ops. Set as the `x-api-key` header on every request.",
+      },
+      /**
+       * The OTHER credential on this surface. `/api/portal/*` predates the
+       * sales API keys and is gated by `verifyPortal` — the operator admin
+       * token, a signed short-lived token, or the SSO shell's proxy key. An
+       * `x-api-key` will not open it, so those paths declare this scheme
+       * instead of the document-level default.
+       */
+      adminToken: {
+        type: "apiKey" as const,
+        in: "header" as const,
+        name: "x-admin-token",
+        description:
+          "Operator admin token (`ADMIN_CAMERA_TOKEN`). Used by the HeadPinz portal integration for `/api/portal/*`.",
       },
     },
     schemas: {
@@ -2625,6 +2644,119 @@ const spec = {
           },
           "502": {
             description: "QAMF operation failed (customer attach, confirm, or create)",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+        },
+      },
+    },
+
+    // ── Briefings ───────────────────────────────────────────────────────
+    "/api/portal/briefings": {
+      get: {
+        tags: ["Briefings"],
+        summary: "Groups briefed today, per pit staff member",
+        description: [
+          "How many safety briefings each staff member ran on a racing day, keyed by their",
+          "**7shifts user id** — the same id the HeadPinz portal's pit board builds its roster from,",
+          "so counts merge onto a person without matching names between two systems.",
+          "",
+          "**Auth**: `x-admin-token` (the operator admin token), NOT `x-api-key`. This path is on the",
+          "portal surface, gated by `verifyPortal`.",
+          "",
+          "**One group is one count.** A Mega-night group is sent to both briefing rooms and occupies",
+          "two rows; it is counted once (`COUNT(DISTINCT session_id)`).",
+          "",
+          "**Business day**: FastTrax's racing day rolls at 2 AM ET; the HeadPinz portal's rolls at 5 AM.",
+          "Pass the day you are displaying rather than relying on the default. No races run between",
+          "2 and 5 AM, so the two calendars only ever disagree over an empty window.",
+          "",
+          "**`unattributed`** is the number of groups with no staff member on them — sends from before",
+          "hosts were recorded (2026-09-03) and sends nobody typed a punch ID for. Reported separately",
+          "so a night nobody identified themselves on is not read as a night nobody briefed.",
+        ].join("\n"),
+        security: [{ adminToken: [] }],
+        parameters: [
+          {
+            name: "date",
+            in: "query" as const,
+            description:
+              "Racing business day (ET), YYYY-MM-DD. Defaults to FastTrax's current business day (2 AM rollover).",
+            schema: { type: "string", format: "date", example: "2026-09-07" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Briefing counts for the day",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["businessDay", "venue", "staff", "unattributed"],
+                  properties: {
+                    businessDay: {
+                      type: "string",
+                      format: "date",
+                      example: "2026-09-07",
+                      description: "The day these counts cover — the `date` param, or our default.",
+                    },
+                    venue: {
+                      type: "string",
+                      enum: ["FT"],
+                      description: "Always FT — only FastTrax records briefings.",
+                    },
+                    staff: {
+                      type: "array",
+                      description:
+                        "One row per staff member with at least one group, most groups first.",
+                      items: {
+                        type: "object",
+                        required: ["userId", "firstName", "briefed"],
+                        properties: {
+                          userId: {
+                            type: "integer",
+                            example: 32410,
+                            description: "7shifts USER id (not the punch ID, which is reissued).",
+                          },
+                          firstName: {
+                            type: "string",
+                            nullable: true,
+                            example: "Pedro",
+                            description: "Denormalised at the send — the only part screens show.",
+                          },
+                          briefed: {
+                            type: "integer",
+                            example: 5,
+                            description: "Distinct groups briefed on the day.",
+                          },
+                        },
+                      },
+                    },
+                    unattributed: {
+                      type: "integer",
+                      example: 2,
+                      description: "Distinct groups briefed with no staff member recorded.",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "400": {
+            description: "`date` is not YYYY-MM-DD",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "401": {
+            description: "Unauthorized — missing or invalid x-admin-token",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+            },
+          },
+          "500": {
+            description: "Server error (Postgres hiccup)",
             content: {
               "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
             },

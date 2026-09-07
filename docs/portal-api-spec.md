@@ -1,6 +1,6 @@
-# Portal API Specification — Group Function Contracts & Payments
+# Portal API Specification — Group Function Contracts, Payments & Briefings
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Base URL:** `https://headpinz.com/api/portal` (serves both HeadPinz and FastTrax — venue is derived from each record's center code)  
 **Auth:** Same admin token used across all admin endpoints (`ADMIN_CAMERA_TOKEN` env var)
 
@@ -333,7 +333,61 @@ Returns lightweight stubs — portal fetches full detail via endpoint 4 as neede
 
 ---
 
-### 7. `POST` Webhook — Document & Payment Events
+### 7. `GET /api/portal/briefings`
+
+How many safety briefings each pit staff member ran on a racing day. Feeds the portal's pit board
+TV (`portal.headpinz.com/tv/pit-board`) and the check-in board's briefed-today strip.
+
+Served from FastTrax: `https://fasttraxent.com/api/portal/briefings` (the HeadPinz host mirrors the
+same deployment). Unlike the endpoints above, this one is FastTrax-only data — HeadPinz venues run
+no briefing rooms.
+
+**Query params:**
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `date` | string | No | Racing business day, `YYYY-MM-DD`. Defaults to FastTrax's current business day. |
+
+**Example:** `GET /api/portal/briefings?date=2026-09-07`
+
+**Response:** `200 OK` (`Cache-Control: no-store` — it drives a live board)
+
+```json
+{
+  "businessDay": "2026-09-07",
+  "venue": "FT",
+  "staff": [
+    { "userId": 32410, "firstName": "Pedro", "briefed": 5 },
+    { "userId": 31877, "firstName": "Anthony", "briefed": 4 },
+    { "userId": 33021, "firstName": "Ivan", "briefed": 3 }
+  ],
+  "unattributed": 2
+}
+```
+
+**`userId` is the 7shifts USER id**, not the punch ID — punch IDs are reissued when someone leaves,
+so a report joining on one would attribute last season's races to this season's new hire. It is the
+same key the portal's pit board roster uses (`PitEmployee.userId`), so counts merge onto a person by
+id with no name matching. Staff with no briefings are absent from `staff[]`, never present with `0`.
+
+**One group is one count.** A Mega-night group is sent to both briefing rooms and occupies two rows
+in `briefing_assignments`; the endpoint counts `DISTINCT session_id`, so it is counted once.
+
+**`unattributed`** is the number of groups on the day with no staff member recorded — sends from
+before hosts were captured (2026-09-03) and sends where nobody typed a punch ID at the tablet. It is
+reported rather than dropped: a night where eight groups went unclaimed is a different fact from a
+quiet night, and only one of them needs looking into.
+
+**Business-day note.** FastTrax's racing day rolls at **2 AM ET** (a race night runs past midnight);
+the portal's business day rolls at **5 AM**. Pass the day you are displaying rather than relying on
+the default — between 2 and 5 AM the two calendars disagree, though no races run in that window, so
+the counts themselves never differ. Omitting `date` returns FastTrax's own business day.
+
+**Error codes:** `400 INVALID_REQUEST` (`date` not `YYYY-MM-DD`), `401 UNAUTHORIZED`,
+`500 INTERNAL_ERROR`.
+
+---
+
+### 8. `POST` Webhook — Document & Payment Events
 
 Fires to `https://portal.headpinz.com/api/webhooks/website-documents` on state changes.
 

@@ -190,3 +190,62 @@ export async function listBriefingAssignments(
   `) as Array<Record<string, unknown>>;
   return rows.map(toRow);
 }
+
+/**
+ * HOW MANY GROUPS EACH PERSON BRIEFED ON A DAY — grouped in Postgres.
+ *
+ * WHO ASKS: the HeadPinz portal's pit board TV, once every thirty seconds, for
+ * one number per person. It has no use for the 200-row history
+ * `listBriefingAssignments` returns, and folding that list in JS would ship a
+ * day of rows across the wire to produce a handful of integers.
+ *
+ * COUNT(DISTINCT session_id), NOT COUNT(*). A Mega-night group occupies two
+ * rows — one per room — and is ONE group briefed, not two. Counting rows would
+ * quietly double the busiest nights, which are exactly the ones anybody looks
+ * at this number for.
+ *
+ * UNATTRIBUTED IS REPORTED, NEVER FOLDED INTO A ZERO. Every row written before
+ * 2026-09-03 has no staff member, and a send can still legitimately go
+ * unattributed today (see the column's own note above). A caller that dropped
+ * those sessions would show a night nobody identified themselves on as a night
+ * nobody briefed.
+ */
+export async function countBriefingsByStaff(
+  venue: string,
+  businessDay: string,
+): Promise<{
+  staff: Array<{ userId: number; firstName: string | null; briefed: number }>;
+  unattributed: number;
+}> {
+  if (!isDbConfigured()) return { staff: [], unattributed: 0 };
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT staff_user_id, staff_first_name, COUNT(DISTINCT session_id) AS briefed
+    FROM briefing_assignments
+    WHERE venue = ${venue} AND business_day = ${businessDay} AND staff_user_id IS NOT NULL
+    GROUP BY staff_user_id, staff_first_name
+    ORDER BY briefed DESC, staff_first_name
+  `) as Array<Record<string, unknown>>;
+  const unattributedRows = (await q`
+    SELECT COUNT(DISTINCT session_id) AS unattributed
+    FROM briefing_assignments
+    WHERE venue = ${venue} AND business_day = ${businessDay} AND staff_user_id IS NULL
+  `) as Array<Record<string, unknown>>;
+
+  return {
+    /**
+     * NUMBERS, not strings. `Number()` is forbidden on a BMI id and safe here:
+     * these are a 7shifts user id and a count of groups in one evening, neither
+     * of which comes within nine orders of magnitude of MAX_SAFE_INTEGER. The
+     * driver hands back `COUNT(...)` as a bigint string, so the cast is what
+     * makes the JSON a number instead of `"7"`.
+     */
+    staff: rows.map((r) => ({
+      userId: Number(r.staff_user_id),
+      firstName: r.staff_first_name == null ? null : String(r.staff_first_name),
+      briefed: Number(r.briefed),
+    })),
+    unattributed: Number(unattributedRows[0]?.unattributed ?? 0),
+  };
+}
