@@ -9,7 +9,15 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/redis", () => ({ default: {} }));
 
 import { buildCombinedLineItems } from "./unified-reserve";
-import { emptySession, newItem, type AttractionItem, type BookingSession } from "../state/types";
+import { lookupCatalogId } from "../data/square-catalog-map";
+import {
+  emptySession,
+  newItem,
+  type AttractionItem,
+  type BookingSession,
+  type RaceHeatAssignment,
+  type RaceItem,
+} from "../state/types";
 
 function kioskGelSession(vouchers: unknown[]): BookingSession {
   return {
@@ -159,5 +167,109 @@ describe("overviewFromServerQuote — review mapping", () => {
     expect(o.tax).toBe(0.78); // tax unchanged — cards are untaxed
     expect(o.total).toBe(37.78);
     expect(o.lines.some((l) => l.name === "Game Zone — $25 Card")).toBe(true);
+  });
+});
+
+/**
+ * Live-repro (web, 2026-09-06): a RETURNING racer (licence active — no $4.99
+ * line) books ONE Starter Red heat on a BMI "Race Comp" voucher. The voucher
+ * covered the only chargeable line, so the unified rail built ZERO Square
+ * lines and died on the "No line items to charge" guard — 11 retries, never
+ * booked. The race twin of the 2026-07-31 gel fix above: the covered heat
+ * must stay on the day-of order as a $0 voucher line.
+ */
+const STARTER_RED = "24960859"; // weekday single, $20.99 (race-products.ts)
+const RACE_COMP = {
+  code: "HPW7Q2K9G7G7",
+  name: "Race Comp",
+  billId: "63000000006397110",
+  voucherOrderItemId: "9100",
+};
+
+function returningRacerRaceSession(vouchers: unknown[], heatIds = ["2026-09-06T21:36"]) {
+  const heats = heatIds.map(
+    (heatId) =>
+      ({
+        heatId,
+        productId: STARTER_RED,
+        track: "Red",
+        assignedTo: "m1",
+        category: "adult",
+      }) as RaceHeatAssignment,
+  );
+  return {
+    ...emptySession({ entryBrand: "fasttrax" }),
+    center: "fort-myers",
+    party: [
+      {
+        id: "m1",
+        firstName: "Returning",
+        lastName: "Racer",
+        bmiPersonId: "63000000009561437",
+        licenseActive: true,
+        isNewRacer: false,
+      },
+    ],
+    items: [
+      {
+        ...(newItem("race") as RaceItem),
+        id: "r1",
+        date: "2026-09-06",
+        heats,
+        productIdAdult: STARTER_RED,
+      } as RaceItem,
+    ],
+    appliedVouchers: vouchers,
+  } as BookingSession;
+}
+
+describe("unified pricing — voucher-covered single race (web, returning racer)", () => {
+  it("one heat fully covered: ONE $0 Square line survives the empty-cart guard", () => {
+    const { sqLineItems, pricedLines, totalPriceCents } = buildCombinedLineItems(
+      returningRacerRaceSession([RACE_COMP]),
+    );
+    expect(sqLineItems).toHaveLength(1);
+    expect(sqLineItems[0]).toMatchObject({
+      quantity: "1",
+      catalogObjectId: lookupCatalogId(STARTER_RED),
+      basePriceMoney: { amount: 0, currency: "USD" },
+    });
+    expect(totalPriceCents).toBe(0);
+    const covered = pricedLines.filter((l) => l.coverage?.kind === "voucher");
+    expect(covered).toHaveLength(1);
+    expect(covered[0]).toMatchObject({ quantity: 1, unitCents: 0 });
+    expect(covered[0].coverage?.label).toBe("Voucher …G7G7");
+    expect(sqLineItems[0].name).toBe(covered[0].name);
+  });
+
+  it("control — no voucher: the same heat is one charged line at full price", () => {
+    const { sqLineItems, totalPriceCents } = buildCombinedLineItems(returningRacerRaceSession([]));
+    expect(sqLineItems).toHaveLength(1);
+    expect(sqLineItems[0].basePriceMoney?.amount).toBe(2099);
+    expect(totalPriceCents).toBe(2099);
+  });
+
+  it("two heats, one voucher: one charged line + one $0 voucher line", () => {
+    const { sqLineItems, totalPriceCents } = buildCombinedLineItems(
+      returningRacerRaceSession([RACE_COMP], ["2026-09-06T21:36", "2026-09-06T21:48"]),
+    );
+    const amounts = sqLineItems.map((l) => l.basePriceMoney?.amount ?? -1).sort();
+    expect(amounts).toEqual([0, 2099]);
+    expect(totalPriceCents).toBe(2099);
+  });
+
+  it("mirror parity: Square-line money === priced-line money === total", () => {
+    for (const vouchers of [[], [RACE_COMP]]) {
+      const { sqLineItems, pricedLines, totalPriceCents } = buildCombinedLineItems(
+        returningRacerRaceSession(vouchers),
+      );
+      const sqCents = sqLineItems.reduce(
+        (sum, l) => sum + (l.basePriceMoney?.amount ?? 0) * Number(l.quantity),
+        0,
+      );
+      const quoteCents = pricedLines.reduce((sum, l) => sum + l.unitCents * l.quantity, 0);
+      expect(quoteCents).toBe(sqCents);
+      expect(quoteCents).toBe(totalPriceCents);
+    }
   });
 });

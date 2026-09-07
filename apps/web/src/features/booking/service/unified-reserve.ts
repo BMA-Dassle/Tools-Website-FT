@@ -697,7 +697,10 @@ export function buildCombinedLineItems(session: BookingSession): {
       { set: bogoFree.heats, kind: "bogo-special", labelFor: () => "BOGO Wednesday" },
     ];
     for (const { set, kind, labelFor } of covered) {
-      const groups = new Map<string, { name: string; label: string; qty: number }>();
+      const groups = new Map<
+        string,
+        { name: string; label: string; qty: number; pid: string | null }
+      >();
       for (const item of session.items) {
         if (item.kind !== "race") continue;
         for (const h of item.heats) {
@@ -707,7 +710,7 @@ export function buildCombinedLineItems(session: BookingSession): {
           const name = (pid ? getRaceProductById(pid)?.name : null) ?? "Race";
           const label = labelFor(h);
           const key = `${name}::${label}`;
-          const g = groups.get(key) ?? { name, label, qty: 0 };
+          const g = groups.get(key) ?? { name, label, qty: 0, pid: pid ?? null };
           g.qty += 1;
           groups.set(key, g);
         }
@@ -719,6 +722,28 @@ export function buildCombinedLineItems(session: BookingSession): {
           unitCents: 0,
           coverage: { kind, label: g.label },
         });
+        // VOUCHER-covered heats stay on the Square day-of order as a $0 line
+        // (real quantity, voucher-tagged) instead of vanishing from it — the
+        // race twin of the 2026-07-31 attraction fix. A returning racer booking
+        // ONE race on a Race Comp online (no licence line, no POV, nothing else
+        // in the cart) built ZERO Square lines and died on the "No line items
+        // to charge" guard (live 2026-09-06: one guest, 11 retries on a Red
+        // 9:36 PM heat, never booked). The $0 line keeps the day-of order real
+        // (desk sees what was booked), taxes $0, and charges nothing — same
+        // convention as the combo's $0 inclusions and the fully covered
+        // attraction line. Credit / pack / BOGO heats are deliberately
+        // unchanged: a credit-only $0 order takes the legacy rail, and those
+        // flows are smoked as-is.
+        if (kind === "voucher") {
+          const catalogId = g.pid ? lookupCatalogId(g.pid) : null;
+          sqLineItems.push({
+            name: g.name,
+            quantity: String(g.qty),
+            ...(catalogId
+              ? { catalogObjectId: catalogId, basePriceMoney: { amount: 0, currency: "USD" } }
+              : { basePriceMoney: { amount: 0, currency: "USD" } }),
+          });
+        }
       }
     }
   }
