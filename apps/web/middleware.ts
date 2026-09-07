@@ -1136,7 +1136,13 @@ export async function middleware(request: NextRequest) {
 
   // Block /hp/ on fasttraxent.com — redirect to headpinz.com (allow on localhost for dev)
   const isLocalhost = hostname.includes("localhost") || hostname.includes("127.0.0.1");
-  if (pathname.startsWith("/hp") && !isHeadPinz && !isLocalhost) {
+  // …and on a Vercel preview host (*.vercel.app), which is never a guest-facing
+  // domain. Without this, every HeadPinz page on a branch preview bounced to
+  // PRODUCTION headpinz.com — so "test it on the preview" silently tested the
+  // live site (2026-09-06: the owner reviewed the old Pizza Bowl editor while
+  // believing they were on the fix branch).
+  const isVercelPreviewHost = hostname.split(":")[0].toLowerCase().endsWith(".vercel.app");
+  if (pathname.startsWith("/hp") && !isHeadPinz && !isLocalhost && !isVercelPreviewHost) {
     const hpPath = pathname.replace(/^\/hp/, "") || "/";
     // Preserve the query string — dropping it here silently lost ?neonId= on
     // the duckpin check-in link and produced "Invalid reservation link".
