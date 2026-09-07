@@ -2196,16 +2196,26 @@ export interface CoBookedPersonRow {
  * 2026-09-06: "me and five friends sign up at 8pm… later one of us signs in,
  * pull in Today's Crew"). Our own booking_metadata is the ONLY place this
  * relationship exists: BMI Office has no reservations-for-person read and
- * Pandora only knows a racer's next race. Three roster shapes are unioned —
- * karting `heats[]` (first name + adult/junior class), `attractions[].
- * participants[]` and `racesims[].participants[]` (full name + booking-time
- * waiver flag) — then self-joined on the reservation row. The caller is
- * excluded; rows without a person id are returned only so the caller can see
- * them and are unusable (nobody signs in on a name). Cancelled / no-show rows
- * are out; an 'arrived' row stays in — the 8pm group has usually checked in
- * by the time one of them comes back.
+ * Pandora only knows a racer's next race. FIVE sources of "who is on this
+ * reservation" are unioned, then self-joined on the reservation row:
+ *   - the booking's own rosters — karting `heats[]` (first name + adult/junior
+ *     class), `attractions[].participants[]` and `racesims[].participants[]`
+ *     (full name + booking-time waiver flag). Every kiosk booking carries ids
+ *     here; a WEB booking only for racers who signed in while booking;
+ *   - `kiosk_checkin_people` for a check-in on that bill on that date — the
+ *     rail that gives a web reservation its people (owner 2026-09-06: "a web
+ *     reservation that checks in via kiosk, we would have it … that check-in
+ *     should be able to mint this table"). Check-in binds every racer to a
+ *     person, so the ids are there the moment the group has checked in;
+ *   - `kiosk_waiver_joins` on the reservation's project (kiosk group-waiver
+ *     flow AND the online /waiver flow write the same rows).
+ * The caller is excluded; rows without a person id are dropped downstream
+ * (nobody signs in on a name). Cancelled / no-show rows are out; an 'arrived'
+ * row stays in — the 8pm group has usually checked in by the time one of them
+ * comes back.
  *
- * Same JSONB lateral shape and seq-scan profile as raceHeatsForPersonsOnDate.
+ * Same JSONB lateral shape and seq-scan profile as raceHeatsForPersonsOnDate;
+ * the two joins ride the existing bill_id / project_id indexes.
  * Fail-open: any error → [] (a missing suggestion, never a blocked sign-in).
  */
 export async function coBookedPeopleOnDate(opts: {
@@ -2224,46 +2234,96 @@ export async function coBookedPeopleOnDate(opts: {
     await ensureBowlingSchema();
     const q = sql();
     const rows = await q`
-      WITH parts AS (
-        SELECT r.id AS res_id, r.bmi_bill_id, 'race'::text AS kind,
+      WITH res AS (
+        -- Every active reservation at this centre with a heat / slot on the
+        -- date, and its EARLIEST such slot (the "booked together" time for
+        -- people we only know from a check-in or a waiver join).
+        SELECT r.id, r.bmi_bill_id, r.booking_metadata, m.min_slot
+        FROM bowling_reservations r
+        CROSS JOIN LATERAL (
+          SELECT min(x.slot) AS min_slot FROM (
+            SELECT t.e->>'heatId' AS slot FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(r.booking_metadata->'heats')='array'
+                   THEN r.booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)
+            UNION ALL
+            SELECT a.e->>'slot' FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(r.booking_metadata->'attractions')='array'
+                   THEN r.booking_metadata->'attractions' ELSE '[]'::jsonb END) AS a(e)
+            UNION ALL
+            SELECT s.e->>'slot' FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(r.booking_metadata->'racesims')='array'
+                   THEN r.booking_metadata->'racesims' ELSE '[]'::jsonb END) AS s(e)
+          ) x
+          WHERE left(x.slot, 10) = ${date}
+        ) m
+        WHERE r.center_code = ANY(${codes})
+          AND r.status NOT IN ('cancelled','no_show')
+          AND m.min_slot IS NOT NULL
+      ),
+      parts AS (
+        -- 1. The booking's OWN rosters (ids present when the racer signed in
+        --    at booking time — every kiosk booking, returning web racers).
+        SELECT res.id AS res_id, res.bmi_bill_id, 'race'::text AS kind,
                t.e->>'bmiPersonId' AS person_id, t.e->>'racer' AS name,
                t.e->>'heatId' AS slot, t.e->>'category' AS category,
                NULL::text AS waiver_valid
-        FROM bowling_reservations r
+        FROM res
         CROSS JOIN LATERAL jsonb_array_elements(
-          CASE WHEN jsonb_typeof(r.booking_metadata->'heats')='array'
-               THEN r.booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)
-        WHERE r.center_code = ANY(${codes})
-          AND r.status NOT IN ('cancelled','no_show')
-          AND left(t.e->>'heatId', 10) = ${date}
+          CASE WHEN jsonb_typeof(res.booking_metadata->'heats')='array'
+               THEN res.booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)
+        WHERE left(t.e->>'heatId', 10) = ${date}
         UNION ALL
-        SELECT r.id, r.bmi_bill_id, COALESCE(a.e->>'slug', 'attraction'),
+        SELECT res.id, res.bmi_bill_id, COALESCE(a.e->>'slug', 'attraction'),
                p.e->>'bmiPersonId', p.e->>'name',
                a.e->>'slot', NULL::text, p.e->>'waiverValid'
-        FROM bowling_reservations r
+        FROM res
         CROSS JOIN LATERAL jsonb_array_elements(
-          CASE WHEN jsonb_typeof(r.booking_metadata->'attractions')='array'
-               THEN r.booking_metadata->'attractions' ELSE '[]'::jsonb END) AS a(e)
+          CASE WHEN jsonb_typeof(res.booking_metadata->'attractions')='array'
+               THEN res.booking_metadata->'attractions' ELSE '[]'::jsonb END) AS a(e)
         CROSS JOIN LATERAL jsonb_array_elements(
           CASE WHEN jsonb_typeof(a.e->'participants')='array'
                THEN a.e->'participants' ELSE '[]'::jsonb END) AS p(e)
-        WHERE r.center_code = ANY(${codes})
-          AND r.status NOT IN ('cancelled','no_show')
-          AND left(a.e->>'slot', 10) = ${date}
+        WHERE left(a.e->>'slot', 10) = ${date}
         UNION ALL
-        SELECT r.id, r.bmi_bill_id, COALESCE(s.e->>'slug', 'racesim'),
+        SELECT res.id, res.bmi_bill_id, COALESCE(s.e->>'slug', 'racesim'),
                p.e->>'bmiPersonId', p.e->>'name',
                s.e->>'slot', NULL::text, p.e->>'waiverValid'
-        FROM bowling_reservations r
+        FROM res
         CROSS JOIN LATERAL jsonb_array_elements(
-          CASE WHEN jsonb_typeof(r.booking_metadata->'racesims')='array'
-               THEN r.booking_metadata->'racesims' ELSE '[]'::jsonb END) AS s(e)
+          CASE WHEN jsonb_typeof(res.booking_metadata->'racesims')='array'
+               THEN res.booking_metadata->'racesims' ELSE '[]'::jsonb END) AS s(e)
         CROSS JOIN LATERAL jsonb_array_elements(
           CASE WHEN jsonb_typeof(s.e->'participants')='array'
                THEN s.e->'participants' ELSE '[]'::jsonb END) AS p(e)
-        WHERE r.center_code = ANY(${codes})
-          AND r.status NOT IN ('cancelled','no_show')
-          AND left(s.e->>'slot', 10) = ${date}
+        WHERE left(s.e->>'slot', 10) = ${date}
+        UNION ALL
+        -- 2. Who CHECKED IN on that bill today at a kiosk — the rail that gives
+        --    a WEB reservation its people (web rosters are names only until the
+        --    racers sign in / set up at check-in, which binds their ids here).
+        --    A check-in verified the waiver live, so a TRUE there is trusted.
+        SELECT res.id, res.bmi_bill_id, 'checkin'::text,
+               cp.person_id,
+               COALESCE(NULLIF(trim(concat_ws(' ', cp.first_name, cp.last_name)), ''), cp.display_name),
+               res.min_slot, NULL::text,
+               CASE WHEN cp.waiver_valid THEN 'true' ELSE NULL END
+        FROM res
+        JOIN kiosk_checkin_events ce
+          ON ce.bill_id = res.bmi_bill_id AND ce.business_date = ${date}::date
+        JOIN kiosk_checkin_people cp ON cp.event_id = ce.id
+        WHERE cp.person_id IS NOT NULL
+        UNION ALL
+        -- 3. Who JOINED that reservation's project through a waiver (kiosk
+        --    group-waiver flow or the online /waiver flow). project = bill + 1
+        --    in BMI's numbering (lib/bmi-office-ids.ts); numeric keeps the
+        --    17 digits exact.
+        SELECT res.id, res.bmi_bill_id, 'waiver'::text,
+               wj.person_id,
+               COALESCE(NULLIF(trim(concat_ws(' ', wj.first_name, wj.last_name)), ''), wj.display_name),
+               res.min_slot, NULL::text, NULL::text
+        FROM res
+        JOIN kiosk_waiver_joins wj
+          ON res.bmi_bill_id ~ '^[0-9]+$'
+         AND wj.project_id = (res.bmi_bill_id::numeric + 1)::text
       )
       SELECT DISTINCT p2.bmi_bill_id, p2.kind, p2.person_id, p2.name, p2.slot,
              p2.category, p2.waiver_valid

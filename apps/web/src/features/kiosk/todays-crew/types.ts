@@ -15,9 +15,12 @@ export interface CoBookedRow {
   /** The heat's adult/junior class when the row is a karting heat; null for
    *  attractions and sims (their rosters carry no class). */
   category: "adult" | "junior" | null;
-  /** 'race' for a karting heat, the attraction slug, or the sim slug. */
+  /** 'race' for a karting heat, the attraction slug, the sim slug — or
+   *  'checkin' / 'waiver' when we know the person from a kiosk check-in or a
+   *  waiver join on the same reservation rather than from its booking roster. */
   kind: string;
-  /** ISO-ish start of the shared heat / slot ("2026-09-06T20:00:00…"). */
+  /** ISO-ish start of the shared heat / slot ("2026-09-06T20:00:00…"); for a
+   *  check-in / waiver row, the reservation's earliest slot that day. */
   slot: string;
   bmiBillId: string | null;
   /** Booking-time waiver flag where the roster carried one (attractions, sims). */

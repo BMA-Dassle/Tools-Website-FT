@@ -56,9 +56,71 @@ export function dedupeCoBooked(
       have.name = r.name.trim();
     }
   }
-  return [...byId.values()]
+  // DUPLICATE PERSON RECORDS are a fact of the CRM (probed 2026-09-06: one web
+  // group carried "Ryan Jones" under two ids — the check-in bound one, the
+  // online waiver joined the other). Same FULL name → one entry, preferring
+  // the record a kiosk check-in verified today, then the earliest slot. A
+  // first-name-only entry is never collapsed: two "Daniel"s in a big group
+  // are two people until proven otherwise.
+  const byName = new Map<string, CoBookedPerson>();
+  const out: CoBookedPerson[] = [];
+  for (const p of byId.values()) {
+    const key = fullNameKey(p.name);
+    if (!key) {
+      out.push(p);
+      continue;
+    }
+    const have = byName.get(key);
+    if (!have) {
+      byName.set(key, p);
+      out.push(p);
+      continue;
+    }
+    if (preferCoBooked(p, have)) {
+      out[out.indexOf(have)] = p;
+      byName.set(key, p);
+    }
+  }
+  return out
     .sort((a, b) => (a.slot < b.slot ? -1 : a.slot > b.slot ? 1 : a.name.localeCompare(b.name)))
     .slice(0, cap);
+}
+
+/** "first last" lowercased — or null when there is no last name to match on. */
+export function fullNameKey(name: string): string | null {
+  const parts = name.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return parts.length >= 2 ? parts.join(" ") : null;
+}
+
+/** Between two records of the same person: the one a check-in verified today
+ *  wins; otherwise the earlier slot; otherwise keep what we had. */
+function preferCoBooked(candidate: CoBookedPerson, current: CoBookedPerson): boolean {
+  const c = candidate.kind === "checkin" ? 1 : 0;
+  const h = current.kind === "checkin" ? 1 : 0;
+  if (c !== h) return c > h;
+  return candidate.slot < current.slot;
+}
+
+/**
+ * The signed-in guest can appear in their OWN crew under a duplicate record —
+ * a second person id with the same name (the online waiver joined one, the
+ * kiosk bound the other). Drop anyone whose full name matches someone already
+ * on the roster; ids were already excluded by the caller.
+ */
+export function withoutRosterNames<T extends { firstName: string; lastName: string }>(
+  crew: readonly T[],
+  roster: ReadonlyArray<{ firstName: string; lastName?: string }>,
+): T[] {
+  const taken = new Set(
+    roster
+      .map((m) => fullNameKey(`${m.firstName} ${m.lastName ?? ""}`))
+      .filter((k): k is string => k !== null),
+  );
+  if (taken.size === 0) return [...crew];
+  return crew.filter((c) => {
+    const key = fullNameKey(`${c.firstName} ${c.lastName}`);
+    return key === null || !taken.has(key);
+  });
 }
 
 /** "First Last Name" → { first, last }. A lone token is a first name. */

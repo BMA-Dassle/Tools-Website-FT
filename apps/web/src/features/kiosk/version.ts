@@ -24,7 +24,9 @@
  *         "Today's Crew · N" pill on the member's card. The sheet pops ONCE
  *         per member on booking screens and the crew page; check-in and the
  *         waiver flow get the pill only. Built from OUR booking rows in Neon
- *         (heats / attraction / sim rosters) plus our own waiver signatures:
+ *         (heats / attraction / sim rosters, the kiosk check-in's bound
+ *         people — which is what gives a WEB reservation its crew — and the
+ *         waiver joins) plus our own waiver signatures:
  *         opening it costs zero Pandora or Office calls, and adding someone
  *         costs at most the one-person waiver read every sign-in already does
  *         — none when our record vouches for them. Both pills (family and

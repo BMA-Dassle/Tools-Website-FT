@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CenterSlug } from "../checkin/centers";
-import { shouldAutoOpenCrew } from "./todays-crew";
+import { shouldAutoOpenCrew, withoutRosterNames } from "./todays-crew";
 import type { CrewStatus, CrewSuggestion, TodaysCrewResponse } from "./types";
 
 /** A co-booker plus the roster member whose booking listed them — the pill
@@ -32,6 +32,9 @@ export interface UseTodaysCrewOptions {
   autoOpen: boolean;
   /** BMI person ids already on the roster, read when the lookup resolves. */
   rosterIds: () => Set<string>;
+  /** The roster's names, read when the lookup resolves — a member's own
+   *  DUPLICATE record (same name, other id) must never be offered to them. */
+  rosterNames: () => ReadonlyArray<{ firstName: string; lastName?: string }>;
   /** Is any other overlay up right now (lookup, form, licence picker, the
    *  split-payment warning, the family sheet…)? Read when the lookup resolves. */
   overlayOpen: () => boolean;
@@ -78,7 +81,7 @@ export function useTodaysCrew(opts: UseTodaysCrewOptions) {
       const data = (await res.json()) as TodaysCrewResponse;
       const taken = new Set<string>([...alreadyIds, ...optsRef.current.rosterIds()]);
       const have = new Set(crewRef.current.map((c) => c.id));
-      const fresh: CrewEntry[] = (data.crew ?? [])
+      const fresh: CrewEntry[] = withoutRosterNames(data.crew ?? [], optsRef.current.rosterNames())
         .filter((c) => !taken.has(c.id) && !have.has(c.id))
         .map((c) => ({ ...c, ownerMemberId: memberId }));
       if (fresh.length > 0) commitCrew([...crewRef.current, ...fresh]);

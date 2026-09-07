@@ -418,6 +418,7 @@ export function KioskPartyManager({
     enabled: kioskTodaysCrewEnabled() && !!kioskCfg && !!center,
     autoOpen: mode !== "waiver",
     rosterIds: () => new Set(party.map((m) => m.bmiPersonId).filter(Boolean) as string[]),
+    rosterNames: () => party,
     overlayOpen: () =>
       form !== null ||
       lookupOpen ||

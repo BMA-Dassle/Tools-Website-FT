@@ -306,6 +306,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
     enabled: kioskTodaysCrewEnabled() && !!kioskCfg,
     autoOpen: item.id !== "checkin" && item.id !== "waiver",
     rosterIds: () => new Set(party.map((m) => m.bmiPersonId).filter(Boolean) as string[]),
+    rosterNames: () => party,
     overlayOpen: () =>
       form !== null ||
       lookupOpen ||

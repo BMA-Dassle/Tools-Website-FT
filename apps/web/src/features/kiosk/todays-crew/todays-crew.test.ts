@@ -6,6 +6,7 @@ import {
   shouldAutoOpenCrew,
   slotTimeLabel,
   splitName,
+  withoutRosterNames,
 } from "./todays-crew";
 import type { CoBookedRow } from "./types";
 
@@ -78,11 +79,59 @@ describe("dedupeCoBooked", () => {
     expect(out.map((p) => p.name)).toEqual(["Bob", "Amy", "Zed"]);
   });
 
+  it("collapses the same FULL name under two ids, preferring the check-in-verified record", () => {
+    // Probed 2026-09-06: "Ryan Jones" 63000000009529297 (waiver join) and
+    // 63000000009528048 (check-in) on one web booking.
+    const out = dedupeCoBooked([
+      row({ bmiPersonId: "63000000009529297", name: "Ryan Jones", kind: "waiver" }),
+      row({ bmiPersonId: "63000000009528048", name: "Ryan Jones", kind: "checkin" }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].bmiPersonId).toBe("63000000009528048");
+  });
+
+  it("never collapses first-name-only entries — two Daniels are two people", () => {
+    const out = dedupeCoBooked([
+      row({ bmiPersonId: "8", name: "Daniel" }),
+      row({ bmiPersonId: "9", name: "Daniel" }),
+    ]);
+    expect(out).toHaveLength(2);
+  });
+
+  it("name collapse is case-insensitive and keeps the earlier slot when neither checked in", () => {
+    const out = dedupeCoBooked([
+      row({ bmiPersonId: "10", name: "steven stauss", slot: "2026-09-06T12:00:00" }),
+      row({ bmiPersonId: "11", name: "Steven Stauss", slot: "2026-09-06T11:24:00" }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].bmiPersonId).toBe("11");
+  });
+
   it(`caps at ${CREW_CAP} — a corporate booking is not a crew`, () => {
     const rows = Array.from({ length: 40 }, (_, i) =>
       row({ bmiPersonId: String(100 + i), name: `P${String(i).padStart(2, "0")}` }),
     );
     expect(dedupeCoBooked(rows)).toHaveLength(CREW_CAP);
+  });
+});
+
+describe("withoutRosterNames", () => {
+  const crew = [
+    { id: "1", firstName: "Isabelle", lastName: "Sager" },
+    { id: "2", firstName: "Donavan", lastName: "Solomon" },
+    { id: "3", firstName: "Sam", lastName: "" },
+  ];
+  it("drops the signed-in guest's own duplicate record by full name", () => {
+    // Probed 2026-09-06: Isabelle signed in as 63000000009575710 and her own
+    // online-waiver record 63000000009573720 came back in her crew.
+    const out = withoutRosterNames(crew, [{ firstName: "isabelle", lastName: "SAGER" }]);
+    expect(out.map((c) => c.id)).toEqual(["2", "3"]);
+  });
+  it("a roster member with no last name excludes nobody", () => {
+    expect(withoutRosterNames(crew, [{ firstName: "Sam" }])).toHaveLength(3);
+  });
+  it("an empty roster changes nothing", () => {
+    expect(withoutRosterNames(crew, [])).toHaveLength(3);
   });
 });
 
