@@ -13,6 +13,7 @@ import "server-only";
  * cannot be left on a screen overnight by a distracted staff member or a crash.
  */
 import redis from "@/lib/redis";
+import { readSessionHosts } from "~/features/staff/session-host";
 import { briefingStateTtlSeconds } from "./phase";
 import { parseBriefingRoomState } from "./state-parse";
 import {
@@ -83,6 +84,46 @@ export async function readBriefingRooms(
     return out;
   } catch {
     return empty;
+  }
+}
+
+/**
+ * HANG THE MARSHAL ON EACH ROOM'S STATE — the name, joined, never stored.
+ *
+ * The room key is written by one staff press and knows nothing about who
+ * pressed it; the claim lives under `staff:session-host:*`, written by the same
+ * press. Joining here rather than denormalising into the room key keeps ONE
+ * place a host is claimed, so a wall can never name somebody the boards
+ * disagree with.
+ *
+ * WHY IT IS HERE AND NOT IN THE FEED BUILDER, which is where it started. The
+ * full 15-second feed joined it and the 2-second PULSE did not, and `useTvFeed`
+ * merges `pulse.briefingRooms ?? feed.briefingRooms` — so on every FastTrax
+ * screen the pulse's copy won and the marshal was null on the glass all along.
+ * Both callers now come through this function, which is the only arrangement in
+ * which they cannot drift again. (The lanes never had the bug because their
+ * equivalent join lives inside `readPitLanes`, which both callers use.)
+ *
+ * COSTS ONE SMALL MGET, and only when a room is actually running: an idle pair
+ * of rooms pays nothing, which is most of a quiet afternoon. Never throws — a
+ * wall with no name on it is the wall we shipped for a year.
+ */
+export async function withRoomMarshals(
+  rooms: Record<BriefingRoom, BriefingRoomState | null>,
+): Promise<Record<BriefingRoom, BriefingRoomState | null>> {
+  const ids = BRIEFING_ROOMS.map((r) => rooms[r]?.sessionId ?? null).filter(Boolean);
+  if (!ids.length) return rooms;
+  try {
+    const hosts = await readSessionHosts(ids);
+    const out = { ...rooms };
+    for (const room of BRIEFING_ROOMS) {
+      const state = out[room];
+      if (!state?.sessionId) continue;
+      out[room] = { ...state, marshal: hosts[state.sessionId]?.firstName ?? null };
+    }
+    return out;
+  } catch {
+    return rooms;
   }
 }
 

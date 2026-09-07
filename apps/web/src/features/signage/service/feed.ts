@@ -1,5 +1,3 @@
-import { readSessionHosts } from "~/features/staff/session-host";
-import type { BriefingRoomState } from "../briefing/types";
 import "server-only";
 
 /**
@@ -55,7 +53,7 @@ import {
 } from "../flags";
 import { readCalledArenaSessions, readUpcomingArenaSessions } from "../arena/arena-sessions.server";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
-import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
+import { readBriefingRooms, sessionBriefed, withRoomMarshals } from "../briefing/state.server";
 import { resolveWelcomeBack } from "../briefing/welcome-back.server";
 import { resolveCameraReturn } from "../briefing/camera-return.server";
 import { resolveRoomBlocked } from "../briefing/room-blocked.server";
@@ -623,18 +621,11 @@ async function buildBriefingSection(
   const poster = assets["briefing-helmet-poster"];
 
   /**
-   * THE MARSHAL ON THE ROOM'S OWN STATE — joined here rather than written into
-   * Redis at send time, so there is still exactly one place a host is claimed
-   * and the room TV cannot show a name the boards disagree with. One `mget` for
-   * the two rooms, on a feed the TV already pays for.
+   * THE MARSHAL ON THE ROOM'S OWN STATE — see `withRoomMarshals`. The pulse
+   * joins it through the same function, which is what stopped the two halves of
+   * the feed disagreeing about whether a room has a name on it.
    */
-  const roomHosts = await readSessionHosts([
-    rooms.red?.sessionId ?? null,
-    rooms.blue?.sessionId ?? null,
-  ]).catch(() => ({}) as Record<string, { firstName: string }>);
-  const withMarshal = (st: BriefingRoomState | null): BriefingRoomState | null =>
-    st ? { ...st, marshal: roomHosts[st.sessionId]?.firstName ?? null } : null;
-  const roomsWithMarshal = { red: withMarshal(rooms.red), blue: withMarshal(rooms.blue) };
+  const roomsWithMarshal = await withRoomMarshals(rooms);
 
   return {
     section: {
@@ -842,7 +833,14 @@ export async function buildTvPulse(
     readSignageEvents(center).catch(() => []),
     reloadRequestedAt(center).catch(() => null),
     demoRequestedFor(screenIdRaw).catch(() => null),
-    wantsBriefing ? readBriefingRooms(parsed.venue).catch(() => null) : Promise.resolve(null),
+    // WITH THE MARSHAL ON IT. The pulse's copy is the one the walls actually
+    // render (useTvFeed prefers it), so a room state without a name here is a
+    // room with no name on the glass — see withRoomMarshals.
+    wantsBriefing
+      ? readBriefingRooms(parsed.venue)
+          .then(withRoomMarshals)
+          .catch(() => null)
+      : Promise.resolve(null),
     // THE CAMERA STRIP ON THE FAST LANE, so a registration clears in seconds
     // rather than waiting out the 15s full poll (owner 2026-08-12). Normally one
     // Redis GET of the shared per-venue cache; it only pays the three-read
