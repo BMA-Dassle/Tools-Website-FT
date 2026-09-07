@@ -42,7 +42,7 @@ const spec = {
       "**Idempotency**: video / e-ticket mutating endpoints (resend, bulk-resend, block) are NOT",
       "idempotent — each call sends a fresh SMS / hits the VT3 disable endpoint. Confirm before retrying.",
     ].join("\n"),
-    version: "1.3.0",
+    version: "1.4.0",
     contact: {
       name: "FastTrax Operations",
       email: "ops@fasttraxent.com",
@@ -2675,6 +2675,12 @@ const spec = {
           "**`unattributed`** is the number of groups with no staff member on them — sends from before",
           "hosts were recorded (2026-09-03) and sends nobody typed a punch ID for. Reported separately",
           "so a night nobody identified themselves on is not read as a night nobody briefed.",
+          "",
+          "**`active`** is WHO IS ON A GROUP RIGHT NOW, for the race tag beside the count. It is NOT",
+          "dated — there is no historical form of the question — so it always describes this instant,",
+          "whatever `date` asks the counts for. One entry per person: somebody holding two groups is",
+          "listed on the more advanced of the two, and `pitIn` is the LEAST advanced stage, because",
+          "that group's karts are back and they are leaving. Absent from `active` means free.",
         ].join("\n"),
         security: [{ adminToken: [] }],
         parameters: [
@@ -2693,7 +2699,7 @@ const spec = {
               "application/json": {
                 schema: {
                   type: "object",
-                  required: ["businessDay", "venue", "staff", "unattributed"],
+                  required: ["businessDay", "venue", "staff", "unattributed", "active"],
                   properties: {
                     businessDay: {
                       type: "string",
@@ -2737,6 +2743,62 @@ const spec = {
                       type: "integer",
                       example: 2,
                       description: "Distinct groups briefed with no staff member recorded.",
+                    },
+                    active: {
+                      type: "array",
+                      description: [
+                        "Staff currently running a group, anywhere on the floor: briefing room, holding,",
+                        "in the karts, on track or pitting in. One entry per person, for their most",
+                        "advanced group. Empty when nothing is out — and empty rather than absent when",
+                        "the floor could not be read.",
+                      ].join(" "),
+                      items: {
+                        type: "object",
+                        required: [
+                          "userId",
+                          "firstName",
+                          "sessionId",
+                          "track",
+                          "heatNumber",
+                          "stage",
+                        ],
+                        properties: {
+                          userId: {
+                            type: "integer",
+                            example: 32410,
+                            description: "7shifts USER id — the same key as `staff[].userId`.",
+                          },
+                          firstName: { type: "string", example: "Pedro" },
+                          sessionId: {
+                            type: "string",
+                            example: "58509552",
+                            description:
+                              "Pandora session id, as a STRING — these can exceed Number.MAX_SAFE_INTEGER.",
+                          },
+                          track: {
+                            type: "string",
+                            enum: ["blue", "red", "mega"],
+                            description:
+                              "The tag's letter and colour: blue → B, red → R, mega → M (so `B35`, `R33`, `M12`).",
+                          },
+                          heatNumber: {
+                            type: "integer",
+                            nullable: true,
+                            example: 35,
+                            description:
+                              "Null for a group event or custom race with no heat number — show the letter alone.",
+                          },
+                          stage: {
+                            type: "string",
+                            enum: ["briefing", "holding", "karts", "racing", "pitIn"],
+                            description: [
+                              "Where that group is. Ranked racing > karts > holding > briefing > pitIn when one",
+                              "person holds two — pit-in is last because the karts are back and the group is",
+                              "leaving.",
+                            ].join(" "),
+                          },
+                        },
+                      },
                     },
                   },
                 },

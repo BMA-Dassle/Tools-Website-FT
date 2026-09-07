@@ -360,7 +360,25 @@ no briefing rooms.
     { "userId": 31877, "firstName": "Anthony", "briefed": 4 },
     { "userId": 33021, "firstName": "Ivan", "briefed": 3 }
   ],
-  "unattributed": 2
+  "unattributed": 2,
+  "active": [
+    {
+      "userId": 32410,
+      "firstName": "Pedro",
+      "sessionId": "58509552",
+      "track": "blue",
+      "heatNumber": 35,
+      "stage": "karts"
+    },
+    {
+      "userId": 31877,
+      "firstName": "Anthony",
+      "sessionId": "58509571",
+      "track": "red",
+      "heatNumber": 33,
+      "stage": "briefing"
+    }
+  ]
 }
 ```
 
@@ -376,6 +394,34 @@ in `briefing_assignments`; the endpoint counts `DISTINCT session_id`, so it is c
 before hosts were captured (2026-09-03) and sends where nobody typed a punch ID at the tablet. It is
 reported rather than dropped: a night where eight groups went unclaimed is a different fact from a
 quiet night, and only one of them needs looking into.
+
+**`active[]` is who is running a group RIGHT NOW** — for the race tag the pit board prints beside
+the flag count (`B35`, `R33`, `M12`). It is what makes the difference between "Pedro has briefed
+nine groups today" and "Pedro is on 35 at this moment".
+
+| Field        | Meaning                                                                                                        |
+| ------------ | -------------------------------------------------------------------------------------------------------------- |
+| `userId`     | 7shifts USER id — the same key as `staff[].userId`, so both merge onto one person.                             |
+| `firstName`  | First name only, as claimed at the briefing tablet.                                                            |
+| `sessionId`  | Pandora session id, **as a string** — these exceed `Number.MAX_SAFE_INTEGER`.                                  |
+| `track`      | `blue` \| `red` \| `mega`. The tag's letter and colour: **blue → B, red → R, mega → M**.                       |
+| `heatNumber` | The number after the letter. **Null** for a group event or custom race with no heat — render the letter alone. |
+| `stage`      | `briefing` \| `holding` \| `karts` \| `racing` \| `pitIn`.                                                     |
+
+**One entry per person, for their most advanced group.** A marshal who has just walked one group to
+the karts and been handed the next in a briefing room holds two sessions, and both facts are true —
+the pill has room for one, so it names the group whose racers are already strapped in. The ranking
+is `racing > karts > holding > briefing > pitIn`, and **`pitIn` is last, not first**: a group in the
+pit has its karts back and is leaving, so tagging their marshal with it would name the race they
+have just finished while a room full of people waits for them.
+
+**Absent from `active` means free.** Somebody with a `staff[]` row and no `active` entry has briefed
+today and is holding nobody right now — which is exactly what the boards mark green.
+
+**`active` ignores `date`.** There is no historical form of "who is holding a group", so it always
+describes this instant, whatever day the counts were asked for. It is also independent of the
+counts: if the floor cannot be read it comes back `[]` rather than failing the request, so a Redis
+blip costs the tags and never the numbers.
 
 **Business-day note.** FastTrax's racing day rolls at **2 AM ET** (a race night runs past midnight);
 the portal's business day rolls at **5 AM**. Pass the day you are displaying rather than relying on

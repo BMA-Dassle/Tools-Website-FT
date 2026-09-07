@@ -1,5 +1,56 @@
 # Open Tasks
 
+## Track Ops race tags + free crew (2026-09-07) — branch `feat/crew-race-tags` — BUILT, gates green
+
+Increment 3 of the pit board work (rev 12 of the mockup). Two questions the boards could not
+answer: which race is each marshal on, and who is free right now. Same pill in three places —
+`[dot] [flag] [count] [first name] [race tag]` — with the tag being the track letter plus the heat
+(`B35`, `R33`, `M12`) for whatever group that person is holding anywhere on the floor.
+
+Owner rules that shaped it: the list is the portal pit board's current **Track Ops** crew (Track Ops
++ Track Ops Floaters) plus anyone hosting a group, and **nobody else** — somebody who briefed nine
+groups this afternoon and has gone home is off it, though their groups stay in the totals. Four
+states, all derived from the portal's presence plus our race map: available (green, first),
+assigned (tag), on break (greyed, orange dot, tag kept), not-in (greyed, last).
+
+- [x] `features/staff/current-races-fold.ts` — PURE. Lanes + rooms → one row per person, most
+      advanced stage wins; `pitIn` ranks LAST because that group is leaving. 14 tests.
+- [x] `features/staff/current-races.ts` — the reading half. Two entry points: one that reads for
+      itself, one that takes lanes/rooms the caller already has (the 5s board poll and the 15s TV
+      feed both do), so the only Redis this adds is the hosts' single mget.
+- [x] `features/staff/portal-roster.ts` — `GET portal.headpinz.com/api/schedule/pit-board-now`,
+      5s timeout, successes cached 30s **and failures too** (otherwise a dead portal puts a
+      five-second stall in front of every poll), last-good kept 10 minutes. `PORTAL_ORIGIN` +
+      `PORTAL_PIT_BOARD_LOCATION_ID` in `~/lib/constants/admin-tools`.
+- [x] `features/staff/crew-list.ts` — PURE, and the ONE place membership, state and order are
+      decided for both surfaces. `crewState()` is its own tested function. 23 tests.
+- [x] `businessDayYmdAtRolloverET(hour)` extracted in `lib/race-business-day.ts` so the portal's
+      5 AM day reuses the DST-safe arithmetic instead of copying it.
+- [x] `~/lib/constants/crew.ts` — one palette for the pills, the tags and the host chip; one
+      `CrewPill` renders every pill on the desk and the walls; one `HostChip` for every host.
+- [x] Check-in board: `TRACK OPS` strip replaces BRIEFED TODAY. Totals still count the day.
+- [x] Session-status panels: host chip on **every** stage row (the Briefing row never had one) and
+      a `TRACK OPS` row under PIT IN, on all four surfaces that render the rail — briefing-room TV,
+      camera boards, pit-assign idle wall, Mega session tracker. Corner clock and the pit rail's
+      own name line wear the same chip.
+- [x] `GET /api/portal/briefings` gains `active[]` (userId, firstName, sessionId, track, heatNumber,
+      stage). OpenAPI 1.3.0 → 1.4.0, `docs/portal-api-spec.md` §7.
+- [x] `briefedTodayByHost` and its 5 tests deleted — the server fold replaces it outright.
+- [ ] **Portal endpoint does not exist yet** (built in parallel). Until it deploys the strip and the
+      row list only the people currently holding a group, with a dim "roster unavailable" note.
+      Re-check the four states on the glass once it lands — `presence` and `hasPunchedToday` are the
+      portal's words and nothing here can validate them.
+- [ ] Not smoked on the boards' own screens.
+
+### Found and fixed on the way: the marshal never reached the walls
+
+`buildTvFeed` joined the marshal onto each briefing room's state; `buildTvPulse` returned the raw
+Redis rooms, and `useTvFeed` merges `pulse.briefingRooms ?? feed.briefingRooms`. On an FT screen the
+pulse always wins, so `state.marshal` has been null on every wall since it shipped (2026-09-04) —
+`MarshalOverlay` has been rendering nothing. Both halves go through one `withRoomMarshals()` now
+(commit `cbf0b5cfc`, revertable on its own). The lanes never had the bug because their equivalent
+join lives inside `readPitLanes`, which the pulse already calls.
+
 ## Briefing counts for the portal's pit board (2026-09-07) — branch `feat/portal-briefing-counts` — BUILT, gates green
 
 Half of a two-repo effort (portal side is `feat/pit-board-late-briefed`). The HeadPinz pit board TV
