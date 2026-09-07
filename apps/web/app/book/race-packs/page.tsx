@@ -9,7 +9,8 @@ import PaymentForm from "@/components/square/PaymentForm";
 import type { PaymentResult } from "@/components/square/PaymentForm";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
-import { pickPublishableLoginCode, preferCodedAccounts } from "~/features/kiosk/license/types";
+import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
+import { rankSearchResults } from "~/features/booking/service/office-search";
 
 // ── Pack catalog ────────────────────────────────────────────────────────────
 
@@ -301,25 +302,13 @@ export default function RacePacksPage() {
     const results = await searchRes.json();
     if (!Array.isArray(results) || results.length === 0) return [];
 
-    const scoreDesc = (d: string): number => {
-      let s = 0;
-      if (/\(\d/.test(d)) s += 100;
-      if (d.includes("Memberships:")) s += 50;
-      if (d.includes("zip:")) s += 25;
-      if (d.includes("Last seen:")) s += 10;
-      return s;
-    };
-    const byName = new Map<string, { localId: string; description: string; score: number }>();
-    for (const r of results as { localId: string; description: string }[]) {
-      const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-      const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-      const score = scoreDesc(r.description);
-      const existing = byName.get(name);
-      if (!existing || score > existing.score) {
-        byName.set(name, { localId: r.localId, description: r.description, score });
-      }
-    }
-    const uniqueEntries = [...byName.values()].slice(0, 10);
+    // Shared ranking (office-search.ts): EVERY distinct record lists, substance
+    // first — a household on one phone must all show (owner 2026-09-06); the
+    // per-name collapse only fires on a polluted number.
+    const uniqueEntries = rankSearchResults(
+      results as { localId: string; description: string }[],
+      12,
+    );
 
     const detailPromises = uniqueEntries.map(async (r) => {
       try {
@@ -372,17 +361,17 @@ export default function RacePacksPage() {
         return null;
       }
     });
-    // Code-less stubs LIST only when the search matched nothing else
-    // (preferCodedAccounts) — same rule as every other account lookup.
-    const allDetails = preferCodedAccounts(
-      (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null),
+    // EVERY account lists — nothing hidden for lacking a login code (owner
+    // 2026-09-06). Memberships first, then last visit.
+    const allDetails = (await Promise.all(detailPromises)).filter(
+      (d): d is FoundAccount => d !== null,
     );
     allDetails.sort((a, b) => {
       if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
       if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
       return (b.lastSeen || "").localeCompare(a.lastSeen || "");
     });
-    return allDetails.slice(0, 5);
+    return allDetails.slice(0, 12);
   }
 
   async function handleEmailSearch() {

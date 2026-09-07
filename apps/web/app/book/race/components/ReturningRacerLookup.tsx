@@ -2,7 +2,9 @@
 
 import { useState, useRef, useEffect } from "react";
 import { bmiGet, isRelevantMembership } from "../data";
-import { pickPublishableLoginCode, preferCodedAccounts } from "~/features/kiosk/license/types";
+import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
+import { rankSearchResults } from "~/features/booking/service/office-search";
+import { hasActiveLicenseMembership, licenseExpiryIso } from "~/features/booking/service/license";
 
 export interface PersonData {
   personId: string;
@@ -26,12 +28,33 @@ interface FoundAccount {
   personId: string;
   fullName: string;
   email: string;
+  /** "" when the record carries no publishable code — it still lists. */
   loginCode: string;
   lastSeen: string;
+  /** Tag COUNT on the record — not visits, not races. No longer displayed. */
   races: number;
   memberships: string[];
+  licenseActive?: boolean;
+  /** `YYYY-MM-DD` the active licence runs out; null = none / open-ended. */
+  licenseExpires?: string | null;
   birthDate?: string | null;
   creditBalances?: { kind: string; balance: number }[];
+}
+
+/** How many accounts one sign-in fetches and lists — a household on one phone
+ *  must ALL show (owner 2026-09-06); this only caps pathological numbers. */
+const MAX_ACCOUNTS_SHOWN = 12;
+
+/** `YYYY-MM-DD` → "Dec 30, 2026", UTC-anchored so the day never shifts. */
+function formatIsoDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 interface Props {
@@ -80,36 +103,17 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
 
   /** Shared search + fetch person details logic for both phone and email.
    *
-   * Two non-obvious behaviors here:
+   * `max=500`: every reservation registered for a person creates a per-bill
+   * contact-person row in BMI Office, which all show up in phone-keyed search
+   * alongside the real person record — a frequent racer's real profile can
+   * sit at index 200+ once the stubs accumulate.
    *
-   * 1. `max=500` (was 200). Every reservation registered for a person
-   *    creates a per-bill contact-person row in BMI Office, which all
-   *    show up in phone-keyed search alongside the real person record.
-   *    A frequent racer's real profile can sit at index 200+ once the
-   *    stubs accumulate (Eric Osborn's primary record was at index 227
-   *    on the day this was fixed). Bumping to 500 keeps real records
-   *    in the result set for ~all heavy users; we still dedup down to
-   *    the top 10 distinct names below so the per-record detail
-   *    fetches stay cheap.
-   *
-   * 2. Dedup-by-name picks the highest-SCORED record per name, not the
-   *    first one BMI returned. Stub rows render as
-   *    `Name phone: ... Last seen: ...` with no birthdate paren,
-   *    Memberships, or zip — easy to discriminate from primary records
-   *    that have those fields. Without scoring, when Eric Osborn the
-   *    racer and "Eric Osborn" the contact-person stub collide on
-   *    name, the stub wins (it's earlier in BMI's response) and the
-   *    real account is never surfaced to the user.
+   * Ranking and dedupe are the shared `rankSearchResults` (office-search.ts):
+   * EVERY distinct record lists, ordered by substance (licence / passes /
+   * qualifications first), then recency — a household sharing a phone must all
+   * show, and a guest with two records of their own sees both (owner
+   * 2026-09-06). Same-name copies only collapse on a polluted number.
    */
-  function scoreSearchResult(desc: string): number {
-    let s = 0;
-    if (/\(\d/.test(desc)) s += 100; // birthdate paren — strong primary-record signal
-    if (desc.includes("Memberships:")) s += 50; // memberships listed
-    if (desc.includes("zip:")) s += 25; // address present
-    if (desc.includes("Last seen:")) s += 10; // activity history
-    return s;
-  }
-
   async function searchAndFetchAccounts(query: string): Promise<FoundAccount[]> {
     const searchRes = await fetch(
       `/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`,
@@ -117,17 +121,10 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
     const results = await searchRes.json();
     if (!Array.isArray(results) || results.length === 0) return [];
 
-    const byName = new Map<string, { localId: string; description: string; score: number }>();
-    for (const r of results as { localId: string; description: string }[]) {
-      const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-      const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-      const score = scoreSearchResult(r.description);
-      const existing = byName.get(name);
-      if (!existing || score > existing.score) {
-        byName.set(name, { localId: r.localId, description: r.description, score });
-      }
-    }
-    const uniqueEntries = [...byName.values()].slice(0, 10);
+    const uniqueEntries = rankSearchResults(
+      results as { localId: string; description: string }[],
+      MAX_ACCOUNTS_SHOWN,
+    );
     const detailPromises = uniqueEntries.map(async (r) => {
       try {
         const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}`);
@@ -175,6 +172,8 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
           lastSeen,
           races: (p.tags || []).length,
           memberships,
+          licenseActive: hasActiveLicenseMembership(p.memberships),
+          licenseExpires: licenseExpiryIso(p.memberships),
           birthDate: p.birthDate || null,
           creditBalances,
         } as FoundAccount;
@@ -182,18 +181,17 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
         return null;
       }
     });
-    // Code-less stubs LIST only when the search matched nothing else
-    // (preferCodedAccounts): dropping them outright stranded guests whose OTP
-    // had already consumed the code, so every retry read "expired" (2026-09-05).
-    const allDetails = preferCodedAccounts(
-      (await Promise.all(detailPromises)).filter((d): d is FoundAccount => d !== null),
+    // EVERY account lists — nothing hidden for lacking a login code (owner
+    // 2026-09-06). Ranked: membership / credit holders first, then last visit.
+    const allDetails = (await Promise.all(detailPromises)).filter(
+      (d): d is FoundAccount => d !== null,
     );
-    allDetails.sort((a, b) => {
-      if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
-      if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
-      return (b.lastSeen || "").localeCompare(a.lastSeen || "");
-    });
-    return allDetails.slice(0, 5);
+    const substance = (a: FoundAccount) =>
+      a.memberships.length > 0 || (a.creditBalances ?? []).some((c) => c.balance > 0) ? 1 : 0;
+    allDetails.sort(
+      (a, b) => substance(b) - substance(a) || (b.lastSeen || "").localeCompare(a.lastSeen || ""),
+    );
+    return allDetails.slice(0, MAX_ACCOUNTS_SHOWN);
   }
 
   async function handleEmailLookup() {
@@ -680,12 +678,23 @@ export default function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCo
                     </div>
                   )}
                   {a.lastSeen && (
-                    <p className="text-white/30 text-[10px] mt-1.5">Last seen: {a.lastSeen}</p>
+                    <p className="text-white/30 text-[10px] mt-1.5">Last raced: {a.lastSeen}</p>
                   )}
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="text-[#8652FF] font-bold text-lg leading-none">{a.races}</p>
-                  <p className="text-white/30 text-[10px] uppercase">visits</p>
+                {/* What this record CARRIES — the licence, not the tag count
+                    ("visits" was tags.length: 0 for a licensed Pro with no
+                    cloud tags). Lets a guest with two records pick right. */}
+                <div className="text-right shrink-0 max-w-[40%]">
+                  {a.licenseActive ? (
+                    <>
+                      <p className="text-[#00E2E5] font-bold text-xs leading-tight">License</p>
+                      <p className="text-white/30 text-[10px]">
+                        {a.licenseExpires ? `to ${formatIsoDate(a.licenseExpires)}` : "active"}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-white/30 text-[10px] uppercase">No license</p>
+                  )}
                 </div>
               </div>
             </button>

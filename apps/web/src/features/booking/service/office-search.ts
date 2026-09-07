@@ -161,13 +161,28 @@ function toCandidate(r: { localId: string; description: string }): SearchCandida
 }
 
 /**
- * Dedupe + rank raw search hits: one entry per localId, then ONE candidate per
- * person NAME (duplicate accounts abound — keep the BEST copy by `byRank`,
- * which is also the order the survivors come back in).
+ * Above this many DISTINCT records on one search, same-name copies collapse to
+ * their best one. Below it, every record lists.
  *
- * The name collapse uses the same comparator as the sort on purpose: picking
- * the per-name winner by one rule and ordering by another is how the real
- * account got dropped before the ordering ever saw it.
+ * Owner rule (2026-09-06): "we should be showing all accounts by that phone
+ * number" — a family shares a phone, and the people on it must ALL appear,
+ * duplicates included, each showing what it carries (licence, tier, credits,
+ * last visit) so the guest picks the right one and the kiosk never mints a
+ * second record on top of an existing one. The per-name collapse exists for
+ * ONE pathological shape: the owner's own number carries 628 test-run stubs,
+ * and listing those would be useless. A real household never gets near this
+ * threshold, so the collapse only ever touches pollution.
+ */
+export const NAME_COLLAPSE_ABOVE = 12;
+
+/**
+ * Dedupe + rank raw search hits: one entry per localId, ordered by `byRank`
+ * (substance, then recency, then completeness). Every distinct record LISTS
+ * unless the result is polluted (more than NAME_COLLAPSE_ABOVE records), in
+ * which case same-name copies collapse to the best one — decided by the same
+ * comparator as the sort, on purpose: picking the per-name winner by one rule
+ * and ordering by another is how the real account got dropped before the
+ * ordering ever saw it (2026-09-05).
  */
 export function rankSearchResults(
   results: Array<{ localId: string; description: string }>,
@@ -177,10 +192,13 @@ export function rankSearchResults(
   for (const r of results) {
     if (r?.localId && !byId.has(r.localId)) byId.set(r.localId, r);
   }
+  const candidates = [...byId.values()].map(toCandidate);
+  if (candidates.length <= NAME_COLLAPSE_ABOVE) {
+    return candidates.sort(byRank).slice(0, max);
+  }
   const byName = new Map<string, SearchCandidate>();
-  for (const r of byId.values()) {
-    const name = nameFromDescription(r.description).toLowerCase();
-    const candidate = toCandidate(r);
+  for (const candidate of candidates) {
+    const name = nameFromDescription(candidate.description).toLowerCase();
     const existing = byName.get(name);
     if (!existing || byRank(candidate, existing) < 0) byName.set(name, candidate);
   }

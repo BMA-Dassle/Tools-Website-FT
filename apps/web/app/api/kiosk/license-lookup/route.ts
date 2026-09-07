@@ -138,12 +138,19 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  // Optional typed phone (new-racer gate). Ten digits or nothing: the value
+  // becomes an Office search token, and the phone-found records are still
+  // gated on the EXACT birthday above, so the response never reveals a record
+  // the requester doesn't already hold both facts for. Never logged.
+  const phoneRaw = String(body.phone ?? "").replace(/\D/g, "");
+  const phone = /^\d{10}$/.test(phoneRaw) ? phoneRaw : "";
 
   try {
     const matches = await lookupLicenseMatches({
       lastName,
       dobIso,
       ...(firstName ? { firstName } : {}),
+      ...(phone ? { phone } : {}),
       ...(location ? { location } : {}),
     });
     // Center is logged: a Naples lookup that quietly ran against Fort Myers is

@@ -95,8 +95,22 @@ export const miscEn = {
   "license.welcome": "Welcome back",
   "license.whichAccount": "— which account is yours?",
   "license.subtitle": "More than one account matches your name and birthday. Tap yours to sign in.",
+  // Shown instead of `subtitle` when a match was found by the PHONE the guest
+  // typed (same number, same birthday) — the new-racer form's strongest
+  // "this is already you" signal (owner 2026-09-06: no minting on top).
+  "license.subtitlePhone":
+    "This phone number already has an account with your birthday. Tap it if that's you — you'll keep your history.",
   "license.noneNew": "None of these — set me up as new",
   "license.back": "Back",
+
+  // --- Account card (AccountCard — shared with web, kiosk passes these) ---
+  // What each account CARRIES, so a guest choosing between duplicate records
+  // can tell them apart (owner 2026-09-06). `{date}` is pre-formatted.
+  "account.licenseTo": "License to {date}",
+  "account.licenseActive": "License active",
+  "account.noLicense": "No license yet",
+  "account.lastRaced": "Last raced {date}",
+  "account.samePhone": "Same phone & birthday",
 
   // --- Waiver-time guest photo (KioskWaiverPhoto) ---
   // `{name}` is the member's name (data). Camera error strings surface hardware
@@ -280,8 +294,17 @@ export const miscEs: Record<keyof typeof miscEn, string> = {
   "license.whichAccount": "— ¿cuál cuenta es la tuya?",
   "license.subtitle":
     "Más de una cuenta coincide con tu nombre y fecha de nacimiento. Toca la tuya para iniciar sesión.",
+  "license.subtitlePhone":
+    "Este número de teléfono ya tiene una cuenta con tu fecha de nacimiento. Tócala si eres tú — conservarás tu historial.",
   "license.noneNew": "Ninguna de estas — configúrame como nuevo",
   "license.back": "Atrás",
+
+  // --- Account card (AccountCard) ---
+  "account.licenseTo": "Licencia hasta {date}",
+  "account.licenseActive": "Licencia activa",
+  "account.noLicense": "Aún sin licencia",
+  "account.lastRaced": "Última carrera {date}",
+  "account.samePhone": "Mismo teléfono y fecha de nacimiento",
 
   // --- Waiver-time guest photo (KioskWaiverPhoto) ---
   "waiverPhoto.title": "Foto rápida para el registro",

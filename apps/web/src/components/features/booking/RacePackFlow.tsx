@@ -10,7 +10,8 @@ import {
   type RacePack,
 } from "~/features/booking/data/packs";
 import { webPackSkus } from "~/features/booking/service/race-pack-kiosk";
-import { pickPublishableLoginCode, preferCodedAccounts } from "~/features/kiosk/license/types";
+import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
+import { rankSearchResults } from "~/features/booking/service/office-search";
 
 /**
  * v2 race-pack purchase — `/book/race-pack/v2`.
@@ -102,21 +103,11 @@ export function RacePackFlow() {
   // code skips OTP: the server only returns the person whose BMI tag matches
   // the code (the code IS the secret, enforced server-side).
 
+  // Shared ranking (office-search.ts): EVERY distinct record lists, substance
+  // first — a household on one phone must all show (owner 2026-09-06); the
+  // per-name collapse only fires on a polluted number.
   function dedupeSearch(results: { localId: string; description: string }[]) {
-    const scoreDesc = (d: string): number =>
-      (/\(\d/.test(d) ? 100 : 0) +
-      (d.includes("Memberships:") ? 50 : 0) +
-      (d.includes("zip:") ? 25 : 0) +
-      (d.includes("Last seen:") ? 10 : 0);
-    const byName = new Map<string, { localId: string; score: number }>();
-    for (const r of results) {
-      const m = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-      const name = m ? m[1].trim() : r.description.split(" phone:")[0].trim();
-      const score = scoreDesc(r.description);
-      const ex = byName.get(name);
-      if (!ex || score > ex.score) byName.set(name, { localId: r.localId, score });
-    }
-    return [...byName.values()].slice(0, 8);
+    return rankSearchResults(results, 12);
   }
 
   async function fetchDetails(
@@ -179,15 +170,16 @@ export function RacePackFlow() {
         }
       }),
     );
-    // Code-less stubs LIST only when the search matched nothing else
-    // (preferCodedAccounts) — same rule as every other account lookup.
-    return preferCodedAccounts(details.filter((d): d is FoundAccount => d !== null))
+    // EVERY account lists — nothing hidden for lacking a login code (owner
+    // 2026-09-06). Memberships first, then last visit.
+    return details
+      .filter((d): d is FoundAccount => d !== null)
       .sort((a, b) => {
         if (a.memberships.length !== b.memberships.length)
           return b.memberships.length - a.memberships.length;
         return (b.lastSeen || "").localeCompare(a.lastSeen || "");
       })
-      .slice(0, 5);
+      .slice(0, 12);
   }
 
   async function runSearch() {

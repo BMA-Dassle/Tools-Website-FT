@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   hasActiveLicenseMembership,
+  licenseExpiryIso,
   racerLicenseState,
   racerNeedsLicense,
   racersNeedingLicense,
@@ -104,5 +105,37 @@ describe("hasActiveLicenseMembership — the ONE licenseActive derivation", () =
     expect(hasActiveLicenseMembership(undefined, NOW)).toBe(false);
     expect(hasActiveLicenseMembership(null, NOW)).toBe(false);
     expect(hasActiveLicenseMembership([{ name: 42 as unknown }], NOW)).toBe(false);
+  });
+});
+
+describe("licenseExpiryIso — what the account card prints beside the licence", () => {
+  const NOW = new Date("2026-09-06T12:00:00Z");
+
+  it("the latest unexpired licence stop, as YYYY-MM-DD", () => {
+    // Alec Sternberg's live record 2026-09-06: last year's licence still
+    // running, this year's already added on top.
+    expect(
+      licenseExpiryIso(
+        [
+          { name: "License Fee", stops: "2026-12-30" },
+          { name: "Qualified Intermediate", stops: "2125-09-07" },
+          { name: "License Fee", stops: "2027-09-06" },
+        ],
+        NOW,
+      ),
+    ).toBe("2027-09-06");
+  });
+
+  it("null when the only licence has lapsed, or there is none", () => {
+    expect(licenseExpiryIso([{ name: "License Fee", stops: "2025-01-01" }], NOW)).toBeNull();
+    expect(
+      licenseExpiryIso([{ name: "Customer Registration", stops: "2027-01-01" }], NOW),
+    ).toBeNull();
+    expect(licenseExpiryIso([], NOW)).toBeNull();
+    expect(licenseExpiryIso(undefined, NOW)).toBeNull();
+  });
+
+  it("null for an open-ended licence — active, but nothing to print", () => {
+    expect(licenseExpiryIso([{ name: "Racing License" }], NOW)).toBeNull();
   });
 });

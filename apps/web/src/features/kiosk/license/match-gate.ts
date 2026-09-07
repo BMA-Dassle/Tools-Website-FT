@@ -55,7 +55,16 @@ export function matchGateVerdict(
     : { kind: "create" };
 }
 
-/** Cache key for the per-form eager prefetch — one lookup per exact identity. */
-export function matchGateKey(firstName: string, lastName: string, dobIso: string): string {
-  return `${firstName.trim().toLowerCase()}|${lastName.trim().toLowerCase()}|${dobIso}`;
+/** Cache key for the per-form eager prefetch — one lookup per exact identity.
+ *  The typed phone is part of the identity since it joined the search
+ *  (2026-09-06): a corrected digit must re-run the lookup, not hit the cache. */
+export function matchGateKey(
+  firstName: string,
+  lastName: string,
+  dobIso: string,
+  phone?: string,
+): string {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  const base = `${firstName.trim().toLowerCase()}|${lastName.trim().toLowerCase()}|${dobIso}`;
+  return digits ? `${base}|${digits}` : base;
 }

@@ -52,6 +52,30 @@ export function hasActiveLicenseMembership(
   );
 }
 
+/**
+ * When the racer's licence runs out: the LATEST `stops` among unexpired licence
+ * memberships, as `YYYY-MM-DD`. `null` when no licence is active, or when the
+ * active one is open-ended. Display only — `hasActiveLicenseMembership` stays
+ * the one yes/no derivation; this is what the account card prints beside it
+ * ("Licence to Dec 30, 2026") so a guest choosing between duplicate records
+ * can see which one actually carries their licence (owner 2026-09-06).
+ */
+export function licenseExpiryIso(
+  memberships: Array<{ name?: unknown; stops?: string | null }> | null | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (!Array.isArray(memberships)) return null;
+  const nowMs = now.getTime();
+  let latest = 0;
+  for (const m of memberships) {
+    if (typeof m?.name !== "string" || !m.name.toLowerCase().includes("license")) continue;
+    if (!m.stops) return null; // open-ended licence: nothing to print
+    const stopMs = new Date(m.stops).getTime();
+    if (Number.isFinite(stopMs) && stopMs > nowMs && stopMs > latest) latest = stopMs;
+  }
+  return latest > 0 ? new Date(latest).toISOString().slice(0, 10) : null;
+}
+
 export interface LicenseCandidate {
   isNewRacer?: boolean;
   /** Verified against BMI: does an UNEXPIRED licence membership exist? Set by the

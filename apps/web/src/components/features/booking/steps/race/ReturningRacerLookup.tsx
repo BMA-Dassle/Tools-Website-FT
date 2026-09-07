@@ -5,14 +5,14 @@ import {
   isRelevantMembership,
   tierFromMemberships,
 } from "~/features/booking/service/race-products";
-import { hasActiveLicenseMembership } from "~/features/booking/service/license";
+import { hasActiveLicenseMembership, licenseExpiryIso } from "~/features/booking/service/license";
 import { fetchLiveCreditBalances } from "~/features/booking/data/credit-balance-client";
 import {
   OFFICE_SEARCH_MAX_RESULTS,
   rankSearchResults,
   type SearchCandidate,
 } from "~/features/booking/service/office-search";
-import { pickPublishableLoginCode, preferCodedAccounts } from "~/features/kiosk/license/types";
+import { pickPublishableLoginCode } from "~/features/kiosk/license/types";
 
 export interface PersonData {
   personId: string;
@@ -47,9 +47,36 @@ export interface FoundAccount {
    *  Optional because the kiosk LicenseMatch reuses this card shape; the web
    *  lookup itself ALWAYS sets it. */
   licenseActive?: boolean;
+  /** `YYYY-MM-DD` the active licence runs out — printed on the card so a guest
+   *  choosing between duplicate records sees which one carries it. */
+  licenseExpires?: string | null;
+  /** Found by the phone the guest typed on a new-racer form (kiosk gate). */
+  viaPhone?: boolean;
   birthDate: string | null;
   creditBalances: Array<{ kind: string; balance: number }>;
 }
+
+/**
+ * The card's guest-facing strings. Web renders the English defaults; kiosk
+ * surfaces pass the EN/ES catalog through (`useAccountCardLabels`) — every
+ * guest-facing kiosk string goes through the catalog (owner rule 2026-07-26).
+ * `{date}` is replaced with the pre-formatted date.
+ */
+export interface AccountCardLabels {
+  licenseTo: string;
+  licenseActive: string;
+  noLicense: string;
+  lastRaced: string;
+  samePhone: string;
+}
+
+export const ACCOUNT_CARD_LABELS_EN: AccountCardLabels = {
+  licenseTo: "License to {date}",
+  licenseActive: "License active",
+  noLicense: "No license yet",
+  lastRaced: "Last raced {date}",
+  samePhone: "Same phone & birthday",
+};
 
 interface Props {
   onVerified: (person: PersonData) => void;
@@ -80,7 +107,16 @@ interface Props {
   introText?: string;
   /** Label of the "actually I'm new" switch. Same defaulting rationale. */
   switchToNewLabel?: string;
+  /** Account-card strings — kiosk surfaces pass the translated catalog. */
+  cardLabels?: AccountCardLabels;
 }
+
+/**
+ * How many accounts one sign-in fetches and lists. A household sharing a phone
+ * is the normal case and EVERY person on it must show (owner 2026-09-06), so
+ * this is a ceiling for pathological numbers, not a target.
+ */
+const MAX_ACCOUNTS_SHOWN = 12;
 
 type Mode = "choose" | "phone" | "email" | "code";
 type Phase =
@@ -128,10 +164,10 @@ async function searchCandidates(queries: string | string[]): Promise<SearchCandi
     }),
   );
 
-  // Dedupe by id, then one candidate per person NAME — the copy that carries
-  // the most value wins, recency only breaking ties between equals. Shared
-  // rule, see office-search.ts.
-  return rankSearchResults(batches.flat(), 10);
+  // Dedupe by id and rank by substance — EVERY record on the number lists
+  // (same-name duplicates included); the per-name collapse only fires on a
+  // polluted number. Shared rule, see office-search.ts.
+  return rankSearchResults(batches.flat(), MAX_ACCOUNTS_SHOWN);
 }
 
 async function fetchAccountDetails(
@@ -199,6 +235,7 @@ async function fetchAccountDetails(
           // returning racer's $4.99 shows on web too instead of falling back
           // to the isNewRacer guess.
           licenseActive: hasActiveLicenseMembership(p.memberships),
+          licenseExpires: licenseExpiryIso(p.memberships),
           birthDate: p.birthDate || null,
           creditBalances,
         } satisfies FoundAccount;
@@ -208,14 +245,14 @@ async function fetchAccountDetails(
     }),
   );
 
-  // Coded accounts win outright (preferCodedAccounts): stubs only list when
-  // the number matched nothing else. Within what's shown, owner ranking
-  // (2026-07-21): membership/credit holders first, then most recent visit.
-  const valid = preferCodedAccounts(details.filter((d): d is FoundAccount => d !== null));
+  // EVERY account lists — nothing is hidden for lacking a login code or for
+  // sharing a name (owner 2026-09-06). Owner ranking (2026-07-21) orders them:
+  // membership/credit holders first, then most recent visit.
+  const valid = details.filter((d): d is FoundAccount => d !== null);
   const topTier = (a: FoundAccount) =>
     a.memberships.length > 0 || a.creditBalances.some((c) => c.balance > 0) ? 1 : 0;
   valid.sort((a, b) => topTier(b) - topTier(a) || b.lastSeenAt - a.lastSeenAt);
-  return valid.slice(0, 10);
+  return valid.slice(0, MAX_ACCOUNTS_SHOWN);
 }
 
 export function ReturningRacerLookup({
@@ -227,6 +264,7 @@ export function ReturningRacerLookup({
   otpBypassKioskId,
   introText = "Find your account to unlock your earned speeds",
   switchToNewLabel = "Actually, I'm a new racer →",
+  cardLabels,
 }: Props) {
   const [mode, setMode] = useState<Mode>("choose");
   const [phase, setPhase] = useState<Phase>("input");
@@ -626,6 +664,7 @@ export function ReturningRacerLookup({
               <AccountCard
                 key={a.personId}
                 account={a}
+                labels={cardLabels}
                 selectable
                 selected={selectedIds.has(a.personId)}
                 onSelect={() => toggleSelected(a.personId)}
@@ -658,7 +697,12 @@ export function ReturningRacerLookup({
         </div>
         <div className={cardGrid}>
           {accounts.map((a) => (
-            <AccountCard key={a.personId} account={a} onSelect={() => selectAccount(a)} />
+            <AccountCard
+              key={a.personId}
+              account={a}
+              labels={cardLabels}
+              onSelect={() => selectAccount(a)}
+            />
           ))}
         </div>
         {startOver}
@@ -894,21 +938,56 @@ function creditLabel(kind: string): string {
   return kind.replace(/^credit\s*-\s*/i, "").trim() || kind;
 }
 
+/** `YYYY-MM-DD` → "Dec 30, 2026" (UTC-anchored so the day never shifts). */
+function formatIsoDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * What this account CARRIES, in one line: the licence (and when it runs out),
+ * then the last race. Replaces "N races", which was the record's TAG count
+ * and read "0 races" for a licensed Pro whose cloud record has no tags — the
+ * exact records a guest most needs to recognise (owner 2026-09-06).
+ */
+function accountSummary(account: FoundAccount, labels: AccountCardLabels): string {
+  const licence =
+    account.licenseActive === true
+      ? account.licenseExpires
+        ? labels.licenseTo.replace("{date}", formatIsoDate(account.licenseExpires))
+        : labels.licenseActive
+      : account.licenseActive === false
+        ? labels.noLicense
+        : "";
+  const raced = account.lastSeen ? labels.lastRaced.replace("{date}", account.lastSeen) : "";
+  return [licence, raced].filter(Boolean).join(" · ");
+}
+
 /** Exported for the kiosk license-scan match picker — same card, same look. */
 export function AccountCard({
   account,
   onSelect,
   selectable = false,
   selected = false,
+  labels = ACCOUNT_CARD_LABELS_EN,
 }: {
   account: FoundAccount;
   onSelect: () => void;
   /** Render a checkbox instead of a chevron and toggle rather than advance. */
   selectable?: boolean;
   selected?: boolean;
+  /** Guest-facing strings — kiosk passes the EN/ES catalog; web uses English. */
+  labels?: AccountCardLabels;
 }) {
   const tier = account.memberships.length > 0 ? tierFromMemberships(account.memberships) : null;
   const theme = tier ? TIER_THEME[tier] : null;
+  const summary = accountSummary(account, labels);
 
   return (
     <button
@@ -944,10 +1023,12 @@ export function AccountCard({
             </span>
           )}
         </div>
-        <p className="mt-0.5 truncate text-xs text-white/40">
-          {account.races} race{account.races !== 1 ? "s" : ""}
-          {account.lastSeen && ` · Last seen ${account.lastSeen}`}
-        </p>
+        {account.viaPhone && (
+          <span className="mt-1 inline-block rounded-md bg-[#00E2E5]/15 px-1.5 py-0.5 text-[11px] font-semibold text-[#00E2E5]">
+            {labels.samePhone}
+          </span>
+        )}
+        {summary && <p className="mt-0.5 truncate text-xs text-white/40">{summary}</p>}
         {account.creditBalances.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
             {account.creditBalances.slice(0, 3).map((c) => (

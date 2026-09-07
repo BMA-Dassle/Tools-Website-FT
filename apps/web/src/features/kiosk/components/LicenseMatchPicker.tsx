@@ -13,6 +13,7 @@
  */
 import { AccountCard } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import type { LicenseMatch } from "../license/types";
+import { useAccountCardLabels } from "../license/account-card-labels";
 import { useT } from "../i18n";
 
 export function LicenseMatchPicker({
@@ -34,6 +35,12 @@ export function LicenseMatchPicker({
   onCancel: () => void;
 }) {
   const t = useT();
+  const cardLabels = useAccountCardLabels();
+  // A match found by the PHONE the guest typed (same number, same birthday) is
+  // the new-racer gate's strongest "this is already you" — say so, so the guest
+  // doesn't tap "None of these" and mint a second record on top of their own
+  // (owner 2026-09-06: Jack Parker minted onto Jay parker's number).
+  const viaPhone = matches.some((m) => m.viaPhone);
   return (
     <div className="fixed inset-0 z-[76] overflow-y-auto bg-[#000418] p-[48px]">
       <div className="mx-auto max-w-[900px] space-y-[28px]">
@@ -48,12 +55,19 @@ export function LicenseMatchPicker({
             ) : null}{" "}
             {t("license.whichAccount")}
           </h2>
-          <p className="mt-[10px] text-[24px] text-white/55">{t("license.subtitle")}</p>
+          <p className="mt-[10px] text-[24px] text-white/55">
+            {t(viaPhone ? "license.subtitlePhone" : "license.subtitle")}
+          </p>
         </div>
 
         <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${busy ? "opacity-50" : ""}`}>
           {matches.map((m) => (
-            <AccountCard key={m.personId} account={m} onSelect={() => !busy && onPick(m)} />
+            <AccountCard
+              key={m.personId}
+              account={m}
+              labels={cardLabels}
+              onSelect={() => !busy && onPick(m)}
+            />
           ))}
         </div>
 

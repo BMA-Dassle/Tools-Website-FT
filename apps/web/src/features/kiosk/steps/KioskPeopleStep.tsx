@@ -70,6 +70,7 @@ import {
 import { racerHandleFromRaw, type RacerHandle } from "../entry-scan/classify-entry";
 import { consumeEntryScan } from "../entry-scan/handoff";
 import { matchGateKey, matchGateVerdict } from "../license/match-gate";
+import { useAccountCardLabels } from "../license/account-card-labels";
 import { mintForSigningVerdict } from "../license/mint-for-signing";
 import { RACER_PUBLIC_CODE_RE } from "../license/types";
 import type { LicenseMatch } from "../license/types";
@@ -513,18 +514,24 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
   /** Office name+DOB lookup with a per-identity cache (the eager prefetch
    *  below fills it while the guest is still typing, so the submit-time gate
    *  is usually instant). `null` = lookup unavailable — callers create. */
+  const cardLabels = useAccountCardLabels();
+  // `phone` = what the guest typed on the form: the server also searches it
+  // and flags same-birthday hits `viaPhone` — the signal that stops "Jack"
+  // minting on top of "Jay" (owner 2026-09-06). Part of the cache key, so a
+  // corrected digit re-runs the lookup.
   const findExistingAccounts = async (
     first: string,
     last: string,
     dobIso: string,
+    phone?: string,
   ): Promise<LicenseMatch[] | null> => {
-    const key = matchGateKey(first, last, dobIso);
+    const key = matchGateKey(first, last, dobIso, phone);
     const cached = matchCacheRef.current;
     if (cached && cached.key === key) return cached.matches;
     setMatchChecking(true);
     try {
       const matches = await fetchNameDobMatches(
-        { firstName: first, lastName: last, dobIso },
+        { firstName: first, lastName: last, dobIso, phone },
         brandLocation,
       );
       matchCacheRef.current = { key, matches };
@@ -540,28 +547,41 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
   // the guardian overlay's new-adult form.
   const eagerFirst = form?.mode === "setup" ? form.member.firstName : firstName;
   const eagerLast = form?.mode === "setup" ? (form.member.lastName ?? "") : lastName;
+  const eagerPhone = form?.mode === "setup" ? (form.member.phone ?? "") : phone;
   useEffect(() => {
-    const targets: Array<{ first: string; last: string; dob: string }> = [];
-    if (form) targets.push({ first: eagerFirst, last: eagerLast, dob });
-    if (guardianFlow?.stage === "new-form") targets.push({ first: gFirst, last: gLast, dob: gDob });
+    const targets: Array<{ first: string; last: string; dob: string; phone: string }> = [];
+    if (form) targets.push({ first: eagerFirst, last: eagerLast, dob, phone: eagerPhone });
+    if (guardianFlow?.stage === "new-form")
+      targets.push({ first: gFirst, last: gLast, dob: gDob, phone: gPhone });
     const ready = targets.find(
       (c) => c.first.trim() && c.last.trim() && ageFromDob(c.dob) !== null,
     );
     if (!ready) return;
     const dobIso = toIsoDob(ready.dob);
-    const key = matchGateKey(ready.first, ready.last, dobIso);
+    const key = matchGateKey(ready.first, ready.last, dobIso, ready.phone);
     if (matchCacheRef.current?.key === key) return;
     const id = setTimeout(() => {
       void fetchNameDobMatches(
-        { firstName: ready.first.trim(), lastName: ready.last.trim(), dobIso },
+        { firstName: ready.first.trim(), lastName: ready.last.trim(), dobIso, phone: ready.phone },
         brandLocation,
       ).then((matches) => {
         matchCacheRef.current = { key, matches };
       });
     }, 700);
     return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, eagerFirst, eagerLast, dob, guardianFlow?.stage, gFirst, gLast, gDob, brandLocation]);
+  }, [
+    form,
+    eagerFirst,
+    eagerLast,
+    dob,
+    eagerPhone,
+    guardianFlow?.stage,
+    gFirst,
+    gLast,
+    gDob,
+    gPhone,
+    brandLocation,
+  ]);
 
   const submitNew = async () => {
     const age = ageFromDob(dob);
@@ -618,7 +638,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
       const gateDobIso = toIsoDob(dob);
       const gateKey = matchGateKey(cleanFirst, cleanLast, gateDobIso);
       if (matchSkipKeyRef.current !== gateKey) {
-        const found = await findExistingAccounts(cleanFirst, cleanLast, gateDobIso);
+        const found = await findExistingAccounts(cleanFirst, cleanLast, gateDobIso, phone);
         const verdict = matchGateVerdict(cleanFirst, found, { pickable: true });
         if (verdict.kind === "attach") {
           signInLicenseMatch(verdict.match);
@@ -754,7 +774,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
         // a guest who already signed stops being asked to sign again.
         const setupFirst = formatPersonName(member.firstName);
         const setupLast = formatPersonName(member.lastName ?? "");
-        const found = await findExistingAccounts(setupFirst, setupLast, toIsoDob(dob));
+        const found = await findExistingAccounts(
+          setupFirst,
+          setupLast,
+          toIsoDob(dob),
+          member.phone ?? undefined,
+        );
         const verdict = matchGateVerdict(setupFirst, found, { pickable: false });
         if (verdict.kind === "attach") {
           const m = verdict.match;
@@ -1176,7 +1201,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
       // resolve, own-waiver-first). Guardians were serial duplicate victims —
       // the minor flow re-minted the same adult on every signing round
       // (2026-08-01 Gipson). No picker over this overlay → ambiguity creates.
-      const found = await findExistingAccounts(gCleanFirst, gCleanLast, toIsoDob(gDob));
+      const found = await findExistingAccounts(gCleanFirst, gCleanLast, toIsoDob(gDob), gPhone);
       const verdict = matchGateVerdict(gCleanFirst, found, { pickable: false });
       if (verdict.kind === "attach") {
         resetGuardianForm();
@@ -2337,6 +2362,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
           </div>
           <ReturningRacerLookup
             wide
+            cardLabels={cardLabels}
             otpBypassKioskId={isTestKiosk(kioskCfg) && kioskCfg ? kioskId(kioskCfg) : undefined}
             onVerified={handleVerified}
             onVerifiedMultiple={handleVerifiedMultiple}
@@ -2567,6 +2593,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
                       otpBypassKioskId={
                         isTestKiosk(kioskCfg) && kioskCfg ? kioskId(kioskCfg) : undefined
                       }
+                      cardLabels={cardLabels}
                       onVerified={(p) => void handleGuardianVerified(p)}
                       onSwitchToNew={() => {
                         setGError(null);

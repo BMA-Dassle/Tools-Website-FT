@@ -215,6 +215,62 @@ describe("lookupLicenseMatches addresses the caller's center", () => {
   });
 });
 
+describe("lookupLicenseMatches — the typed phone joins the search (2026-09-06)", () => {
+  // Jack Parker was minted at the kiosk on top of Jay parker: same phone, same
+  // birthday, different first name. The name+DOB search found Jay, but the
+  // first-name test failed, so the gate let the create through. The phone
+  // path exists so that record reaches the picker flagged `viaPhone`.
+  it("searches the phone (both stored shapes) and flags same-birthday hits viaPhone", async () => {
+    searchBody = JSON.stringify([
+      {
+        localId: "54231275",
+        description: "Jay parker (8/1/2007) phone: 2397771795 Last seen: 7/9/2026",
+      },
+    ]);
+    mockPerson.mockResolvedValue({
+      firstName: "Jay",
+      name: "parker",
+      birthDate: "2007-08-01T00:00:00",
+      memberships: [{ name: "Customer Registration", stops: "2027-07-08" }],
+      tags: [],
+      addresses: [{ mobile: "2397771795" }],
+    });
+    const matches = await lookupLicenseMatches({
+      lastName: "Parker",
+      firstName: "Jack",
+      dobIso: "2007-08-01",
+      phone: "2397771795",
+    });
+    const tokens = searchPaths.map((p) => decodeURIComponent(p).match(/token=([^&]+)/)?.[1]);
+    expect(tokens).toEqual(
+      expect.arrayContaining(["Parker 8/1/2007", "2397771795", "12397771795"]),
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0].personId).toBe("54231275");
+    expect(matches[0].viaPhone).toBe(true);
+    // Code-less, and still listed — with what it carries.
+    expect(matches[0].loginCode).toBe("");
+    expect(matches[0].licenseActive).toBe(false);
+  });
+
+  it("a phone hit with a DIFFERENT birthday is not this guest (the family's other records)", async () => {
+    searchBody = JSON.stringify([
+      { localId: "1", description: "Nancy Rosales (2/2/1970) phone: 2394837953" },
+    ]);
+    const matches = await lookupLicenseMatches({
+      lastName: "Rosales",
+      dobIso: "2004-03-24",
+      phone: "2394837953",
+    });
+    expect(matches).toEqual([]);
+  });
+
+  it("no phone → no phone search (the scan path is unchanged)", async () => {
+    await lookupLicenseMatches({ lastName: "Petcu", dobIso: "2013-02-04" });
+    expect(searchPaths).toHaveLength(1);
+  });
+});
+
 describe("warmLicenseLookup", () => {
   it("warms the token for the caller's own center", async () => {
     // The Office token is cached PER CLIENT KEY — warming Fort Myers from a

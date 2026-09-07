@@ -43,7 +43,7 @@ import {
   OfficeApiError,
 } from "~/features/daily-events/data/bmi-office";
 import { isRelevantMembership } from "~/features/booking/service/race-products";
-import { hasActiveLicenseMembership } from "~/features/booking/service/license";
+import { hasActiveLicenseMembership, licenseExpiryIso } from "~/features/booking/service/license";
 import {
   descriptionMatchesLastName,
   dobTokenOf,
@@ -52,7 +52,7 @@ import {
   OFFICE_SEARCH_MAX_RESULTS,
 } from "~/features/booking/service/office-search";
 import { personIdForCode, rememberCodes } from "./code-cache";
-import { pickPublishableLoginCode, preferCodedAccounts } from "./types";
+import { pickPublishableLoginCode } from "./types";
 import type { LicenseMatch } from "./types";
 
 const OFFICE_HOST = "office-api22.sms-timing.com";
@@ -123,6 +123,15 @@ export interface LicenseLookupInput {
   dobIso: string;
   /** Ranking signal only (nicknames: license "ALEXANDER" vs account "Alex"). */
   firstName?: string;
+  /**
+   * Ten digits the guest TYPED on a new-racer form. When present, the number
+   * is searched too and every record on it with the SAME birthday joins the
+   * result flagged `viaPhone` — no last-name or first-name test, because the
+   * one duplicate this exists to stop is a nickname ("Jack" minted onto "Jay",
+   * 2026-09-06), and phone + birthday is what a nickname and its original
+   * share while twins on a family phone do not. Never logged.
+   */
+  phone?: string;
   /**
    * WHICH CENTER TO SEARCH — "fasttrax" | "headpinz" | "naples". Load-bearing:
    * a person id only resolves on the server it was searched from (see
@@ -273,9 +282,12 @@ async function buildMatch(
           })
         : "",
     lastSeenAt,
+    // Tag COUNT, not races — 0 for a licensed Pro with no cloud tags. Nothing
+    // displays it any more; kept for the shape.
     races: (office.tags || []).length,
     memberships,
     licenseActive,
+    licenseExpires: licenseExpiryIso(office.memberships),
     birthDate: office.birthDate ? String(office.birthDate).slice(0, 10) : (confirm.dobIso ?? null),
     // Filled by the qualification refresh at the people-step exit — the
     // deposits pull is deliberately not part of the lookup (latency).
@@ -296,9 +308,24 @@ export async function lookupLicenseMatches(input: LicenseLookupInput): Promise<L
   // would be confirmed against a Fort Myers record of the same numeric id.
   const clientKey = clientKeyForLookup(input.location);
   const dobToken = dobTokenOf(input.dobIso);
-  const hits = await officeSearchPerson(`${input.lastName.trim()} ${dobToken}`, clientKey);
   const dobMark = `(${dobToken})`;
-  const candidates = hits
+  const phone = (input.phone ?? "").replace(/\D/g, "");
+
+  // Name+DOB search and (when a phone was typed) the phone search run side by
+  // side — one Office round-trip either way. Phones are stored upstream in
+  // mixed shapes (bare 10 digits, 1-prefixed), so both forms are searched, and
+  // a phone hit only counts when its description carries the SAME birthday —
+  // the phone alone would list the guest's whole family.
+  const [nameHits, ...phoneHitLists] = await Promise.all([
+    officeSearchPerson(`${input.lastName.trim()} ${dobToken}`, clientKey),
+    ...(phone.length === 10
+      ? [
+          officeSearchPerson(phone, clientKey).catch(() => [] as SearchHit[]),
+          officeSearchPerson(`1${phone}`, clientKey).catch(() => [] as SearchHit[]),
+        ]
+      : []),
+  ]);
+  const nameCandidates = nameHits
     .filter(
       (h) =>
         h?.localId &&
@@ -306,22 +333,42 @@ export async function lookupLicenseMatches(input: LicenseLookupInput): Promise<L
         descriptionMatchesLastName(h.description || "", input.lastName),
     )
     .slice(0, MAX_CANDIDATES);
+  const nameIds = new Set(nameCandidates.map((h) => h.localId));
+  const phoneCandidates = phoneHitLists
+    .flat()
+    .filter((h) => h?.localId && (h.description || "").includes(dobMark))
+    .filter((h, i, a) => a.findIndex((x) => x.localId === h.localId) === i)
+    .slice(0, MAX_CANDIDATES);
+  const phoneIds = new Set(phoneCandidates.map((h) => h.localId));
 
-  const matches = (
-    await Promise.all(candidates.map((h) => buildMatch(h, input, clientKey)))
-  ).filter((m): m is LicenseMatch => m !== null);
-  // Affinity is BINARY for ordering: records whose first name plausibly
-  // matches the scan (exact OR prefix — "Alex" vs ALEXANDER) rank by RECENCY
-  // among themselves, so the guest's live duplicate tops the list; only
-  // different-first-name records (a twin's) and nameless legacies sink.
-  // (Exact-beats-prefix would float a stale "ALEXANDER" 2023 record above
-  // the active "Alex" one — seen live 2026-07-23.)
+  const [nameMatches, phoneMatches] = await Promise.all([
+    Promise.all(nameCandidates.map((h) => buildMatch(h, input, clientKey))),
+    // DOB is the only confirmation on the phone path (a nickname fails the
+    // name test by design); the record's own birthdate must still agree.
+    Promise.all(
+      phoneCandidates
+        .filter((h) => !nameIds.has(h.localId))
+        .map((h) => buildMatch(h, { dobIso: input.dobIso }, clientKey)),
+    ),
+  ]);
+  const matches = [...nameMatches, ...phoneMatches]
+    .filter((m): m is LicenseMatch => m !== null)
+    .map((m) => (phoneIds.has(m.personId) ? { ...m, viaPhone: true } : m));
+
+  // EVERY record lists — nothing is dropped for lacking a login code (owner
+  // 2026-09-06). Order: phone+birthday matches first (the guest's own record,
+  // whatever first name it carries), then first-name affinity, then recency.
+  // Affinity is BINARY: records whose first name plausibly matches the scan
+  // (exact OR prefix — "Alex" vs ALEXANDER) rank by RECENCY among themselves,
+  // so the guest's live duplicate tops the list; only different-first-name
+  // records (a twin's) and nameless legacies sink. (Exact-beats-prefix would
+  // float a stale "ALEXANDER" 2023 record above the active "Alex" one — seen
+  // live 2026-07-23.)
   const plausible = (m: LicenseMatch) =>
     firstNameAffinity(m.fullName.split(/\s+/)[0], input.firstName) > 0 ? 1 : 0;
-  // Code-less stubs list only when nothing coded matched (owner 2026-09-05) —
-  // the same preferCodedAccounts rule as every other account lookup.
-  return preferCodedAccounts(matches).sort(
-    (a, b) => plausible(b) - plausible(a) || b.lastSeenAt - a.lastSeenAt,
+  const byPhone = (m: LicenseMatch) => (m.viaPhone ? 1 : 0);
+  return matches.sort(
+    (a, b) => byPhone(b) - byPhone(a) || plausible(b) - plausible(a) || b.lastSeenAt - a.lastSeenAt,
   );
 }
 
@@ -372,7 +419,7 @@ export async function lookupMemberMatches(
   if (matches.length === 1) {
     await rememberCodes(matches[0].personId, [code]);
   }
-  return preferCodedAccounts(matches).sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  return matches.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
 }
 
 /**
@@ -402,7 +449,7 @@ export async function lookupMemberMatchesAt(
   const matches = (await Promise.all(hits.map((h) => buildMatch(h, {}, clientKey)))).filter(
     (m): m is LicenseMatch => m !== null,
   );
-  return preferCodedAccounts(matches).sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  return matches.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
 }
 
 /**

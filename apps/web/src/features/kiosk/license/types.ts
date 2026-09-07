@@ -102,36 +102,36 @@ export function pickPublishableLoginCode(
 }
 
 /**
- * Owner rule (2026-09-05): a code-holding account always beats a code-less
- * stub, and stubs LIST only when the search matched nothing else. Guests whose
- * number knows only booking-minted stubs still get in (dropping them stranded
- * guests on a consumed OTP that could only ever read "expired"), while a guest
- * with a real racing account never wades through their family's stubs. Every
- * account-list search applies this SAME rule — sign-in, DL scan, member QR,
- * race-packs — so the surfaces can't drift.
- */
-export function preferCodedAccounts<T extends { loginCode?: string | null }>(accounts: T[]): T[] {
-  const coded = accounts.filter((a) => a.loginCode);
-  return coded.length > 0 ? coded : accounts;
-}
-
-/**
  * One matched account. Mirrors ReturningRacerLookup's FoundAccount (so the
  * existing AccountCard renders it structurally) plus the contact + waiver
  * status the lookup's Pandora probe already established.
+ *
+ * NO record is ever dropped or hidden for lacking a login code (owner
+ * 2026-09-06). A licensed racer's cloud record can carry ZERO tags (the
+ * Sternbergs, licensed since 2025-12, tags []), and our own booking flows mint
+ * code-less records daily — the code is wallet-QR decoration, not identity.
  */
 export interface LicenseMatch {
   personId: string;
   fullName: string;
   email: string;
   phone: string;
+  /** "" when the record has no publishable code — the account still lists. */
   loginCode: string;
   lastSeen: string;
   lastSeenAt: number;
+  /** COUNT OF TAGS on the record — NOT races. A licensed Pro with no cloud
+   *  tags reads 0 here. Kept for shape compatibility; nothing displays it. */
   races: number;
   memberships: string[];
   /** Verified: an UNEXPIRED licence membership is on file (service/license.ts). */
   licenseActive?: boolean;
+  /** `YYYY-MM-DD` the active licence runs out; null = none or open-ended. */
+  licenseExpires?: string | null;
+  /** The record was found by the PHONE the guest typed (and its birthday
+   *  matched) — the strongest same-person signal the new-racer gate has. The
+   *  picker leads with these and says so. */
+  viaPhone?: boolean;
   birthDate: string | null;
   /** Always [] since the Office-search rewrite (latency) — the qualification
    *  refresh fills real balances at the people-step exit. */

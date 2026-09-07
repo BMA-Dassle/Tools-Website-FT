@@ -6,6 +6,7 @@ import {
   lastSeenFromDescription,
   membershipsFromDescription,
   nameFromDescription,
+  NAME_COLLAPSE_ABOVE,
   rankSearchResults,
   scoreSearchResult,
   substanceTier,
@@ -72,7 +73,9 @@ describe("firstNameAffinity", () => {
 });
 
 describe("rankSearchResults", () => {
-  it("dedupes by localId, then by name keeping the most recent copy", () => {
+  it("dedupes by localId and LISTS every record — same-name duplicates included", () => {
+    // Owner 2026-09-06: a family shares a phone, so everyone on it must show,
+    // and a guest with two records of their own sees both and picks.
     const ranked = rankSearchResults(
       [
         { localId: "1", description: "JANE DOE Last seen: 1/1/2020" },
@@ -82,7 +85,7 @@ describe("rankSearchResults", () => {
       ],
       10,
     );
-    expect(ranked.map((r) => r.localId)).toEqual(["2", "3"]);
+    expect(ranked.map((r) => r.localId)).toEqual(["2", "3", "1"]);
   });
 
   it("breaks last-seen ties on description completeness", () => {
@@ -93,8 +96,30 @@ describe("rankSearchResults", () => {
       ],
       10,
     );
-    expect(ranked).toHaveLength(1);
-    expect(ranked[0].localId).toBe("b");
+    expect(ranked.map((r) => r.localId)).toEqual(["b", "a"]);
+  });
+
+  it("collapses same-name copies ONLY on a polluted number (> NAME_COLLAPSE_ABOVE records)", () => {
+    // The owner's own number: hundreds of test-run stubs. Listing them is
+    // useless, so above the threshold one copy per name survives — the best.
+    const stubs = Array.from({ length: NAME_COLLAPSE_ABOVE + 1 }, (_, i) => ({
+      localId: `stub-${i}`,
+      description: `JANE DOE phone: 2395551212 Last seen: 8/${(i % 28) + 1}/2026`,
+    }));
+    const ranked = rankSearchResults(
+      [
+        ...stubs,
+        { localId: "real", description: REAL_ACCOUNT },
+        { localId: "bob", description: "BOB SMITH" },
+      ],
+      50,
+    );
+    expect(ranked.map((r) => r.localId)).toEqual(["real", "bob"]);
+    // One below the threshold: nothing collapses.
+    const family = stubs.slice(0, NAME_COLLAPSE_ABOVE - 1);
+    expect(
+      rankSearchResults([...family, { localId: "bob", description: "BOB SMITH" }], 50),
+    ).toHaveLength(NAME_COLLAPSE_ABOVE);
   });
 
   it("orders most-recent-first and honors the cap", () => {
@@ -169,9 +194,9 @@ describe("rankSearchResults — substance beats recency", () => {
     expect(ranked.map((r) => r.tier)).toEqual([2, 1, 0]);
   });
 
-  it("keeps the SUBSTANTIVE copy when duplicates share a name, not the newest", () => {
-    // The bug in one assertion: collapsing by name on recency alone threw the
-    // real account away before the ordering could ever surface it.
+  it("puts the SUBSTANTIVE copy first when duplicates share a name, not the newest", () => {
+    // The bug in one assertion: ranking by recency alone put the real account
+    // below the stub. Both list (owner 2026-09-06) — the real one on top.
     const ranked = rankSearchResults(
       [
         { localId: "stub-newest", description: RECENT_STUB },
@@ -179,8 +204,7 @@ describe("rankSearchResults — substance beats recency", () => {
       ],
       10,
     );
-    expect(ranked).toHaveLength(1);
-    expect(ranked[0].localId).toBe("real");
+    expect(ranked.map((r) => r.localId)).toEqual(["real", "stub-newest"]);
   });
 
   it("still prefers the most recent copy among records of equal substance", () => {

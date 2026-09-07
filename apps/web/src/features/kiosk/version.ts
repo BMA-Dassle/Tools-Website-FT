@@ -15,6 +15,25 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.34.1 — EVERY ACCOUNT ON THE PHONE SHOWS, AND NOTHING MINTS ON TOP OF ONE
+ *         (owner 2026-09-06: "we should be showing all accounts by that phone
+ *         number… I don't want to mint two on top of each other"). Measured
+ *         live: Jay Parker's number carried his July account AND a "Jack
+ *         Parker" minted at the kiosk that afternoon — same birthday, same
+ *         phone; the Sternbergs, licensed since December, carry ZERO tags on
+ *         their cloud records. Three rules replaced:
+ *         - Sign-in lists EVERY record on the number — same-name duplicates
+ *           included, code-less records included (1.33.3's coded-wins filter
+ *           is gone; the per-name collapse now only fires past 12 records,
+ *           i.e. only on a polluted test number). Ranked as before: licence /
+ *           credits first, then last visit.
+ *         - The account card says what each record CARRIES — licence and its
+ *           expiry, tier, last raced, credits — instead of "N races", which
+ *           was the TAG count and read 0 for a licensed Pro.
+ *         - The new-racer gate (kiosk setup, party manager, mobile join)
+ *           searches the TYPED PHONE too: any record on that number with the
+ *           same birthday leads the picker with "this phone already has an
+ *           account". Never a silent attach — twins share a family phone.
  * 1.34.0 — THE DRIVER'S-LICENSE SCAN IS THE RECOMMENDED WAY IN (owner
  *         2026-09-05: "people don't notice it" — the phone tile wore the only
  *         badge, and it said FASTEST, while the license sat as a passive
@@ -1322,7 +1341,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.34.0";
+export const KIOSK_VERSION = "1.34.1";
 
 let bootVersion: string | null = null;
 let captured = false;

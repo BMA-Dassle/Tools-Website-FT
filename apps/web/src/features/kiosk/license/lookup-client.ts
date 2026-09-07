@@ -21,6 +21,12 @@ export interface NameDobConfirm {
   dobIso: string;
   /** Ranking only — never filters (see lookup.server.ts). */
   firstName?: string;
+  /** The phone the guest TYPED on a new-racer form. When present the server
+   *  also searches it and returns every record on that number with the same
+   *  birthday, flagged `viaPhone` — the strongest same-person signal there is
+   *  (owner 2026-09-06: "Jack Parker" was minted on top of "Jay parker", same
+   *  phone, same birthday, because the gate only looked at name + DOB). */
+  phone?: string;
 }
 
 export async function fetchNameDobMatches(
@@ -28,6 +34,7 @@ export async function fetchNameDobMatches(
   location: "fasttrax" | "headpinz" | "naples",
 ): Promise<LicenseMatch[] | null> {
   try {
+    const phone = (confirm.phone ?? "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
     const res = await fetch("/api/kiosk/license-lookup", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -35,6 +42,7 @@ export async function fetchNameDobMatches(
         lastName: confirm.lastName,
         firstName: confirm.firstName,
         dobIso: confirm.dobIso,
+        ...(phone.length === 10 ? { phone } : {}),
         location,
       }),
     });

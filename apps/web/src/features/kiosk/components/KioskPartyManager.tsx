@@ -64,6 +64,7 @@ import {
   prewarmLicenseLookup,
 } from "../license/lookup-client";
 import { matchGateKey, matchGateVerdict } from "../license/match-gate";
+import { useAccountCardLabels } from "../license/account-card-labels";
 import { mintForSigningVerdict } from "../license/mint-for-signing";
 import type { LicenseMatch } from "../license/types";
 import { LicenseMatchPicker } from "./LicenseMatchPicker";
@@ -803,7 +804,7 @@ export function KioskPartyManager({
       // rail the OTP lookup uses — guardians were serial duplicate victims
       // (2026-08-01 Gipson: the minor flow re-minted the same adult on every
       // signing round). No picker over this overlay → ambiguity creates.
-      const found = await findExistingAccounts(gCleanFirst, gCleanLast, toIsoDob(gDob));
+      const found = await findExistingAccounts(gCleanFirst, gCleanLast, toIsoDob(gDob), gPhone);
       const verdict = matchGateVerdict(gCleanFirst, found, { pickable: false });
       if (verdict.kind === "attach") {
         resetGuardianForm();
@@ -1014,18 +1015,22 @@ export function KioskPartyManager({
   /** Office name+DOB lookup with a per-identity cache — see the
    *  KioskPeopleStep twin. `null` = lookup unavailable — callers create. */
   const lookupLocation = center === "naples" ? "naples" : brandLocation;
+  const cardLabels = useAccountCardLabels();
+  // `phone` = what the guest typed: the server also searches it and flags
+  // same-birthday hits `viaPhone` (see the KioskPeopleStep twin).
   const findExistingAccounts = async (
     first: string,
     last: string,
     dobIso: string,
+    phone?: string,
   ): Promise<LicenseMatch[] | null> => {
-    const key = matchGateKey(first, last, dobIso);
+    const key = matchGateKey(first, last, dobIso, phone);
     const cached = matchCacheRef.current;
     if (cached && cached.key === key) return cached.matches;
     setMatchChecking(true);
     try {
       const matches = await fetchNameDobMatches(
-        { firstName: first, lastName: last, dobIso },
+        { firstName: first, lastName: last, dobIso, phone },
         lookupLocation,
       );
       matchCacheRef.current = { key, matches };
@@ -1039,28 +1044,41 @@ export function KioskPartyManager({
   // (debounced) so the submit-time gate is usually instant. Cache only.
   const eagerFirst = form?.mode === "setup" ? form.member.firstName : firstName;
   const eagerLast = form?.mode === "setup" ? (form.member.lastName ?? "") : lastName;
+  const eagerPhone = form?.mode === "setup" ? (form.member.phone ?? "") : phone;
   useEffect(() => {
-    const targets: Array<{ first: string; last: string; dob: string }> = [];
-    if (form) targets.push({ first: eagerFirst, last: eagerLast, dob });
-    if (guardianFlow?.stage === "new-form") targets.push({ first: gFirst, last: gLast, dob: gDob });
+    const targets: Array<{ first: string; last: string; dob: string; phone: string }> = [];
+    if (form) targets.push({ first: eagerFirst, last: eagerLast, dob, phone: eagerPhone });
+    if (guardianFlow?.stage === "new-form")
+      targets.push({ first: gFirst, last: gLast, dob: gDob, phone: gPhone });
     const ready = targets.find(
       (c) => c.first.trim() && c.last.trim() && ageFromDob(c.dob) !== null,
     );
     if (!ready) return;
     const dobIso = toIsoDob(ready.dob);
-    const key = matchGateKey(ready.first, ready.last, dobIso);
+    const key = matchGateKey(ready.first, ready.last, dobIso, ready.phone);
     if (matchCacheRef.current?.key === key) return;
     const id = setTimeout(() => {
       void fetchNameDobMatches(
-        { firstName: ready.first.trim(), lastName: ready.last.trim(), dobIso },
+        { firstName: ready.first.trim(), lastName: ready.last.trim(), dobIso, phone: ready.phone },
         lookupLocation,
       ).then((matches) => {
         matchCacheRef.current = { key, matches };
       });
     }, 700);
     return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, eagerFirst, eagerLast, dob, guardianFlow?.stage, gFirst, gLast, gDob, lookupLocation]);
+  }, [
+    form,
+    eagerFirst,
+    eagerLast,
+    dob,
+    eagerPhone,
+    guardianFlow?.stage,
+    gFirst,
+    gLast,
+    gDob,
+    gPhone,
+    lookupLocation,
+  ]);
 
   const submitNew = async () => {
     const age = ageFromDob(dob);
@@ -1117,7 +1135,7 @@ export function KioskPartyManager({
       const gateDobIso = toIsoDob(dob);
       const gateKey = matchGateKey(gateFirst, gateLast, gateDobIso);
       if (matchSkipKeyRef.current !== gateKey) {
-        const found = await findExistingAccounts(gateFirst, gateLast, gateDobIso);
+        const found = await findExistingAccounts(gateFirst, gateLast, gateDobIso, phone);
         const verdict = matchGateVerdict(gateFirst, found, { pickable: true });
         if (verdict.kind === "attach") {
           signInLicenseMatch(verdict.match);
@@ -1222,7 +1240,12 @@ export function KioskPartyManager({
         // resolves the waiver authoritatively. See the KioskPeopleStep twin.
         const setupFirst = formatPersonName(member.firstName);
         const setupLast = formatPersonName(member.lastName ?? "");
-        const found = await findExistingAccounts(setupFirst, setupLast, toIsoDob(dob));
+        const found = await findExistingAccounts(
+          setupFirst,
+          setupLast,
+          toIsoDob(dob),
+          member.phone ?? undefined,
+        );
         const verdict = matchGateVerdict(setupFirst, found, { pickable: false });
         if (verdict.kind === "attach") {
           const m = verdict.match;
@@ -2267,6 +2290,7 @@ export function KioskPartyManager({
           </div>
           <ReturningRacerLookup
             wide
+            cardLabels={cardLabels}
             otpBypassKioskId={isTestKiosk(kioskCfg) && kioskCfg ? kioskId(kioskCfg) : undefined}
             onVerified={handleVerified}
             onVerifiedMultiple={handleVerifiedMultiple}
@@ -2465,6 +2489,7 @@ export function KioskPartyManager({
                     otpBypassKioskId={
                       isTestKiosk(kioskCfg) && kioskCfg ? kioskId(kioskCfg) : undefined
                     }
+                    cardLabels={cardLabels}
                     onVerified={(person) => void handleGuardianVerified(person)}
                     onSwitchToNew={() => {
                       resetGuardianForm();

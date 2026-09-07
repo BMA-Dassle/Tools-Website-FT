@@ -29,6 +29,7 @@ import {
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
 import { fetchNameDobMatches, personDataFromMatch } from "../../license/lookup-client";
 import { matchGateVerdict } from "../../license/match-gate";
+import { useAccountCardLabels } from "../../license/account-card-labels";
 import { useJoinSession } from "./useJoinSession";
 import { NewGuestForm, type NewGuestFields } from "./NewGuestForm";
 import { useT } from "../../i18n";
@@ -74,6 +75,7 @@ export function JoinPhoneFlow({
   initialMeta: JoinMeta | null;
 }) {
   const t = useT();
+  const cardLabels = useAccountCardLabels();
   const session = useJoinSession(code, initialMeta);
   const { meta, ended, reconnecting, engage, setStage, disengage, end, clientId } = session;
   const [step, setStep] = useState<Step>({ k: "choose" });
@@ -237,7 +239,14 @@ export function JoinPhoneFlow({
       // same pipeline a returning sign-in uses (minor block, DOB backfill,
       // waiver). No picker on this phone surface → ambiguity creates.
       const found = await fetchNameDobMatches(
-        { firstName: cleanFirst, lastName: cleanLast, dobIso: fields.dobIso },
+        {
+          firstName: cleanFirst,
+          lastName: cleanLast,
+          dobIso: fields.dobIso,
+          // The typed phone joins the search (2026-09-06): a record on this
+          // number with this birthday is this guest, whatever the first name.
+          phone: fields.phone,
+        },
         brandLocation,
       );
       const verdict = matchGateVerdict(cleanFirst, found, { pickable: false });
@@ -409,6 +418,7 @@ export function JoinPhoneFlow({
           <ReturningRacerLookup
             onVerified={handleSingleVerified}
             onVerifiedMultiple={startBatch}
+            cardLabels={cardLabels}
             onSwitchToNew={() => setStep({ k: "newForm" })}
             introText={t("joinFlow.lookupIntro")}
             switchToNewLabel={t("joinFlow.switchToNew")}
