@@ -1913,9 +1913,12 @@ any time before check-in; if the change increases the total, charge the differen
   _sync_ BookedAt FROM Conqueror). Changing time/lanes ⇒ **cancel (`deleteReservation`) + `createReservation`**
   anew → re-check availability, re-link deposit/day-of order, risk slot loss. This is the hard part.
 
-**Editability guard (all phases):** allow only while `status ∈ {confirmed, confirm_pending}`,
-`dayof_order_sent_at IS NULL` (not checked in / lane not opened), and event time still in the future.
-Optimistic guard against the lane-open cron racing the edit.
+**Editability guard (all phases):** allow only while `status ∈ {confirmed, confirm_pending}` and
+`dayof_order_sent_at IS NULL` (lane not opened). _2026-09-06: the "event time still in the future"
+clause was dropped (owner) — guests edit until the LANE OPENS, a late party still fixes its order
+from the parking lot. Post-booking edits are INCLUDED PICKS ONLY (owner: nothing that adds money);
+paid extras go to the front desk. Food is also picked at open-lane (web + kiosk) and editable from
+reservation admin (`/api/admin/reservations/food`). One writer: `features/package-food/service.ts`._
 
 **NARROWED v1 (active, owner 2026-06-21): edit the PIZZA TOPPINGS + SODA flavor of a Pizza Bowl only.**
 No player/lane/time changes; no adding pizzas/sides. Guests re-pick toppings/drinks before check-in.

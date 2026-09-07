@@ -164,8 +164,10 @@ import {
   updateBowlingReservationConfirmFailed,
   updateBowlingReservationSquareIds,
   raceHeatsForPersonsOnDate,
+  getBowlingExperiences,
   type ReservationProductKind,
 } from "@/lib/bowling-db";
+import { missingRequiredFoodLines, PackageFoodMissingError } from "./food-config";
 import {
   crossCategoryCollisionMessage,
   findCrossBookingConflict,
@@ -1976,6 +1978,40 @@ async function unifiedReserveInner(
       // null bookedAt is unparseable → rejects (fail-closed; guards money).
       const mmWindowError = midnightMadnessWindowError(item.bookedAt ?? "");
       if (mmWindowError) throw new MidnightMadnessWindowError(mmWindowError);
+    }
+  }
+
+  // ── 2d-FOOD. Package food must be on the booking (fail-closed) ─────
+  // A package that bundles guest-configured food (Pizza Bowl pizza + pitcher,
+  // NFL game-day items) MUST carry one noted line per item per lane in
+  // `rawItems` — that is what the kitchen cooks from. The client step is the
+  // gate that silently failed for three months (2026-09-06: 35 Pizza Bowls in a
+  // day reached the KDS with no food), so the rail re-checks off OUR experience
+  // config. Throws → 409 in reserve-all BEFORE any Square or QAMF write.
+  // Bowling-only carts run the same guard in app/api/bowling/v2/reserve.
+  {
+    const foodLegs = bowlingItems.filter(
+      (i): i is BowlingItem => i.kind === "bowling" && i.experienceId != null,
+    );
+    if (foodLegs.length > 0) {
+      const squareCenter =
+        session.center === "naples" ? SQUARE_LOCATIONS.HEADPINZ_NAP : SQUARE_LOCATIONS.HEADPINZ_FM;
+      const experiences = await getBowlingExperiences(squareCenter);
+      for (const item of foodLegs) {
+        const exp = experiences.find((e) => e.id === item.experienceId);
+        if (!exp) {
+          console.warn(
+            `[unified-reserve] food guard: experience ${item.experienceId} (${item.experienceSlug}) not found at ${squareCenter} — skipping`,
+          );
+          continue;
+        }
+        const foodIssue = missingRequiredFoodLines({
+          items: exp.items,
+          laneCount: item.laneCount,
+          rawItems: item.rawItems,
+        });
+        if (foodIssue) throw new PackageFoodMissingError(foodIssue);
+      }
     }
   }
 

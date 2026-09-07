@@ -73,6 +73,7 @@ import type { BmiProposal } from "../data/bmi";
 import type { Activity, Brand, CenterCode, ContactInfo } from "../types";
 import type { EntryContext } from "./entry-context";
 import type { RaceTier, RaceCategory } from "../service/race-products";
+import type { FoodItem } from "../service/food-config";
 // Value import (not `import type`): raceItemFullyPackaged reads `includesPov`
 // off the registry. lib/packages.ts imports only ./et-time, so no cycle.
 import { getPackage } from "@/lib/packages";
@@ -550,9 +551,14 @@ interface BowlingCommon {
   attractionAddons: BowlingAttractionAddon[];
   /** Pizza bowl per-lane modifier selections. Each entry = one lane. */
   pizzaModifierSelections: Array<Record<string, string[]>>;
-  /** Modifier group ids classified as the soda/drink group (set when the
-   *  pizza-bowl modifiers load). Used to require a drink pick per lane. */
-  pizzaSodaGroupIds?: string[];
+  /**
+   * The package's configurable food, as loaded from the experience + Square
+   * (BowlingFoodStep writes it; `canAdvance` reads it). `undefined` = not
+   * loaded yet, which BLOCKS the step — a Pizza Bowl never books without its
+   * pizza and drink (2026-09-06). `[]` = loaded, nothing configurable, which
+   * also blocks: the step only shows for packages that bundle food.
+   */
+  foodItems?: FoodItem[];
   /** QAMF temporary reservation ID (set after hold creation on offer step). */
   qamfReservationId: string | null;
   /** QAMF center ID (numeric, e.g. 9172 or 3148). */

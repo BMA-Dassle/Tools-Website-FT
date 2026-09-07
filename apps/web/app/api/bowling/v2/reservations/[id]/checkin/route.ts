@@ -4,6 +4,7 @@ import { getReservation, listLanes, setReservationStatus, setLaneStatus } from "
 import { CENTER_CODE_TO_QAMF_ID, isFastTraxDuckpinCenter } from "@/lib/qamf-centers";
 import { processLaneOpen } from "@/lib/bowling-lane-open";
 import { resolveLanePhase, SELF_SERVICE_WINDOW_MINS } from "@/lib/bowling-lane-phase";
+import { reservationFoodIssue } from "~/features/package-food/service";
 
 /**
  * Check-in API for bowling reservations.
@@ -147,6 +148,23 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const qamfId = reservation.qamfReservationId;
+
+  // Step 0: a package that bundles guest-configured food (Pizza Bowl pizza +
+  // pitcher) does not open until the food is on the booking — the lane-open
+  // processor fires the kitchen ticket the moment the lane goes Running, and a
+  // ticket with no pizza on it is the incident this fixes (owner 2026-09-06:
+  // "when they hit open lane they should be able to select it there"). Reads
+  // our own stored lines against the experience config; no Square round-trip,
+  // so a catalog outage can never hold a lane hostage. If even that fails,
+  // open the lane — a stuck guest is worse than a manual kitchen order.
+  try {
+    const foodIssue = await reservationFoodIssue(neonId);
+    if (foodIssue) {
+      return NextResponse.json({ error: foodIssue, code: "food_required" }, { status: 409 });
+    }
+  } catch (err) {
+    console.warn(`[checkin] neonId=${neonId} food gate unavailable — opening anyway:`, err);
+  }
 
   // Step 1: Set reservation → Arrived
   const arrived = await setReservationStatus(centerId, qamfId, "Arrived");

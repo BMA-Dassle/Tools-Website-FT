@@ -15,6 +15,7 @@ import {
 } from "~/features/booking/service/deposit";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
 import { MidnightMadnessWindowError } from "~/features/booking/service/bowling-offer";
+import { PackageFoodMissingError } from "~/features/booking/service/food-config";
 import {
   RaceSimNotConfiguredError,
   RaceSimMixedCartError,
@@ -120,6 +121,12 @@ export async function POST(req: NextRequest) {
     if (err instanceof MidnightMadnessWindowError) {
       // 409 — a Midnight Madness leg starts outside Fri/Sat 11:45 PM+ ET.
       // Raised before any Square or QAMF write; nothing charged.
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof PackageFoodMissingError) {
+      // 409 — a package that bundles guest-configured food (Pizza Bowl pizza +
+      // pitcher) arrived without its noted food lines. Raised before any Square
+      // or QAMF write; nothing charged. The guest goes back to the food step.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (

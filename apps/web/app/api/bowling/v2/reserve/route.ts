@@ -13,6 +13,7 @@ import {
 } from "@/lib/qamf-bowling";
 import {
   getBowlingExperienceByOffer,
+  getBowlingExperiences,
   getBowlingSquareProduct,
   getKbfRedeemedMembers,
   insertBowlingReservation,
@@ -90,6 +91,7 @@ import {
   buildKbfExtraSquareLineItems,
 } from "~/features/booking/service/kbf-pricing";
 import { rawFoodItemsToReservationLines } from "~/features/booking/service/reservation-lines";
+import { missingRequiredFoodLines } from "~/features/booking/service/food-config";
 
 const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
 
@@ -716,6 +718,31 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
       }
       throw err;
+    }
+  }
+
+  // ── Package food (fail-closed, server-authoritative) ──────────────
+  // A package that bundles guest-configured food (Pizza Bowl pizza + pitcher,
+  // NFL game-day items) MUST carry one noted line per item per lane — that is
+  // what reaches the kitchen. The client gate is exactly what failed for
+  // three months (owner 2026-09-06: 35 Pizza Bowls in one day with no food on
+  // the order), so the rail checks too, off OUR experience config and before
+  // any QAMF confirm or Square write. Mixed carts run the same guard in
+  // unified-reserve.
+  if (body.experienceSlug) {
+    const exp = (await getBowlingExperiences(centerCode)).find(
+      (e) => e.slug === body.experienceSlug,
+    );
+    const foodIssue = missingRequiredFoodLines({
+      items: exp?.items,
+      laneCount: body.bookingMeta?.laneCount ?? 1,
+      rawItems: body.rawItems,
+    });
+    if (foodIssue) {
+      console.warn(
+        `[bowling/v2/reserve] refused ${body.experienceSlug} without its food: ${foodIssue}`,
+      );
+      return NextResponse.json({ error: foodIssue, code: "package_food_missing" }, { status: 400 });
     }
   }
 

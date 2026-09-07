@@ -11,6 +11,7 @@ import { centerLabel } from "~/features/reservations-admin/format";
 import type { DetailLeg, ReservationDetail } from "~/features/reservations-admin/service";
 import type { Reservation } from "~/features/reservations-admin/types";
 import { Card, KindChip, StatusChip } from "./ui";
+import { PackageFoodCard } from "./PackageFoodCard";
 
 interface ItineraryStep {
   iso: string | null;
@@ -94,9 +95,11 @@ function legSteps(leg: DetailLeg, boardRow: Reservation): ItineraryStep[] {
 export default function OverviewTab({
   detail,
   boardRow,
+  token,
 }: {
   detail: ReservationDetail;
   boardRow: Reservation;
+  token: string;
 }) {
   const r = detail.reservation;
   const multi = detail.group.length > 1;
@@ -203,6 +206,11 @@ export default function OverviewTab({
           ))}
         </Card>
       )}
+
+      {/* Package food (Pizza Bowl pizza + drink) — staff can change it at any
+          time, lane open or not (owner 2026-09-06). Renders only when the
+          package has configurable food. */}
+      <PackageFoodCard neonId={r.id} token={token} />
 
       <Card title="Line items">
         {lines.length === 0 ? (

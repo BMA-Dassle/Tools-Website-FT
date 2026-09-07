@@ -4,7 +4,10 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import BrandNav from "@/components/BrandNav";
-import EditPizzaPanel from "@/components/bowling/EditPizzaPanel";
+import {
+  PackageFoodEditor,
+  type FoodEditorStatus,
+} from "~/components/features/bowling/PackageFoodEditor";
 import type {
   BowlingReservation,
   BowlingReservationPlayer,
@@ -746,6 +749,14 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   };
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [pizzaEditOpen, setPizzaEditOpen] = useState(false);
+  // What the shared food editor knows about this booking's package food. A
+  // Pizza Bowl with NO food on file (the 2026-09-06 gap) opens the editor by
+  // itself with an amber callout — that is the one thing the guest must do.
+  const [foodStatus, setFoodStatus] = useState<FoodEditorStatus | null>(null);
+  const foodMissing = !!foodStatus && foodStatus.hasFood && !foodStatus.complete;
+  useEffect(() => {
+    if (foodMissing) setPizzaEditOpen(true);
+  }, [foodMissing]);
   const [rescheduleInfo, setRescheduleInfo] = useState<RescheduleInfo | null>(null);
   const [rescheduleInfoLoading, setRescheduleInfoLoading] = useState(false);
   const [rescheduleInfoError, setRescheduleInfoError] = useState<string | null>(null);
@@ -1811,46 +1822,54 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
               )}
 
               {/* ── Change Date & Time (hidden when cancelled / lane running / within 1hr) ── */}
-              {/* Change pizza toppings + drink (Pizza Bowl, before check-in) */}
+              {/* Change pizza toppings + drink (Pizza Bowl) — allowed until the lane OPENS
+                  (owner 2026-09-06), so this hides only on the running phase. */}
               {!isCancelled &&
                 hasNeonRecord &&
                 laneReadyPhase !== "running" &&
                 (reservation?.status === "confirmed" ||
-                  reservation?.status === "confirm_pending") &&
-                lines.some((l) => /pizza bowl/i.test(l.label)) &&
-                (() => {
-                  const pizzaLaneCount =
-                    lines
-                      .filter((l) => /pizza bowl - /i.test(l.label))
-                      .reduce((s, l) => s + (l.quantity ?? 1), 0) || 1;
-                  const currentExtraToppingsCents = lines
-                    .filter((l) => /extra pizza topping/i.test(l.label))
-                    .reduce((s, l) => s + (l.quantity ?? 0) * (l.unitPriceCents ?? 0), 0);
-                  return (
-                    <div className="rounded-xl border border-[#fd5b56]/25 bg-[#fd5b56]/[0.04] overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setPizzaEditOpen((v) => !v)}
-                        className="w-full text-center px-5 py-4 font-body font-semibold text-sm text-[#fd5b56] hover:bg-[#fd5b56]/[0.08] transition-colors"
-                      >
-                        {pizzaEditOpen ? "Close" : "Change pizza & drink"}
-                      </button>
-                      {pizzaEditOpen && (
-                        <div className="px-3 sm:px-4 pb-4 border-t border-[#fd5b56]/15 pt-3">
-                          <EditPizzaPanel
-                            reservationId={neonId}
-                            laneCount={pizzaLaneCount}
-                            locationId={centerCode}
-                            currentExtraToppingsCents={currentExtraToppingsCents}
-                            onUpdated={() => {
-                              setTimeout(() => setPizzaEditOpen(false), 1500);
-                            }}
-                          />
-                        </div>
-                      )}
+                  reservation?.status === "confirm_pending") && (
+                  // The editor decides whether this package HAS food (onStatus);
+                  // the section stays hidden for packages without any. It is
+                  // mounted (invisibly) so that decision is made on load.
+                  <div
+                    hidden={!foodStatus?.hasFood}
+                    className="rounded-xl border overflow-hidden"
+                    style={{
+                      borderColor: foodMissing ? "rgba(251,191,36,0.5)" : "rgba(253,91,86,0.25)",
+                      backgroundColor: foodMissing
+                        ? "rgba(251,191,36,0.06)"
+                        : "rgba(253,91,86,0.04)",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setPizzaEditOpen((v) => !v)}
+                      className="w-full text-center px-5 py-4 font-body font-semibold text-sm transition-colors"
+                      style={{ color: foodMissing ? "#fbbf24" : "#fd5b56" }}
+                    >
+                      {foodMissing
+                        ? "Pick your pizza & drink"
+                        : pizzaEditOpen
+                          ? "Close"
+                          : "Change pizza & drink"}
+                    </button>
+                    <div
+                      hidden={!pizzaEditOpen}
+                      className="px-3 sm:px-4 pb-4 border-t border-white/10 pt-3"
+                    >
+                      <PackageFoodEditor
+                        neonId={neonId}
+                        accent="#fd5b56"
+                        hideHeading
+                        onStatus={setFoodStatus}
+                        onSaved={() => {
+                          setTimeout(() => setPizzaEditOpen(false), 1500);
+                        }}
+                      />
                     </div>
-                  );
-                })()}
+                  </div>
+                )}
 
               {!isCancelled &&
                 hasNeonRecord &&

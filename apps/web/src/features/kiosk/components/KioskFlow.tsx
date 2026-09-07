@@ -39,6 +39,7 @@ import {
 import { clearBookingSession, usePersistedReducer } from "~/features/booking/hooks";
 import { fasttraxQamfDuckpinEnabled } from "~/features/booking/flags";
 import { appendGrantedCredits } from "~/features/booking/data/race-credits";
+import { FOOD_REASON } from "~/features/booking/service/food-config";
 import { resetToKiosk } from "../version";
 import { armKioskDebug, kioskDebugForced } from "../debug/bus";
 import KioskDebugPanel from "../debug/KioskDebugPanel";
@@ -330,6 +331,12 @@ const STEP_REASON_KEYS: Record<string, MessageKey> = {
   "Race pack added — now pick which race to run today.": "stepReason.racePackAdded",
   "Pick an adult race to continue.": "stepReason.pickAdultRace",
   "Pick a junior race to continue.": "stepReason.pickJuniorRace",
+  // Package food (BowlingFoodStep) — keyed by the exported constants so the
+  // English source and this map cannot drift.
+  [FOOD_REASON.notLoaded]: "stepReason.foodNotLoaded",
+  [FOOD_REASON.unavailable]: "stepReason.foodUnavailable",
+  [FOOD_REASON.pickEveryGroup]: "stepReason.foodPickEveryGroup",
+  [FOOD_REASON.pickEveryLane]: "stepReason.foodPickEveryLane",
 };
 
 export function KioskFlow({

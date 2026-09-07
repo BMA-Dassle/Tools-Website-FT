@@ -1,5 +1,53 @@
 # Lessons Learned
 
+## A config-driven feature with no config is a feature that silently disappears — seed it in the same change, and fail CLOSED when it is missing (2026-09-06)
+
+**Incident.** The Pizza Bowl food step went config-driven on 8/25 ("the $0 items on the experience
+ARE the configurable food; a new package is a seed row"). The Pizza Bowl experiences were never given
+their $0 pizza + soda pitcher rows, and neither centre had a `bowling_square_products` row for them.
+The step loaded zero configurable items, showed "Food selections will be taken at the center", and
+passed the guest through — by design ("a Square hiccup must never trap a booking"). Every Pizza Bowl
+for twelve days reached the kitchen with **no food on the day-of order**; 35 of ~55 on Sunday 9/6
+alone, web and kiosk. Nobody noticed because the bookings that DID carry food came through the
+legacy wizard, which still hardcoded the two catalog ids. A `UPDATE … WHERE square_catalog_object_id
+= <pizza>` backfill in `ensureBowlingSchema` had been matching zero rows the whole time.
+
+**Second trap, found while fixing.** Requiredness had been moved to Square's per-item
+`min_selected_modifiers` on 8/31. On the live Pizza Bowl items that value is UNSET (-1 → "optional"),
+so even with the rows seeded every group would have read "Optional" and the guest could still skip.
+
+**Third trap.** Adding the $0 items to the experience made them PRICED line items too
+(`buildBowlingLineItems` mapped every item), which pre-creates a bare "Pizza Bowl Pizza" on the
+day-of order — and the reserve rail then skips the noted `rawItems` copy as "already attached". The
+NFL package had the same latent bug.
+
+**Rules:**
+
+- **A fail-open gate on a MANDATORY input is a bug, not a kindness.** If the business rule is "the
+  order must carry X", then "couldn't load X → continue" is the incident. Block with a Retry. A
+  blocked step is loud and gets fixed within the hour; a silent skip loses a day of orders.
+- **Requiredness comes from OUR config, not the vendor's.** `included_modifier_count` on the
+  experience item means "the package includes N picks → the guest makes N picks". Square minimums
+  are honoured on top of it, never instead of it. Nobody audits a Square dashboard checkbox.
+- **When code starts depending on a data row, the code guarantees the row.** The rows now self-heal
+  from `ensureBowlingSchema` (idempotent, `NOT EXISTS`), AND live in the seed scripts so a re-seed
+  keeps them. A migration that targets a row by id must first prove the row exists — probe the table
+  before writing the `UPDATE`.
+- **A $0 item travels ONE way — line item OR noted rawItems, never both.** `isGuestConfiguredFood`
+  ($0 + catalog id + included > 0) is the single predicate; every line builder excludes it. The
+  VIP chips & salsa are `included_modifier_count = 0` on purpose.
+- **Put a server backstop behind any client gate that protects a kitchen or a charge.** Both
+  reserve rails now refuse a package booking without one noted food line per item per lane
+  (`missingRequiredFoodLines`, off our own config, no Square call).
+- **Always verify a "config-driven" refactor against the LIVE config table, not the seed file.**
+  The seed file read fine; the table had never seen it.
+
+**Process lesson (owner, same session):** "you should always tell me what we need to do first."
+Diagnosis and plan BEFORE code, every time — even when the fix looks obvious. The owner added two
+requirements (pick at open-lane; edit from reservation admin) and one simplification (no paid extras
+on edits) that reshaped the design; an hour of code written first would have been rewritten.
+
+
 ## A queue that acknowledges without settling its source row is a black hole — and a "give up" timer writes off work that is still doable (2026-09-05)
 
 **What happened:** Pandora went down mid-day. 71 waiver signatures froze at

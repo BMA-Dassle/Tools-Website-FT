@@ -60,18 +60,43 @@ export interface FoodItem {
 /** Per-lane selections: group id → chosen option ids. */
 export type LaneSelections = Record<string, string[]>;
 
+/** The slice of a `bowling_experience_items` row the food rules read. */
+export interface ConfigurableFoodItemLike {
+  priceCents: number;
+  /** Optional on the client line-builder shapes; absent = nothing to configure. */
+  squareCatalogObjectId?: string | null;
+  /**
+   * Picks the package INCLUDES for this item — and therefore the picks the
+   * guest MUST make. Optional only because older client shapes omit it; a
+   * missing value reads as 0 (not configurable).
+   */
+  includedModifierCount?: number;
+}
+
 /**
- * Which experience items are configurable food?
+ * Is this experience item food the GUEST configures?
  *
- * The $0 ones. A package's PRICED item is the lane time itself (and shoes, when
- * they are included); the $0 entries are the bundled extras, and only those can
- * carry modifier groups. Deliberately not keyed on product_kind or a slug —
- * price is the honest signal and needs no new taxonomy.
+ * Three things must be true: it is $0 (a package's PRICED item is the lane
+ * time itself; the $0 entries are the bundled extras), it has a Square catalog
+ * id to hang modifier groups off, and the package includes at least one pick on
+ * it. That last test is what separates the Pizza Bowl pizza (pick a topping)
+ * from the VIP chips & salsa ($0, on the ticket, nothing to choose): the chips
+ * ride the ordinary line items, the pizza rides `rawItems` with the guest's
+ * choices as its note. An item must travel ONE of those two ways, never both —
+ * a $0 line already on the pre-created day-of order makes the reserve rail
+ * skip the noted copy as "already attached", and the toppings are lost.
  */
-export function configurableFoodItems<
-  T extends { priceCents: number; squareCatalogObjectId: string },
->(items: readonly T[] | null | undefined): T[] {
-  return (items ?? []).filter((i) => i.priceCents === 0 && !!i.squareCatalogObjectId);
+export function isGuestConfiguredFood(item: ConfigurableFoodItemLike): boolean {
+  return (
+    item.priceCents === 0 && !!item.squareCatalogObjectId && (item.includedModifierCount ?? 0) > 0
+  );
+}
+
+/** Which experience items are configurable food? See `isGuestConfiguredFood`. */
+export function configurableFoodItems<T extends ConfigurableFoodItemLike>(
+  items: readonly T[] | null | undefined,
+): T[] {
+  return (items ?? []).filter(isGuestConfiguredFood);
 }
 
 /** Every group across every food item, in item then group order. */
@@ -196,6 +221,25 @@ export function extraCentsForLane(foodItems: readonly FoodItem[], sel: LaneSelec
   return allowance + optionCentsForLane(foodItems, sel);
 }
 
+/**
+ * The picker for a BOOKED order: only what the package includes.
+ *
+ * Owner 2026-09-06: post-booking edits (confirmation page, open-lane, admin)
+ * must never add money to the bill — "just do the required included". So the
+ * priced options go (the +$2 bacon on the paid toppings list, +$2 drums), and a
+ * list left with nothing $0 on it goes with them. What remains is exactly the
+ * set of picks the package already paid for. The server enforces the same rule
+ * by refusing any edit whose extras total is not zero.
+ */
+export function withoutPaidOptions(foodItems: readonly FoodItem[]): FoodItem[] {
+  return foodItems.map((f) => ({
+    ...f,
+    groups: f.groups
+      .map((g) => ({ ...g, options: g.options.filter((o) => (o.priceCents ?? 0) === 0) }))
+      .filter((g) => g.options.length > 0),
+  }));
+}
+
 /** Total extras charge across every lane. */
 export function extraCentsTotal(args: {
   foodItems: readonly FoodItem[];
@@ -211,36 +255,129 @@ export function extraCentsTotal(args: {
 }
 
 /**
- * Can the guest continue? Every group needs at least one pick, on every lane.
+ * The "why Continue is blocked" strings, exported so the kiosk can map each
+ * one to a translated message key (canAdvance runs at module scope and cannot
+ * reach useT). Change one here and the kiosk map follows by reference.
+ */
+export const FOOD_REASON = {
+  notLoaded: "Hang on — loading your package's food choices",
+  unavailable: "We couldn't load the food choices for this package — tap Retry",
+  pickEveryGroup: "Make every included pick before you continue",
+  pickEveryLane: "Make every included pick, for every lane",
+} as const;
+
+/** How many picks the guest has made across ALL of one item's groups. */
+export function itemPicksForLane(food: FoodItem, sel: LaneSelections): number {
+  return food.groups.reduce((n, g) => n + (sel[g.id] ?? []).length, 0);
+}
+
+/**
+ * Included picks the guest still owes on one item — the ITEM-level rule.
  *
- * Fails OPEN when nothing loaded — a Square hiccup must never trap a booking
- * mid-wizard, which is why `requiredGroupIds` is recorded only once the fetch
- * succeeds.
+ * The package says how many picks it includes (`includedModifierCount`), and
+ * an included pick is a pick the kitchen needs an answer to: a one-topping
+ * pizza with no topping named is not an order, it is a question. So the guest
+ * must take at least that many picks across the item's groups. ("No Topping"
+ * and "No beverage" are options on the real lists, so declining is still a
+ * pick — the kitchen just knows it was deliberate.)
  *
- * Optional groups are simply absent from `requiredGroupIds` — the route now
- * carries Square's per-item `min_selected_modifiers`, so "Drums or Flats" and
- * "extra sauce" can sit on the wings without trapping a guest who wants
- * neither. (Before 2026-08-31 the min was not plumbed through and EVERY
- * attached list was required, which is why the wings could only carry two.)
+ * This deliberately does NOT depend on Square's per-item minimums. On the live
+ * Pizza Bowl items those are unset (-1), which the route reads as optional —
+ * exactly the reading that let a Pizza Bowl book with no pizza and no drink
+ * (2026-09-06). Our config is the authority on what the package includes;
+ * Square's minimums are honoured on top of it, never instead of it.
+ */
+export function includedPicksOwed(food: FoodItem, sel: LaneSelections): number {
+  return Math.max(0, food.includedModifierCount - itemPicksForLane(food, sel));
+}
+
+/** Groups on one item that Square itself marks required and that lack picks. */
+export function unansweredRequiredGroups(food: FoodItem, sel: LaneSelections): ModifierGroup[] {
+  return food.groups.filter(
+    (g) => isRequired(g) && (sel[g.id]?.length ?? 0) < (g.minSelected ?? 1),
+  );
+}
+
+/** Is ONE lane's food fully answered? Both rules: Square's group minimums and
+ *  the package's included-pick count, on every item. */
+export function laneFoodComplete(foodItems: readonly FoodItem[], sel: LaneSelections): boolean {
+  return foodItems.every(
+    (f) => unansweredRequiredGroups(f, sel).length === 0 && includedPicksOwed(f, sel) === 0,
+  );
+}
+
+/**
+ * Can the guest continue?
+ *
+ * Fails CLOSED. `foodItems` undefined means the catalog has not loaded (or
+ * failed to) — the guest waits or retries; it never means "skip the food".
+ * An EMPTY list is also a block: this step only renders for packages that
+ * bundle configurable food (the slug gate in BowlingFoodStep), so a package
+ * that loads zero configurable items is misconfigured, not food-free — and a
+ * Pizza Bowl booked without a pizza is the incident this replaces. Before
+ * 2026-09-06 both cases passed the guest through ("a Square hiccup must never
+ * trap a booking"), and the Pizza Bowl experiences had never been seeded with
+ * their $0 pizza and soda items, so every booking took the hiccup path: 35 of
+ * ~55 Pizza Bowls on 9/6 reached the kitchen with no food on the order. A
+ * blocked step is loud and gets fixed within the hour; a silent skip loses a
+ * day of orders.
  */
 export function foodSelectionIssue(args: {
-  /** Only groups the guest MUST answer — an optional group belongs nowhere near
-   *  this list, or it traps them on the step. */
-  requiredGroupIds: readonly string[];
+  /** undefined = not loaded yet; [] = loaded, nothing configurable (misconfig). */
+  foodItems: readonly FoodItem[] | null | undefined;
   selections: readonly LaneSelections[];
   laneCount: number;
 }): string | null {
-  const { requiredGroupIds, selections, laneCount } = args;
-  if (requiredGroupIds.length === 0) return null;
+  const { foodItems, selections, laneCount } = args;
+  if (!foodItems) return FOOD_REASON.notLoaded;
+  if (foodItems.length === 0) return FOOD_REASON.unavailable;
   const lanes = Math.max(1, laneCount);
   for (let lane = 0; lane < lanes; lane++) {
-    const sel = selections[lane] ?? {};
-    const missing = requiredGroupIds.some((gid) => (sel[gid]?.length ?? 0) === 0);
-    if (missing) {
-      return lanes > 1
-        ? "Pick an option in every group, for every lane"
-        : "Pick an option in every group";
+    if (!laneFoodComplete(foodItems, selections[lane] ?? {})) {
+      return lanes > 1 ? FOOD_REASON.pickEveryLane : FOOD_REASON.pickEveryGroup;
     }
   }
   return null;
+}
+
+/**
+ * SERVER-SIDE backstop: does the booking carry every configured food line?
+ *
+ * The client gate above is what failed for three months, so the rails check
+ * too — the day-of Square order MUST carry the pizza and the drink, with the
+ * guest's choices in the note (owner 2026-09-06). Reads only our own config
+ * (the experience's items), no Square round-trip: for every guest-configured
+ * item there must be EXACTLY `laneCount` `rawItems` lines for it, each with a
+ * non-empty note. Exactly, not at-least — a party that dropped from two lanes
+ * to one with stale lane-2 lines would otherwise order two pizzas for one lane.
+ *
+ * Returns a guest-readable reason, or null when the booking is complete.
+ */
+export function missingRequiredFoodLines(args: {
+  items: readonly (ConfigurableFoodItemLike & { label: string })[] | null | undefined;
+  laneCount: number;
+  rawItems: readonly { catalogObjectId: string; note?: string }[] | null | undefined;
+}): string | null {
+  const lanes = Math.max(1, Math.round(args.laneCount || 1));
+  const raw = args.rawItems ?? [];
+  const problems: string[] = [];
+  for (const food of configurableFoodItems(args.items)) {
+    const lines = raw.filter((ri) => ri.catalogObjectId === food.squareCatalogObjectId);
+    const noted = lines.filter((ri) => (ri.note ?? "").trim().length > 0);
+    if (lines.length !== lanes || noted.length !== lanes) problems.push(food.label);
+  }
+  if (problems.length === 0) return null;
+  const what = problems.join(" and ");
+  return lanes > 1
+    ? `Your package includes ${what} — pick the options for every lane before booking.`
+    : `Your package includes ${what} — pick the options before booking.`;
+}
+
+/** Thrown by the unified rail's fail-closed food guard (→ 409 in reserve-all). */
+export class PackageFoodMissingError extends Error {
+  readonly code = "package_food_missing";
+  constructor(message: string) {
+    super(message);
+    this.name = "PackageFoodMissingError";
+  }
 }

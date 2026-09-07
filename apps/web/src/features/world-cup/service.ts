@@ -19,6 +19,7 @@ import {
   worldCupWindowLabelShort,
 } from "./fixtures";
 import { worldCupCenterEnabled, worldCupCenterEnabledByQamfId } from "./flags";
+import { isGuestConfiguredFood } from "~/features/booking/service/food-config";
 
 /** Typed so the reserve routes can map it to a 4xx instead of a 500. */
 export class WorldCupReservationError extends Error {
@@ -90,6 +91,7 @@ export interface WorldCupExperienceItemLike {
   depositPct: number;
   squareCatalogObjectId?: string;
   sortOrder: number;
+  includedModifierCount?: number;
 }
 
 /**
@@ -112,14 +114,18 @@ export function buildWorldCupLineItems(
   depositPct: number;
   squareCatalogObjectId?: string;
 }> {
-  return items.map((ei) => ({
-    squareProductId: ei.squareProductId,
-    quantity: ei.quantity * laneCount,
-    label: ei.sortOrder === 0 ? `${ei.label} — ${fixtureLabel(fixture)}` : ei.label,
-    priceCents: ei.priceCents,
-    depositPct: ei.depositPct,
-    squareCatalogObjectId: ei.squareCatalogObjectId,
-  }));
+  // Guest-configured food (if a package ever bundles it) rides `rawItems`,
+  // not the line items — see buildBowlingLineItems.
+  return items
+    .filter((ei) => !isGuestConfiguredFood(ei))
+    .map((ei) => ({
+      squareProductId: ei.squareProductId,
+      quantity: ei.quantity * laneCount,
+      label: ei.sortOrder === 0 ? `${ei.label} — ${fixtureLabel(fixture)}` : ei.label,
+      priceCents: ei.priceCents,
+      depositPct: ei.depositPct,
+      squareCatalogObjectId: ei.squareCatalogObjectId,
+    }));
 }
 
 /* ───────────────────── staff-facing strings (QAMF) ─────────────────── */

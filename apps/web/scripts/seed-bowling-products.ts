@@ -200,6 +200,22 @@ const OPEN_PRODUCTS: Array<{
     priceCents: 7995,
     sortOrder: 81,
   },
+  // The Pizza Bowl's bundled $0 food. Guest-configured (toppings / drink) —
+  // the food step needs a product row per center to attach modifiers to, and
+  // without these rows a Pizza Bowl books with no food (2026-09-06). Mirrors
+  // PIZZA_BOWL_BUNDLED_FOOD in lib/bowling-db.ts, which self-heals them too.
+  {
+    label: "Pizza Bowl Pizza",
+    squareCatalogObjectId: "2IKZB4O2HQBXWMTSUQ2SEKJY",
+    priceCents: 0,
+    sortOrder: 82,
+  },
+  {
+    label: "Pizza Bowl Soda Pitcher",
+    squareCatalogObjectId: "SJUBJLB4QGHIHCW5AKTTMLH7",
+    priceCents: 0,
+    sortOrder: 83,
+  },
 ];
 
 const CENTERS = ["TXBSQN0FEKQ11", "PPTR5G2N0QXF7"] as const;

@@ -95,6 +95,8 @@ const CAT = {
   HOURLY_1_FRI_VIP: "OSOZ7RJ6WW7G4CEFL55U7LXF", // $55.00/lane (1hr Fri-Sun VIP)
   PIZZA_BOWL: "GWQQDLD5J3XAZAOU5STJL3VF", // $64.95/lane (Pizza Bowl Regular)
   PIZZA_BOWL_VIP: "3BET7DOSFNF64GNPMOZTI5SJ", // $79.95/lane (Pizza Bowl VIP)
+  PIZZA_BOWL_PIZZA: "2IKZB4O2HQBXWMTSUQ2SEKJY", // $0 bundled — guest picks a topping
+  PIZZA_BOWL_SODA: "SJUBJLB4QGHIHCW5AKTTMLH7", // $0 bundled — guest picks a drink
   CHIPS_SALSA: "LHZXWYO72N5QFX4CGYKRVPZX", // $0.00 comp
   MIDNIGHT_MADNESS: "ND5N3PMV4AZ5I47U3BJZMLKW", // $11.99/person (Fri-Sat closing)
   MIDNIGHT_MADNESS_VIP: "G6G2AZV3HHKAWLIZUJVVMOVD", // $13.99/person (Fri-Sat closing VIP)
@@ -186,6 +188,15 @@ async function setItems(
     centerCode?: string | null; // null = all centers
     labelOverride?: string;
     sortOrder?: number;
+    /**
+     * Picks the package INCLUDES on this item = picks the guest MUST make
+     * (food-config.ts). >0 on a $0 item marks it guest-configured food (rides
+     * rawItems with the choices as its note); 0 is a plain $0 line (chips).
+     * Defaults to 0 — the column's own default of 1 predates that meaning.
+     */
+    includedModifierCount?: number;
+    /** Our charge per pick beyond the included count. 0 = Square's own prices rule. */
+    extraModifierCents?: number;
   }>,
 ): Promise<void> {
   await sql`DELETE FROM bowling_experience_items WHERE experience_id = ${experienceId}`;
@@ -197,11 +208,13 @@ async function setItems(
     await sql`
       INSERT INTO bowling_experience_items
         (experience_id, square_product_id, square_catalog_object_id,
-         quantity, label_override, sort_order, center_code)
+         quantity, label_override, sort_order, center_code,
+         included_modifier_count, extra_modifier_cents)
       VALUES
         (${experienceId}, ${pid}, ${item.catalogObjectId},
          ${item.quantity ?? 1}, ${item.labelOverride ?? null},
-         ${item.sortOrder ?? i}, ${item.centerCode ?? null})
+         ${item.sortOrder ?? i}, ${item.centerCode ?? null},
+         ${item.includedModifierCount ?? 0}, ${item.extraModifierCents ?? 0})
     `;
     const scope = item.centerCode ? `(${item.centerCode} only)` : "(all centers)";
     console.log(
@@ -557,7 +570,15 @@ async function main() {
     qamfOptionId: 1012,
     durationMinutes: 120,
   });
-  await setItems(pizzaRegId, [{ catalogObjectId: CAT.PIZZA_BOWL, quantity: 1 }]);
+  // The $0 pizza + pitcher are GUEST-CONFIGURED food (1 included pick each) —
+  // the food step is built from these rows, and without them a Pizza Bowl books
+  // with no food on the order (2026-09-06). Kept in lockstep with
+  // PIZZA_BOWL_BUNDLED_FOOD in lib/bowling-db.ts.
+  await setItems(pizzaRegId, [
+    { catalogObjectId: CAT.PIZZA_BOWL, quantity: 1 },
+    { catalogObjectId: CAT.PIZZA_BOWL_PIZZA, sortOrder: 10, includedModifierCount: 1 },
+    { catalogObjectId: CAT.PIZZA_BOWL_SODA, sortOrder: 11, includedModifierCount: 1 },
+  ]);
 
   // ── 8. Pizza Bowl VIP (ACTIVE — QAMF IDs confirmed 2026-05-08) ─────────────
   console.log("\n── Pizza Bowl VIP");
@@ -591,6 +612,8 @@ async function main() {
   await setItems(pizzaVipId, [
     { catalogObjectId: CAT.PIZZA_BOWL_VIP, quantity: 1 },
     { catalogObjectId: CAT.CHIPS_SALSA, quantity: 1, labelOverride: "VIP Chips & Salsa" },
+    { catalogObjectId: CAT.PIZZA_BOWL_PIZZA, sortOrder: 10, includedModifierCount: 1 },
+    { catalogObjectId: CAT.PIZZA_BOWL_SODA, sortOrder: 11, includedModifierCount: 1 },
   ]);
 
   // ── 9. Regular Fri-Sun (ACTIVE — QAMF IDs confirmed 2026-05-08) ───────────

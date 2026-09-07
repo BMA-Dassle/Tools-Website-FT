@@ -10,6 +10,7 @@ import type {
   BowlingExperienceDurationOption,
 } from "@/lib/bowling-db";
 import { apiBase } from "@/lib/api-base";
+import { isGuestConfiguredFood } from "./food-config";
 
 export interface BowlingLineItem {
   squareProductId: number;
@@ -69,23 +70,33 @@ export function buildBowlingLineItems(
   const qtyMultiplier = isPerLaneExperience(exp) ? laneCount : playerCount;
   const durationMultiplier = durationOpt?.squareMultiplier ?? 1;
 
-  return (exp.items ?? []).map((ei) => {
-    const isPrimary = ei.sortOrder === 0;
-    const useOverride = isPrimary && durationOpt?.overrideSquareProductId;
+  // Guest-configured food (the Pizza Bowl pizza and pitcher) travels as
+  // `rawItems` with the guest's picks in the note — NOT as a line item here.
+  // Both at once puts a bare "Pizza Bowl Pizza" on the pre-created day-of
+  // order, and the reserve rail then skips the noted copy as already attached.
+  return (exp.items ?? [])
+    .filter((ei) => !isGuestConfiguredFood(ei))
+    .map((ei) => {
+      const isPrimary = ei.sortOrder === 0;
+      const useOverride = isPrimary && durationOpt?.overrideSquareProductId;
 
-    return {
-      squareProductId: useOverride ? durationOpt!.overrideSquareProductId! : ei.squareProductId,
-      quantity: isPrimary
-        ? ei.quantity * qtyMultiplier * durationMultiplier
-        : ei.quantity * laneCount,
-      label: ei.label,
-      priceCents: useOverride ? (durationOpt!.overridePriceCents ?? ei.priceCents) : ei.priceCents,
-      depositPct: useOverride ? (durationOpt!.overrideDepositPct ?? ei.depositPct) : ei.depositPct,
-      squareCatalogObjectId: useOverride
-        ? (durationOpt!.overrideCatalogObjectId ?? ei.squareCatalogObjectId)
-        : ei.squareCatalogObjectId,
-    };
-  });
+      return {
+        squareProductId: useOverride ? durationOpt!.overrideSquareProductId! : ei.squareProductId,
+        quantity: isPrimary
+          ? ei.quantity * qtyMultiplier * durationMultiplier
+          : ei.quantity * laneCount,
+        label: ei.label,
+        priceCents: useOverride
+          ? (durationOpt!.overridePriceCents ?? ei.priceCents)
+          : ei.priceCents,
+        depositPct: useOverride
+          ? (durationOpt!.overrideDepositPct ?? ei.depositPct)
+          : ei.depositPct,
+        squareCatalogObjectId: useOverride
+          ? (durationOpt!.overrideCatalogObjectId ?? ei.squareCatalogObjectId)
+          : ei.squareCatalogObjectId,
+      };
+    });
 }
 
 /**

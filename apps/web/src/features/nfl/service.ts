@@ -24,6 +24,7 @@ import {
   type NflGame,
 } from "./schedule";
 import { maxLanesPerBooking } from "./blocks";
+import { isGuestConfiguredFood } from "~/features/booking/service/food-config";
 import { nflCenterEnabled } from "./flags";
 
 /** Typed so the reserve routes can map it to a 4xx instead of a 500. */
@@ -118,6 +119,8 @@ export interface NflExperienceItemLike {
   depositPct: number;
   squareCatalogObjectId?: string;
   sortOrder: number;
+  /** Picks the package includes on this item; >0 on a $0 item = guest-configured food. */
+  includedModifierCount?: number;
 }
 
 /**
@@ -142,14 +145,20 @@ export function buildNflLineItems(
   squareCatalogObjectId?: string;
 }> {
   const lanes = Math.max(1, laneCount);
-  return items.map((ei) => ({
-    squareProductId: ei.squareProductId,
-    quantity: ei.quantity * lanes,
-    label: ei.sortOrder === 0 ? `${ei.label} — ${gameLabel(game)}` : ei.label,
-    priceCents: ei.priceCents,
-    depositPct: ei.depositPct,
-    squareCatalogObjectId: ei.squareCatalogObjectId,
-  }));
+  // The pizza, wings and pitcher the guest CONFIGURES travel as `rawItems` with
+  // the picks in the note, never as a bare line here — both at once puts an
+  // unnoted copy on the pre-created day-of order and the reserve rail then
+  // skips the noted one as already attached (the Pizza Bowl lesson, 2026-09-06).
+  return items
+    .filter((ei) => !isGuestConfiguredFood(ei))
+    .map((ei) => ({
+      squareProductId: ei.squareProductId,
+      quantity: ei.quantity * lanes,
+      label: ei.sortOrder === 0 ? `${ei.label} — ${gameLabel(game)}` : ei.label,
+      priceCents: ei.priceCents,
+      depositPct: ei.depositPct,
+      squareCatalogObjectId: ei.squareCatalogObjectId,
+    }));
 }
 
 /* ──────────────────── staff-facing strings (Conqueror) ──────────────── */

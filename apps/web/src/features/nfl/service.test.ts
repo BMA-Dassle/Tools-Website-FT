@@ -208,6 +208,16 @@ describe("buildNflLineItems", () => {
     expect(buildNflLineItems(items, -3, SUN_1PM)[0].quantity).toBe(1);
   });
 
+  it("leaves GUEST-CONFIGURED food out — it rides rawItems with the picks in the note", () => {
+    // Both at once puts a bare "Game Day Pizza" on the pre-created day-of order
+    // and the reserve rail then skips the noted copy as already attached.
+    const configured = items.map((i, idx) =>
+      idx === 0 ? i : { ...i, squareCatalogObjectId: `CAT_${idx}`, includedModifierCount: 1 },
+    );
+    const out = buildNflLineItems(configured, 2, SUN_1PM);
+    expect(out.map((l) => l.label)).toEqual(["NFL Ticket on NeoVerse — Chiefs at Bills"]);
+  });
+
   it("carries the catalog id through untouched", () => {
     const withCat = [{ ...items[0], squareCatalogObjectId: "CAT_NFL" }];
     expect(buildNflLineItems(withCat, 1, SUN_1PM)[0].squareCatalogObjectId).toBe("CAT_NFL");

@@ -10,7 +10,13 @@ import {
   extraCentsTotal,
   extraPicksForLane,
   foodSelectionIssue,
+  includedPicksOwed,
+  isGuestConfiguredFood,
+  laneFoodComplete,
+  missingRequiredFoodLines,
+  FOOD_REASON,
   toggleSelection,
+  withoutPaidOptions,
   type FoodItem,
   type LaneSelections,
 } from "./food-config";
@@ -103,18 +109,34 @@ const NFL: FoodItem[] = [
 ];
 
 describe("configurableFoodItems", () => {
-  it("picks the $0 bundled items and leaves the priced lane item alone", () => {
+  it("picks the $0 bundled items the guest configures and leaves the priced lane item alone", () => {
     const items = [
-      { priceCents: 11995, squareCatalogObjectId: "CAT_LANE" },
-      { priceCents: 0, squareCatalogObjectId: PIZZA },
-      { priceCents: 0, squareCatalogObjectId: SODA },
-      { priceCents: 500, squareCatalogObjectId: "CAT_SHOES" },
+      { priceCents: 11995, squareCatalogObjectId: "CAT_LANE", includedModifierCount: 1 },
+      { priceCents: 0, squareCatalogObjectId: PIZZA, includedModifierCount: 1 },
+      { priceCents: 0, squareCatalogObjectId: SODA, includedModifierCount: 1 },
+      { priceCents: 500, squareCatalogObjectId: "CAT_SHOES", includedModifierCount: 1 },
     ];
     expect(configurableFoodItems(items).map((i) => i.squareCatalogObjectId)).toEqual([PIZZA, SODA]);
   });
 
   it("skips a $0 row with no catalog object — nothing to attach modifiers to", () => {
-    expect(configurableFoodItems([{ priceCents: 0, squareCatalogObjectId: "" }])).toEqual([]);
+    expect(
+      configurableFoodItems([
+        { priceCents: 0, squareCatalogObjectId: "", includedModifierCount: 1 },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("skips a $0 item with nothing to pick — the VIP chips & salsa ride the ordinary lines", () => {
+    // Zero included picks = not guest-configured. It must stay a priced ($0)
+    // line item, because that is how it reaches the kitchen ticket today.
+    const chips = { priceCents: 0, squareCatalogObjectId: "CAT_CHIPS", includedModifierCount: 0 };
+    expect(configurableFoodItems([chips])).toEqual([]);
+    expect(isGuestConfiguredFood(chips)).toBe(false);
+  });
+
+  it("treats a missing includedModifierCount as not configurable, never as one free pick", () => {
+    expect(configurableFoodItems([{ priceCents: 0, squareCatalogObjectId: PIZZA }])).toEqual([]);
   });
 
   it("treats null and undefined as empty", () => {
@@ -337,12 +359,10 @@ describe("extras charging", () => {
 });
 
 describe("foodSelectionIssue", () => {
-  const required = ["grp_top", "grp_soda"];
-
-  it("passes when every group has a pick", () => {
+  it("passes when every item has its included pick", () => {
     expect(
       foodSelectionIssue({
-        requiredGroupIds: required,
+        foodItems: PIZZA_BOWL,
         selections: [{ grp_top: ["o_pep"], grp_soda: ["o_coke"] }],
         laneCount: 1,
       }),
@@ -352,31 +372,296 @@ describe("foodSelectionIssue", () => {
   it("blocks on a missing drink", () => {
     expect(
       foodSelectionIssue({
-        requiredGroupIds: required,
+        foodItems: PIZZA_BOWL,
         selections: [{ grp_top: ["o_pep"] }],
         laneCount: 1,
       }),
-    ).toBe("Pick an option in every group");
+    ).toBe(FOOD_REASON.pickEveryGroup);
   });
 
   it("blocks when only the FIRST lane is complete, and says so", () => {
     expect(
       foodSelectionIssue({
-        requiredGroupIds: required,
+        foodItems: PIZZA_BOWL,
         selections: [{ grp_top: ["o_pep"], grp_soda: ["o_coke"] }, {}],
         laneCount: 2,
       }),
-    ).toBe("Pick an option in every group, for every lane");
+    ).toBe(FOOD_REASON.pickEveryLane);
   });
 
-  it("fails OPEN when nothing loaded — a Square hiccup must not trap a booking", () => {
-    expect(foodSelectionIssue({ requiredGroupIds: [], selections: [], laneCount: 2 })).toBeNull();
+  it("fails CLOSED while nothing has loaded — waiting is not skipping", () => {
+    expect(foodSelectionIssue({ foodItems: undefined, selections: [], laneCount: 2 })).toBe(
+      FOOD_REASON.notLoaded,
+    );
+    expect(foodSelectionIssue({ foodItems: null, selections: [], laneCount: 1 })).toBe(
+      FOOD_REASON.notLoaded,
+    );
+  });
+
+  it("fails CLOSED when the package loaded ZERO configurable items — the 9/6 misconfiguration", () => {
+    // The step only renders for packages that bundle food, so an empty list is a
+    // seed gap, not a food-free package. Passing here is how 35 Pizza Bowls
+    // reached the kitchen with no pizza.
+    expect(foodSelectionIssue({ foodItems: [], selections: [], laneCount: 1 })).toBe(
+      FOOD_REASON.unavailable,
+    );
   });
 
   it("treats an empty selections array as incomplete, not complete", () => {
     expect(
-      foodSelectionIssue({ requiredGroupIds: required, selections: [], laneCount: 1 }),
+      foodSelectionIssue({ foodItems: PIZZA_BOWL, selections: [], laneCount: 1 }),
     ).not.toBeNull();
+  });
+});
+
+describe("the ITEM-level rule — included picks are owed even when Square declares no minimum", () => {
+  // The real Pizza Bowl pizza: TWO lists, BOTH with Square's per-item minimum
+  // unset (-1 → 0). Group-level requiredness alone reads this as "everything
+  // optional" and lets the pizza book with no topping.
+  const INCLUDED_TOPPING = {
+    id: "grp_incl",
+    name: "One included Topping",
+    selectionType: "SINGLE" as const,
+    minSelected: 0,
+    options: [
+      { id: "o_none", name: "No Topping" },
+      { id: "o_pep", name: "Pepperoni" },
+    ],
+  };
+  const PAID_TOPPINGS = {
+    id: "grp_paid",
+    name: "Pizza Toppings",
+    selectionType: "MULTIPLE" as const,
+    minSelected: 0,
+    options: [{ id: "o_bacon", name: "Bacon", priceCents: 200 }],
+  };
+  const REAL_PIZZA: FoodItem = {
+    catalogObjectId: PIZZA,
+    name: "Pizza Bowl Pizza",
+    includedModifierCount: 1,
+    extraModifierCents: 0,
+    groups: [INCLUDED_TOPPING, PAID_TOPPINGS],
+  };
+  const REAL_SODA: FoodItem = {
+    catalogObjectId: SODA,
+    name: "Pizza Bowl Soda Pitcher",
+    includedModifierCount: 1,
+    extraModifierCents: 0,
+    groups: [{ ...SODA_CHOICE, minSelected: 0 }],
+  };
+
+  it("owes one pick on an untouched pizza and none once any topping is chosen", () => {
+    expect(includedPicksOwed(REAL_PIZZA, {})).toBe(1);
+    expect(includedPicksOwed(REAL_PIZZA, { grp_incl: ["o_pep"] })).toBe(0);
+    // A PAID topping satisfies the included count too — picks pool per item.
+    expect(includedPicksOwed(REAL_PIZZA, { grp_paid: ["o_bacon"] })).toBe(0);
+  });
+
+  it("'No Topping' is a pick — declining is an answer the kitchen can act on", () => {
+    expect(includedPicksOwed(REAL_PIZZA, { grp_incl: ["o_none"] })).toBe(0);
+  });
+
+  it("blocks the lane until BOTH the pizza and the drink have their pick", () => {
+    expect(laneFoodComplete([REAL_PIZZA, REAL_SODA], { grp_incl: ["o_pep"] })).toBe(false);
+    expect(
+      laneFoodComplete([REAL_PIZZA, REAL_SODA], { grp_incl: ["o_pep"], grp_soda: ["o_coke"] }),
+    ).toBe(true);
+    expect(
+      foodSelectionIssue({
+        foodItems: [REAL_PIZZA, REAL_SODA],
+        selections: [{ grp_incl: ["o_pep"] }],
+        laneCount: 1,
+      }),
+    ).toBe(FOOD_REASON.pickEveryGroup);
+  });
+
+  it("still honours a Square minimum that is HIGHER than the included count", () => {
+    const twoSauces: FoodItem = {
+      catalogObjectId: "CAT_W",
+      name: "Wings",
+      includedModifierCount: 1,
+      extraModifierCents: 0,
+      groups: [{ ...TOPPINGS, id: "grp_sauce", minSelected: 2 }],
+    };
+    expect(laneFoodComplete([twoSauces], { grp_sauce: ["o_pep"] })).toBe(false);
+    expect(laneFoodComplete([twoSauces], { grp_sauce: ["o_pep", "o_sau"] })).toBe(true);
+  });
+});
+
+describe("withoutPaidOptions — the post-booking picker adds no money", () => {
+  it("drops priced options and any list left empty, keeps the $0 included lists", () => {
+    const pizza: FoodItem = {
+      catalogObjectId: PIZZA,
+      name: "Pizza Bowl Pizza",
+      includedModifierCount: 1,
+      extraModifierCents: 0,
+      groups: [
+        {
+          id: "g_incl",
+          name: "One included Topping",
+          selectionType: "SINGLE",
+          options: [
+            { id: "i_none", name: "No Topping" },
+            { id: "i_pep", name: "Pepperoni", priceCents: 0 },
+          ],
+        },
+        {
+          id: "g_paid",
+          name: "Pizza Toppings",
+          selectionType: "MULTIPLE",
+          options: [
+            { id: "p_pep", name: "Pepperoni", priceCents: 200 },
+            { id: "p_on", name: "Onions", priceCents: 100 },
+          ],
+        },
+      ],
+    };
+    const wings: FoodItem = {
+      catalogObjectId: "CAT_W",
+      name: "Wings",
+      includedModifierCount: 1,
+      extraModifierCents: 0,
+      groups: [
+        {
+          id: "g_cut",
+          name: "Cut",
+          selectionType: "SINGLE",
+          options: [
+            { id: "c_mixed", name: "Mixed" },
+            { id: "c_drums", name: "All Drums", priceCents: 200 },
+          ],
+        },
+      ],
+    };
+    const out = withoutPaidOptions([pizza, wings]);
+    expect(out[0].groups.map((g) => g.id)).toEqual(["g_incl"]);
+    expect(out[0].groups[0].options.map((o) => o.id)).toEqual(["i_none", "i_pep"]);
+    expect(out[1].groups[0].options.map((o) => o.id)).toEqual(["c_mixed"]);
+    // Every remaining pick is free.
+    expect(
+      extraCentsTotal({
+        foodItems: out,
+        selections: [{ g_incl: ["i_pep"], g_cut: ["c_mixed"] }],
+        laneCount: 1,
+      }),
+    ).toBe(0);
+  });
+});
+
+describe("missingRequiredFoodLines — the server backstop", () => {
+  const ITEMS = [
+    { label: "Pizza Bowl - Regular", priceCents: 6495, squareCatalogObjectId: "CAT_LANE" },
+    {
+      label: "Pizza Bowl Pizza",
+      priceCents: 0,
+      squareCatalogObjectId: PIZZA,
+      includedModifierCount: 1,
+    },
+    {
+      label: "Pizza Bowl Soda Pitcher",
+      priceCents: 0,
+      squareCatalogObjectId: SODA,
+      includedModifierCount: 1,
+    },
+    {
+      label: "VIP Chips & Salsa",
+      priceCents: 0,
+      squareCatalogObjectId: "CAT_CHIPS",
+      includedModifierCount: 0,
+    },
+  ];
+  const pizza = (note?: string) => ({ catalogObjectId: PIZZA, note });
+  const soda = (note?: string) => ({ catalogObjectId: SODA, note });
+
+  it("passes a complete one-lane booking", () => {
+    expect(
+      missingRequiredFoodLines({
+        items: ITEMS,
+        laneCount: 1,
+        rawItems: [pizza("Pepperoni"), soda("Coke")],
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects a booking with NO food lines — the exact 9/6 shape", () => {
+    expect(missingRequiredFoodLines({ items: ITEMS, laneCount: 1, rawItems: [] })).toBe(
+      "Your package includes Pizza Bowl Pizza and Pizza Bowl Soda Pitcher — pick the options before booking.",
+    );
+    expect(
+      missingRequiredFoodLines({ items: ITEMS, laneCount: 1, rawItems: undefined }),
+    ).not.toBeNull();
+  });
+
+  it("rejects a line that is present but carries no choice", () => {
+    expect(
+      missingRequiredFoodLines({
+        items: ITEMS,
+        laneCount: 1,
+        rawItems: [pizza(), soda("Coke")],
+      }),
+    ).toBe("Your package includes Pizza Bowl Pizza — pick the options before booking.");
+    expect(
+      missingRequiredFoodLines({
+        items: ITEMS,
+        laneCount: 1,
+        rawItems: [pizza("  "), soda("Coke")],
+      }),
+    ).not.toBeNull();
+  });
+
+  it("wants one noted line PER LANE, and names the lanes in the message", () => {
+    expect(
+      missingRequiredFoodLines({
+        items: ITEMS,
+        laneCount: 2,
+        rawItems: [pizza("Lane 1: Pepperoni"), soda("Lane 1: Coke")],
+      }),
+    ).toBe(
+      "Your package includes Pizza Bowl Pizza and Pizza Bowl Soda Pitcher — pick the options for every lane before booking.",
+    );
+    expect(
+      missingRequiredFoodLines({
+        items: ITEMS,
+        laneCount: 2,
+        rawItems: [
+          pizza("Lane 1: Pepperoni"),
+          soda("Lane 1: Coke"),
+          pizza("Lane 2: Bacon"),
+          soda("Lane 2: Sprite"),
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects EXTRA lines — a party that shrank to one lane must not order two pizzas", () => {
+    expect(
+      missingRequiredFoodLines({
+        items: ITEMS,
+        laneCount: 1,
+        rawItems: [pizza("Lane 1: Pepperoni"), pizza("Lane 2: Bacon"), soda("Coke")],
+      }),
+    ).not.toBeNull();
+  });
+
+  it("ignores the chips ($0, nothing to pick) and a package with no configurable food", () => {
+    expect(
+      missingRequiredFoodLines({
+        items: [ITEMS[0], ITEMS[3]],
+        laneCount: 3,
+        rawItems: [],
+      }),
+    ).toBeNull();
+    expect(missingRequiredFoodLines({ items: null, laneCount: 1, rawItems: [] })).toBeNull();
+  });
+
+  it("treats a missing or zero lane count as one lane", () => {
+    expect(
+      missingRequiredFoodLines({
+        items: ITEMS,
+        laneCount: 0,
+        rawItems: [pizza("Pep"), soda("Coke")],
+      }),
+    ).toBeNull();
   });
 });
 
@@ -473,10 +758,9 @@ describe("required vs optional groups", () => {
   });
 
   it("lets the guest through with the three required answers and nothing else", () => {
-    const required = [WING_SAUCE, WING_DIP, WING_BREADING].map((g) => g.id);
     expect(
       foodSelectionIssue({
-        requiredGroupIds: required,
+        foodItems: [GAME_DAY_WINGS],
         selections: [
           {
             [WING_SAUCE.id]: ["s_mild"],
@@ -492,7 +776,7 @@ describe("required vs optional groups", () => {
   it("still blocks when a required group is unanswered", () => {
     expect(
       foodSelectionIssue({
-        requiredGroupIds: [WING_SAUCE.id, WING_DIP.id, WING_BREADING.id],
+        foodItems: [GAME_DAY_WINGS],
         selections: [{ [WING_SAUCE.id]: ["s_mild"], [WING_DIP.id]: ["d_ranch"] }],
         laneCount: 1,
       }),

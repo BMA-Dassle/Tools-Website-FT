@@ -61,6 +61,11 @@ import {
 import { prefillPartyMembers } from "./party-prefill";
 import { kioskVoucherPrefillEnabled } from "../flags";
 import { CheckinBowlingDetails } from "./CheckinBowlingDetails";
+import {
+  PackageFoodEditor,
+  type FoodEditorStatus,
+  type PackageFoodEditorHandle,
+} from "~/components/features/bowling/PackageFoodEditor";
 import { useWedgeScan } from "./wedge-scan";
 import { useQrScanner, takeScanGate } from "../qr-scanner";
 import { playScanSound } from "../sound";
@@ -1895,6 +1900,12 @@ function LaneOpenPanel(props: {
   const t = useT();
   const [phase, setPhase] = useState<"idle" | "ready" | "opening" | "open" | "failed">("idle");
   const [laneLabel, setLaneLabel] = useState(props.laneLabel);
+  // Package food (Pizza Bowl pizza + drink): the lane does not open until it is
+  // picked (owner 2026-09-06). The shared editor loads the booking's picks; the
+  // button waits on `complete`, and openLane saves the picks first.
+  const foodRef = useRef<PackageFoodEditorHandle>(null);
+  const [foodStatus, setFoodStatus] = useState<FoodEditorStatus | null>(null);
+  const foodReady = !foodStatus?.hasFood || foodStatus.complete;
 
   useEffect(() => {
     if (!interactive || phase !== "idle") return;
@@ -1930,6 +1941,14 @@ function LaneOpenPanel(props: {
     setPhase("opening");
     props.onBusyChange(true);
     try {
+      if (foodStatus?.hasFood) {
+        const food = await foodRef.current?.save();
+        if (!food?.ok) {
+          // The editor shows the reason inline; stay on the ready screen.
+          setPhase("ready");
+          return;
+        }
+      }
       const res = await fetch(`/api/bowling/v2/reservations/${neonReservationId}/checkin`, {
         method: "POST",
       });
@@ -1981,10 +2000,23 @@ function LaneOpenPanel(props: {
         {t("checkin.lane.ready", { lane: laneLabel })}
       </div>
       <p className="mt-[8px] text-[26px] text-white/60">{t("checkin.lane.readyBody")}</p>
+      <div hidden={!foodStatus?.hasFood} className="mt-[20px] rounded-2xl bg-white/5 p-[20px]">
+        {!foodReady && (
+          <p className="mb-[12px] text-[24px] text-[#f0b341]">{t("food.edit.pickFirst")}</p>
+        )}
+        <PackageFoodEditor
+          ref={foodRef}
+          neonId={neonReservationId}
+          mode="embedded"
+          accent="#2dd4ea"
+          hideHeading
+          onStatus={setFoodStatus}
+        />
+      </div>
       <button
         type="button"
         onClick={openLane}
-        disabled={phase === "opening"}
+        disabled={phase === "opening" || !foodReady}
         className="k-btn-primary k-tap mt-[20px] h-[96px] w-full text-[32px] disabled:opacity-40"
       >
         {phase === "opening"

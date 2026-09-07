@@ -39,6 +39,29 @@ import { FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
 let schemaReady = false;
 
+/**
+ * The Pizza Bowl's guest-configured $0 food. Shared by ensureBowlingSchema's
+ * self-heal and the seed scripts. `sortOrder` starts at 10 so these never
+ * collide with the primary (0) or the VIP chips (1); the food step orders by
+ * item order, pizza before drink.
+ */
+export const PIZZA_BOWL_BUNDLED_FOOD = [
+  {
+    label: "Pizza Bowl Pizza",
+    catalogObjectId: "2IKZB4O2HQBXWMTSUQ2SEKJY",
+    sortOrder: 10,
+    includedModifierCount: 1,
+    extraModifierCents: 0,
+  },
+  {
+    label: "Pizza Bowl Soda Pitcher",
+    catalogObjectId: "SJUBJLB4QGHIHCW5AKTTMLH7",
+    sortOrder: 11,
+    includedModifierCount: 1,
+    extraModifierCents: 0,
+  },
+] as const;
+
 export async function ensureBowlingSchema(): Promise<void> {
   if (schemaReady) return;
   if (!isDbConfigured()) return;
@@ -114,17 +137,65 @@ export async function ensureBowlingSchema(): Promise<void> {
   // exactly one choice per group (one topping, one drink, one heat level).
   await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS included_modifier_count INTEGER NOT NULL DEFAULT 1`;
   await q`ALTER TABLE bowling_experience_items ADD COLUMN IF NOT EXISTS extra_modifier_cents INTEGER NOT NULL DEFAULT 0`;
-  // Backfill so the behaviour does not change the moment this deploys: the
-  // Pizza Bowl PIZZA item has always charged $1 per extra topping (the old
-  // hardcoded PIZZA_BOWL_FREE_TOPPINGS / EXTRA_TOPPING_CENTS pair). Without
-  // this, extra toppings would silently become free until the seed is re-run.
-  // Guarded on `= 0` so a later deliberate change is never clobbered.
+  // `included_modifier_count` MEANS "the package includes N picks on this item,
+  // so the guest must make N" (food-config.ts). A $0 item with nothing to pick
+  // (VIP chips & salsa) is therefore 0 — and MUST be, because >0 on a $0 item
+  // marks it guest-configured food, which travels as noted rawItems instead of
+  // a line item and is required by the reserve rails. The column default of 1
+  // predates that meaning; fix the one plain $0 item we have.
   await q`
     UPDATE bowling_experience_items
-       SET extra_modifier_cents = 100
-     WHERE square_catalog_object_id = '2IKZB4O2HQBXWMTSUQ2SEKJY'
-       AND extra_modifier_cents = 0
+       SET included_modifier_count = 0
+     WHERE square_catalog_object_id = 'LHZXWYO72N5QFX4CGYKRVPZX'
+       AND included_modifier_count <> 0
   `;
+
+  // ── Pizza Bowl bundled food — SELF-HEALING config (2026-09-06) ─────
+  // The food step went config-driven on 2026-08-25 ("a new package is a seed
+  // row") but the Pizza Bowl's own $0 pizza + soda pitcher rows were never
+  // seeded — the backfill that used to sit here targeted a row that did not
+  // exist. With nothing to configure the step failed open, and every Pizza Bowl
+  // for twelve days reached the kitchen with no food on the day-of order (35 on
+  // 9/6 alone). The step now fails CLOSED, so these rows are load-bearing: a
+  // database without them cannot sell a Pizza Bowl. The app therefore
+  // guarantees them itself rather than trusting an ops step to run a script
+  // after every deploy. Idempotent: products upsert DO NOTHING (an existing row
+  // is owner-managed), items insert only where missing.
+  //
+  // extra_modifier_cents is 0, not the old $1: Square now prices the paid
+  // "Pizza Toppings" list itself (+$1/+$2 per topping, 2026-09-01), and the
+  // published price must match the catalog — charging our $1 on top would
+  // double-bill. The included pick comes from the $0 "One included Topping"
+  // list. The seed scripts carry the same rows so a full re-seed keeps them.
+  for (const catalog of PIZZA_BOWL_BUNDLED_FOOD) {
+    for (const center of ["TXBSQN0FEKQ11", "PPTR5G2N0QXF7"]) {
+      await q`
+        INSERT INTO bowling_square_products
+          (center_code, product_kind, label, square_catalog_object_id,
+           price_cents, deposit_pct, sort_order, is_active)
+        VALUES (${center}, 'open', ${catalog.label}, ${catalog.catalogObjectId}, 0, 100, ${catalog.sortOrder}, TRUE)
+        ON CONFLICT (center_code, product_kind, square_catalog_object_id) DO NOTHING
+      `;
+    }
+    await q`
+      INSERT INTO bowling_experience_items
+        (experience_id, square_product_id, square_catalog_object_id, quantity,
+         label_override, sort_order, center_code, included_modifier_count, extra_modifier_cents)
+      SELECT e.id,
+             (SELECT p.id FROM bowling_square_products p
+               WHERE p.square_catalog_object_id = ${catalog.catalogObjectId}
+                 AND p.center_code = 'TXBSQN0FEKQ11' LIMIT 1),
+             ${catalog.catalogObjectId}, 1, NULL, ${catalog.sortOrder}, NULL,
+             ${catalog.includedModifierCount}, ${catalog.extraModifierCents}
+        FROM bowling_experiences e
+       WHERE e.slug IN ('pizza-bowl', 'pizza-bowl-vip')
+         AND NOT EXISTS (
+           SELECT 1 FROM bowling_experience_items bei
+            WHERE bei.experience_id = e.id
+              AND bei.square_catalog_object_id = ${catalog.catalogObjectId}
+         )
+    `;
+  }
 
   // ── bowling_experience_offers ────────────────────────────────────
   // Maps an experience to the QAMF web offer ID at a specific center.

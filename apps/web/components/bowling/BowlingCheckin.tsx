@@ -1,6 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import {
+  PackageFoodEditor,
+  type FoodEditorStatus,
+  type PackageFoodEditorHandle,
+} from "~/components/features/bowling/PackageFoodEditor";
 import { useSearchParams } from "next/navigation";
 import BrandNav from "@/components/BrandNav";
 import type {
@@ -404,6 +409,14 @@ function CheckinContent() {
   const [phase, setPhase] = useState<string>("");
   const [openError, setOpenError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Package food (Pizza Bowl pizza + drink). The lane does not open until it is
+  // picked (owner 2026-09-06) — the kitchen ticket fires at lane-open. The
+  // editor reports whether this booking has food at all and whether it is
+  // complete; the Open button waits on both, and saving the picks is the first
+  // thing handleOpenLane does.
+  const foodRef = useRef<PackageFoodEditorHandle>(null);
+  const [foodStatus, setFoodStatus] = useState<FoodEditorStatus | null>(null);
+  const foodReady = !foodStatus?.hasFood || foodStatus.complete;
 
   // ── Data fetching ──────────────────────────────────────────────
   useEffect(() => {
@@ -574,6 +587,13 @@ function CheckinContent() {
     }
 
     try {
+      // 0. Save the package food picks (Pizza Bowl) — the server refuses to
+      //    open a lane whose food is missing, so this goes first.
+      if (foodStatus?.hasFood) {
+        const food = await foodRef.current?.save();
+        if (!food?.ok) throw new Error(food?.error ?? "Pick your pizza and drink first.");
+      }
+
       // 1. Save players
       const saveRes = await fetch(`/api/bowling/v2/reservations/${neonId}/players`, {
         method: "PATCH",
@@ -868,6 +888,37 @@ function CheckinContent() {
                 </p>
               </div>
 
+              {/* Package food first — a Pizza Bowl's pizza + drink, prefilled from
+                  the booking and required before the lane opens. Hidden for
+                  packages without food (the editor says so via onStatus). */}
+              <div
+                hidden={!foodStatus?.hasFood}
+                className="rounded-xl border p-4"
+                style={{
+                  borderColor: foodReady ? "rgba(255,255,255,0.1)" : "rgba(251,191,36,0.5)",
+                  backgroundColor: foodReady ? "rgba(255,255,255,0.03)" : "rgba(251,191,36,0.06)",
+                }}
+              >
+                <div
+                  className="uppercase font-bold mb-3"
+                  style={{
+                    color: foodReady ? GOLD : "#fbbf24",
+                    fontSize: "10px",
+                    letterSpacing: "2.5px",
+                  }}
+                >
+                  {foodReady ? "Your pizza & drink" : "Pick your pizza & drink first"}
+                </div>
+                <PackageFoodEditor
+                  ref={foodRef}
+                  neonId={neonId}
+                  mode="embedded"
+                  accent={CORAL}
+                  hideHeading
+                  onStatus={setFoodStatus}
+                />
+              </div>
+
               {/* Bowler cards — all expanded for express check-in */}
               <div className="space-y-3">
                 {players.map((player, i) => (
@@ -947,7 +998,7 @@ function CheckinContent() {
             <button
               type="button"
               onClick={() => void handleOpenLane()}
-              disabled={stage === "opening" || !hasAnyName}
+              disabled={stage === "opening" || !hasAnyName || !foodReady}
               className="w-full py-4 rounded-2xl font-body font-black uppercase tracking-wider text-white text-base transition-all hover:scale-[1.02] active:scale-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
               style={{
                 background:
@@ -955,7 +1006,9 @@ function CheckinContent() {
                     ? "rgba(34,197,94,0.3)"
                     : "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
                 boxShadow:
-                  stage !== "opening" && hasAnyName ? "0 4px 24px rgba(34,197,94,0.4)" : "none",
+                  stage !== "opening" && hasAnyName && foodReady
+                    ? "0 4px 24px rgba(34,197,94,0.4)"
+                    : "none",
               }}
             >
               {stage === "opening" ? (
@@ -970,6 +1023,11 @@ function CheckinContent() {
             {!hasAnyName && stage === "express" && (
               <p className="text-center text-white/30 text-xs mt-2">
                 Enter at least one bowler name to continue
+              </p>
+            )}
+            {hasAnyName && !foodReady && stage === "express" && (
+              <p className="text-center text-xs mt-2" style={{ color: "#fbbf24" }}>
+                Pick your pizza topping and drink to open the lane
               </p>
             )}
           </div>

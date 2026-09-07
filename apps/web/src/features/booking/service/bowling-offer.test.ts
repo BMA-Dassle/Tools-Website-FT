@@ -140,6 +140,50 @@ describe("buildBowlingLineItems", () => {
     const lines = buildBowlingLineItems(makeExp(), opt90, 4, 1);
     expect(lines[0]).toMatchObject({ squareProductId: 100, quantity: 1, priceCents: 3999 });
   });
+
+  it("leaves GUEST-CONFIGURED food out of the lines — it rides rawItems with the picks", () => {
+    // The real Pizza Bowl VIP: lane + $0 chips (plain, stays a line) + the $0
+    // pizza and pitcher the guest configures (must NOT become bare lines, or the
+    // pre-created day-of order carries an unnoted copy and the reserve rail skips
+    // the noted one as already attached).
+    const exp = makeExp({
+      slug: "pizza-bowl-vip",
+      kind: "open",
+      items: [
+        makeItem({ label: "Pizza Bowl - VIP", priceCents: 7995 }),
+        makeItem({
+          id: 2,
+          squareProductId: 109,
+          label: "VIP Chips & Salsa",
+          priceCents: 0,
+          squareCatalogObjectId: "CAT_CHIPS",
+          sortOrder: 1,
+          includedModifierCount: 0,
+        }),
+        makeItem({
+          id: 3,
+          squareProductId: 140,
+          label: "Pizza Bowl Pizza",
+          priceCents: 0,
+          squareCatalogObjectId: "CAT_PIZZA",
+          sortOrder: 10,
+          includedModifierCount: 1,
+        }),
+        makeItem({
+          id: 4,
+          squareProductId: 141,
+          label: "Pizza Bowl Soda Pitcher",
+          priceCents: 0,
+          squareCatalogObjectId: "CAT_SODA",
+          sortOrder: 11,
+          includedModifierCount: 1,
+        }),
+      ],
+    });
+    const lines = buildBowlingLineItems(exp, null, 6, 2);
+    expect(lines.map((l) => l.label)).toEqual(["Pizza Bowl - VIP", "VIP Chips & Salsa"]);
+    expect(lines.map((l) => l.quantity)).toEqual([2, 2]);
+  });
 });
 
 describe("effectiveBowlingOptionId (Pizza Bowl short-booking guard)", () => {
