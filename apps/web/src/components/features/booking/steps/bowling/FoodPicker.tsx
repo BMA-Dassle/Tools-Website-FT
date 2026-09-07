@@ -172,11 +172,13 @@ export function FoodPicker({
                     : group.maxSelected
                       ? t("food.pickUpTo", { n: group.maxSelected })
                       : t("food.pickAny");
-                // A list Square leaves un-minimumed on an item that still owes
-                // its included pick is not "optional" from the guest's seat —
-                // the pick can come from any of the item's lists. Only call a
-                // list optional once the item itself is satisfied.
-                const showOptional = !required && owed === 0 && food.includedModifierCount > 0;
+                // "Optional" is for a list the package does not pay for — a
+                // paid-extras list (every option priced) or any list on an item
+                // with no included picks. The Pizza Bowl's "One included
+                // Topping" list is un-minimumed in Square but it IS the included
+                // pick, so it never reads Optional, picked or not.
+                const allPaid = group.options.every((o) => (o.priceCents ?? 0) > 0);
+                const showOptional = !required && (allPaid || food.includedModifierCount === 0);
 
                 return (
                   <div key={group.id}>
