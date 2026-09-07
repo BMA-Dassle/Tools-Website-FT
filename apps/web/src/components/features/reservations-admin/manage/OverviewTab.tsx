@@ -96,10 +96,13 @@ export default function OverviewTab({
   detail,
   boardRow,
   token,
+  onSaved,
 }: {
   detail: ReservationDetail;
   boardRow: Reservation;
   token: string;
+  /** Called after an in-tab save (package food) so the modal refetches. */
+  onSaved?: (msg: string) => void;
 }) {
   const r = detail.reservation;
   const multi = detail.group.length > 1;
@@ -210,7 +213,11 @@ export default function OverviewTab({
       {/* Package food (Pizza Bowl pizza + drink) — staff can change it at any
           time, lane open or not (owner 2026-09-06). Renders only when the
           package has configurable food. */}
-      <PackageFoodCard neonId={r.id} token={token} />
+      <PackageFoodCard
+        neonId={r.id}
+        token={token}
+        onSaved={() => onSaved?.("Pizza & drink updated")}
+      />
 
       <Card title="Line items">
         {lines.length === 0 ? (

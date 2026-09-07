@@ -401,7 +401,9 @@ export default function ManageReservationModal({
         )}
         {detail && (
           <>
-            {tab === "Overview" && <OverviewTab detail={detail} boardRow={r} token={token} />}
+            {tab === "Overview" && (
+              <OverviewTab detail={detail} boardRow={r} token={token} onSaved={mutated} />
+            )}
             {tab === "Payments" && (
               <PaymentsTab
                 payments={detailState.payments}

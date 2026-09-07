@@ -18,7 +18,16 @@ import {
 } from "~/components/features/bowling/PackageFoodEditor";
 import { Card } from "./ui";
 
-export function PackageFoodCard({ neonId, token }: { neonId: number; token: string }) {
+export function PackageFoodCard({
+  neonId,
+  token,
+  onSaved,
+}: {
+  neonId: number;
+  token: string;
+  /** Fires after a successful save so the modal refetches the detail (line items, board row). */
+  onSaved?: () => void;
+}) {
   const [status, setStatus] = useState<FoodEditorStatus | null>(null);
   const hasFood = !!status?.hasFood;
   return (
@@ -36,6 +45,7 @@ export function PackageFoodCard({ neonId, token }: { neonId: number; token: stri
             accent="#00E2E5"
             hideHeading
             onStatus={setStatus}
+            onSaved={onSaved}
           />
         </div>
       </Card>

@@ -724,6 +724,9 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const hasNeonRecord = neonId > 0;
 
   const [reservation, setReservation] = useState<ReservationWithLines | null>(null);
+  // Bumped after a food edit saves, so the ORDER list on the left re-reads the
+  // stored lines instead of showing the picks the guest just changed away from.
+  const [reservationTick, setReservationTick] = useState(0);
   const [fetchError, setFetchError] = useState(false);
 
   // ── Bowler details state ─────────────────────────────────────────
@@ -1122,7 +1125,8 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [codeParam, legacyNeonId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codeParam, legacyNeonId, reservationTick]);
 
   // Fetch player rows after the reservation loads
   useEffect(() => {
@@ -1864,6 +1868,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                         hideHeading
                         onStatus={setFoodStatus}
                         onSaved={() => {
+                          setReservationTick((t) => t + 1);
                           setTimeout(() => setPizzaEditOpen(false), 1500);
                         }}
                       />
