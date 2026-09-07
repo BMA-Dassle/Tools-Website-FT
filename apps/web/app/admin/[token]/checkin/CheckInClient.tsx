@@ -17,8 +17,10 @@ import {
 } from "~/features/signage/nx/camera-preview";
 // Pure constants — no server import behind them, so a value import is safe.
 import { GREETING_TIMING_DEFAULTS } from "~/features/signage/briefing/return-greeting";
-// Pure fold over the log the page already polls — no server import behind it.
-import { briefedTodayByHost } from "~/features/signage/briefing/briefing-log";
+// The pill every Track Ops surface draws, and the pure fold's shapes behind it
+// — no server import behind either (see crew-list.ts's header).
+import { CrewPill } from "~/components/features/crew/CrewPill";
+import type { CrewBoard } from "~/features/staff/crew-list";
 import { PORTAL_PIT_BOARD_TV_URL } from "~/lib/constants/admin-tools";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import {
@@ -41,14 +43,15 @@ const GREEN = "#4ade80";
 const RED = "#ff4d4f";
 /**
  * The blue accent — blue-400/blue-300 over the navy, the same pair the pit
- * board TV uses. It marks the two things on this page that point AT that board:
- * the link to it, and the top briefer in the strip under the header. Not
- * PORTAL_BLUE, which is the portal's solid button blue and too dark to read as
- * text on this background.
+ * board TV uses. It marks the one thing on this page that points AT that board:
+ * the link to it. Not PORTAL_BLUE, which is the portal's solid button blue and
+ * too dark to read as text on this background.
+ *
+ * (The Track Ops strip's own blue — the top-briefer tint — lives with the rest
+ * of that palette in ~/lib/constants/crew.ts, because the walls draw the same
+ * pill and had to be able to reach it.)
  */
 const ACCENT_BORDER = "rgba(96,165,250,.55)";
-/** Fainter, for the top-briefer pill — a tint, not a link. */
-const ACCENT_BORDER_SOFT = "rgba(96,165,250,.45)";
 const ACCENT_TEXT = "#93c5fd";
 
 /**
@@ -202,43 +205,29 @@ function TimingChip({ timing, serverNowMs }: { timing?: TimingFeedStatus; server
   );
 }
 
-/** The checkered flag, 13px. Inline because it is used once and is nine paths —
- *  a sprite or an icon-pack import would cost more than it saves. */
-function FlagIcon() {
-  return (
-    <svg width={13} height={13} viewBox="0 0 16 16" aria-hidden focusable="false">
-      <path fill="currentColor" d="M2 1h1v14H2z" />
-      <path fill="currentColor" d="M3 1h10v7H3z" />
-      <path
-        fill={PORTAL_DARK.card}
-        d="M3 1h2.5v1.75H3zM8 1h2.5v1.75H8zM5.5 2.75H8v1.75H5.5zM10.5 2.75H13v1.75h-2.5zM3 4.5h2.5v1.75H3zM8 4.5h2.5v1.75H8zM5.5 6.25H8V8H5.5zM10.5 6.25H13V8h-2.5z"
-      />
-    </svg>
-  );
-}
-
 /**
- * BRIEFED TODAY — who has run how many groups, in the empty band under the
- * header (owner 2026-09-07).
+ * TRACK OPS — who is on the floor right now, what each of them is running, and
+ * how many groups they have briefed today (owner 2026-09-07).
  *
  * WHY IT BELONGS HERE and not in the Briefing log panel: the log answers "what
  * happened to that group", one row at a time, and you open it to ask. This
- * answers "how is the night being shared out", which nobody opens a panel to
- * ask and everybody wants to know at a glance — so it lives on the board, in a
+ * answers "who can I send to the next group", which nobody opens a panel to ask
+ * and everybody wants to know at a glance — so it lives on the board, in a
  * strip that was already empty.
  *
- * NO FETCH. Every record it counts is in `briefing.board.briefings`, which the
- * page polls anyway for the log's count badge; this is arithmetic over state,
- * so it cannot be stale relative to the rest of the board and cannot fail on
- * its own.
+ * IT IS NOT A LIST OF BRIEFERS, and that is the change from the first cut. That
+ * one counted the briefing log the page already had, so it could only answer
+ * "who has briefed" — it grew all evening, kept people who had gone home, and
+ * never showed the person who has been available for an hour. The list is now
+ * the portal pit board's current Track Ops crew plus anyone holding a group,
+ * decided server-side in ONE fold (features/staff/crew-list.ts) that the
+ * session-status panels read too, so the desk and the walls cannot disagree
+ * about who is on the floor.
+ *
+ * The totals on the right still count the DAY, so a night's nine groups stay
+ * nine after the person who ran four of them has gone home.
  */
-function BriefedTodayStrip({
-  briefings,
-}: {
-  briefings: ReadonlyArray<{ host: string | null; sessionId: string }>;
-}) {
-  const { hosts, unattributed, groups } = briefedTodayByHost(briefings);
-
+function TrackOpsStrip({ crew }: { crew: CrewBoard }) {
   return (
     <div
       className="flex items-center gap-2 px-6 pt-1.5 pb-3 border-b flex-wrap"
@@ -248,50 +237,31 @@ function BriefedTodayStrip({
         className="text-[10px] font-bold uppercase"
         style={{ color: PORTAL_DARK.muted, letterSpacing: "0.14em", marginRight: 4 }}
       >
-        Briefed today
+        Track Ops
       </span>
-      {hosts.length === 0 ? (
+      {crew.list.length === 0 && crew.rosterAvailable && (
         <span className="text-xs" style={{ color: PORTAL_DARK.muted }}>
-          No briefings yet today
+          Nobody on Track Ops right now
         </span>
-      ) : (
-        hosts.map((h, i) => {
-          // THE TOP BRIEFER IS TINTED, and only ever one of them: the strip is
-          // sorted, so index 0 is the answer to "who is carrying tonight".
-          const top = i === 0;
-          return (
-            <span
-              key={h.host}
-              className="inline-flex items-center text-xs font-semibold"
-              style={{
-                gap: 7,
-                padding: "4px 10px 4px 9px",
-                borderRadius: 999,
-                backgroundColor: PORTAL_DARK.card,
-                border: `1px solid ${top ? ACCENT_BORDER_SOFT : PORTAL_DARK.border}`,
-                color: PORTAL_DARK.fg,
-              }}
-            >
-              <span style={{ color: PORTAL_DARK.muted, display: "inline-flex" }}>
-                <FlagIcon />
-              </span>
-              {h.host}
-              <b
-                style={{
-                  fontWeight: 800,
-                  fontVariantNumeric: "tabular-nums",
-                  color: top ? ACCENT_TEXT : PORTAL_DARK.fg,
-                }}
-              >
-                {h.briefed}
-              </b>
-            </span>
-          );
-        })
+      )}
+      {crew.list.map((entry) => (
+        <CrewPill key={entry.userId} entry={entry} density="desk" />
+      ))}
+      {/* THE PORTAL COULD NOT BE REACHED. Said out loud, because the list is
+          then only the people holding a group — a short strip that would
+          otherwise read as a quiet floor. */}
+      {!crew.rosterAvailable && (
+        <span
+          className="text-[11px] italic"
+          style={{ color: PORTAL_DARK.muted }}
+          title="The portal's pit board roster is unreachable, so only staff currently running a group are listed"
+        >
+          roster unavailable
+        </span>
       )}
       {/* The night's shape in one faint line. `unattributed` is omitted at zero
           — a normal night should not carry a permanent "0 unattributed". */}
-      {groups > 0 && (
+      {crew.groups > 0 && (
         <span
           className="text-[11px]"
           style={{
@@ -300,14 +270,14 @@ function BriefedTodayStrip({
             fontVariantNumeric: "tabular-nums",
           }}
           title={
-            unattributed > 0
+            crew.unattributed > 0
               ? "Unattributed groups were briefed before anybody typed a punch ID, or before hosts were recorded"
               : undefined
           }
         >
-          {groups} {groups === 1 ? "group" : "groups"} · {hosts.length}{" "}
-          {hosts.length === 1 ? "briefer" : "briefers"}
-          {unattributed > 0 ? ` · ${unattributed} unattributed` : ""}
+          {crew.groups} {crew.groups === 1 ? "group" : "groups"} · {crew.briefers}{" "}
+          {crew.briefers === 1 ? "briefer" : "briefers"}
+          {crew.unattributed > 0 ? ` · ${crew.unattributed} unattributed` : ""}
         </span>
       )}
     </div>
@@ -1849,10 +1819,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
         </div>
       </div>
 
-      {/* Board mode only: a plain check-in station briefs nobody, so the strip
-          would be a permanent "No briefings yet today" on a screen that will
-          never have any. */}
-      {boardMode && <BriefedTodayStrip briefings={briefing.board?.briefings ?? []} />}
+      {/* Board mode only: a plain check-in station sends nobody to a room, so
+          the strip would be furniture on a screen that never acts on it. */}
+      {boardMode && briefing.board?.crew && <TrackOpsStrip crew={briefing.board.crew} />}
 
       {/* Active sessions — check-in counts.
           HIDDEN IN BOARD MODE (owner 2026-08-12: "in board mode move the number

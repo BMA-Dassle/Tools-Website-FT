@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { briefedTodayByHost, foldBriefingLog } from "./briefing-log";
+import { foldBriefingLog } from "./briefing-log";
 import type { BriefingEvent, BriefingEventAction } from "./events-db";
 import { HELMET_PHASE_MS } from "./types";
 
@@ -276,62 +276,5 @@ describe("foldBriefingLog", () => {
     expect(rec.photoUrl).toBe("https://blob/x.jpg");
     expect(rec.startedAtMs).toBeNull();
     expect(rec.filmCompleted).toBe(false);
-  });
-});
-
-describe("briefedTodayByHost", () => {
-  /** The two fields the tally reads — the rest of a BriefingRecord is irrelevant. */
-  const b = (host: string | null, sessionId: string) => ({ host, sessionId });
-
-  it("counts a group per host and totals the night", () => {
-    const out = briefedTodayByHost([
-      b("Pedro", "1"),
-      b("Pedro", "2"),
-      b("Anthony", "3"),
-      b("Pedro", "4"),
-    ]);
-    expect(out.hosts).toEqual([
-      { host: "Pedro", briefed: 3 },
-      { host: "Anthony", briefed: 1 },
-    ]);
-    expect(out.groups).toBe(4);
-    expect(out.unattributed).toBe(0);
-  });
-
-  it("counts a Mega-night group in both rooms ONCE", () => {
-    // foldBriefingLog emits one record per (room, session); the group was
-    // briefed once, by one person.
-    const out = briefedTodayByHost([b("Ivan", "58509552"), b("Ivan", "58509552"), b("Ivan", "77")]);
-    expect(out.hosts).toEqual([{ host: "Ivan", briefed: 2 }]);
-    expect(out.groups).toBe(2);
-  });
-
-  it("reports sessions nobody claimed instead of dropping them", () => {
-    const out = briefedTodayByHost([
-      b("Lexiel", "1"),
-      b(null, "2"),
-      b(null, "2"), // both rooms, still one unclaimed group
-      b(null, "3"),
-    ]);
-    expect(out.hosts).toEqual([{ host: "Lexiel", briefed: 1 }]);
-    expect(out.unattributed).toBe(2);
-    expect(out.groups).toBe(3);
-    // The invariant the strip's "N groups · M briefers · K unattributed" line
-    // relies on: every session is somewhere, and counted once.
-    expect(out.hosts.reduce((n, h) => n + h.briefed, 0) + out.unattributed).toBe(out.groups);
-  });
-
-  it("is empty, not undefined, before the first briefing of the day", () => {
-    expect(briefedTodayByHost([])).toEqual({ hosts: [], unattributed: 0, groups: 0 });
-  });
-
-  it("sorts by count desc, then by name so the order is stable between polls", () => {
-    const out = briefedTodayByHost([
-      b("Samuel", "1"),
-      b("Joel", "2"),
-      b("Anthony", "3"),
-      b("Anthony", "4"),
-    ]);
-    expect(out.hosts.map((h) => h.host)).toEqual(["Anthony", "Joel", "Samuel"]);
   });
 });

@@ -19,6 +19,8 @@ import "server-only";
  *      control board therefore cannot get out of step with the room.
  */
 import { businessDayYmdET } from "@/lib/race-business-day";
+import { crewBoardFrom } from "~/features/staff/crew.server";
+import type { CrewBoard } from "~/features/staff/crew-list";
 import { readPitLanes } from "../pit/lane.server";
 import type { PitLanes } from "../pit/pit-board";
 import { calledAtMsFor, sessionCheckinTimes } from "../service/checkin-progress";
@@ -633,6 +635,18 @@ export interface BriefingBoardStatus {
    * existing 5s poll rather than a new one — this is a Redis GET.
    */
   timing: TimingFeedStatus;
+  /**
+   * WHO IS ON TRACK OPS RIGHT NOW, what each of them is running, and how many
+   * groups they have briefed today (owner 2026-09-07).
+   *
+   * Built server-side rather than folded on the board, unlike the strip it
+   * replaces: the old one counted the briefing log the page already had, which
+   * could only ever answer "who has briefed", and the question is "who can I
+   * send to the next group". Answering that needs the portal's roster and our
+   * own race map, and it must be answered identically here and on the walls —
+   * so it is one fold (features/staff/crew-list.ts) feeding both.
+   */
+  crew: CrewBoard;
 }
 
 /**
@@ -807,13 +821,28 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     readTimingFeedStatus(now),
   ]);
 
-  const [groupsOut, briefedSessions] = await Promise.all([
+  const [groupsOut, briefedSessions, crew] = await Promise.all([
     Promise.all(
       BRIEFING_ROOMS.map((room) => lastGroupOut(room, assignments, now).catch(() => null)),
     ),
     // Asked about today's sends only — the bounded set the Called box can be
     // showing — and answered in one MGET however long the night gets.
     sessionsBriefed(assignments.map((a) => a.sessionId)),
+    /**
+     * THE TRACK OPS STRIP — built here from the lanes and rooms this poll has
+     * already read, so the strip cannot describe a different floor from the
+     * Holding panel beside it. Its own inputs are cached to their cost (see
+     * crew.server.ts); a total failure is an empty list, never a failed poll.
+     */
+    crewBoardFrom({ lanes, rooms, nowMs: now, businessDay }).catch(
+      (): CrewBoard => ({
+        list: [],
+        unattributed: 0,
+        groups: 0,
+        briefers: 0,
+        rosterAvailable: false,
+      }),
+    ),
   ]);
 
   // ONE mget for both rooms — a per-room read here would be two Redis calls on
@@ -888,5 +917,6 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     raceBookmarks: { enabled: raceBookmarks },
     cameraPreview: { mode: cameraPreview },
     timing,
+    crew,
   };
 }

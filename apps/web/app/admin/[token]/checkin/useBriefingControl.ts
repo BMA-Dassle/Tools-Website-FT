@@ -37,6 +37,7 @@ import type { GroupOut } from "~/features/signage/briefing/room-return";
 import type { BriefingRecord } from "~/features/signage/briefing/briefing-log";
 import type { LiveResolution, CameraPreviewMode } from "~/features/signage/nx/camera-preview";
 import type { PitLanes } from "~/features/signage/pit/pit-board";
+import type { CrewBoard } from "~/features/staff/crew-list";
 
 export interface RoomStatus {
   room: BriefingRoom;
@@ -126,6 +127,19 @@ export interface BoardStatus {
    * "unknown" rather than inventing a red DOWN for a feed that is fine.
    */
   timing?: TimingFeedStatus;
+  /**
+   * WHO IS ON TRACK OPS RIGHT NOW — the strip under the header.
+   *
+   * The type is imported rather than mirrored, unlike `timing` above: the fold
+   * that produces it (features/staff/crew-list.ts) is PURE, so a client file
+   * can name its shapes without dragging Redis into the bundle. That is the
+   * point of keeping the fold pure — the same declaration serves the board, the
+   * walls and the tests.
+   *
+   * Optional for the same older-deploy reason as the fields above it: a station
+   * on the previous build gets `undefined` and simply renders no strip.
+   */
+  crew?: CrewBoard;
 }
 
 /** Mirrors TimingFeedStatus in ~/features/racing/timing-feed.server.ts. */
