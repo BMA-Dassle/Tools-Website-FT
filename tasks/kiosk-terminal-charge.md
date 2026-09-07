@@ -21,6 +21,15 @@ Flow: `rebuild-if-expired → PREPARE (server) → reader tap (client) → RESER
   the deposit order from `baseKey`, GETs the payment and asserts `COMPLETED + order_id + amount + location`
   (hard-fail → page on-call, NEVER re-charge), activates the GC **order-linked**. Downstream fan-out unchanged
   (`depositResult` shape identical).
+- **REWARDS on this rail (2026-09-06).** Prepare and finalize must land on the SAME cents, so the reward is
+  priced FLAT: `depositCents = round(preRewardDayofTotal * depositPct / 100) - rewardDiscountCents`, on both
+  passes. The kiosk gate sends `loyaltyAccountId` / `rewardTierId` / `rewardDiscountCents` to `reserve-prepare`
+  (same three fields as `reserve-all`); the server verifies the claimed cents against the tier's
+  `fixed_discount_money` (`fetchRewardTier`) on both passes and the account balance (`fetchLoyaltyBalance`) on
+  prepare — refusals happen BEFORE the reader is armed. The Square reward is created on FINALIZE only, against
+  `squareDayofOrderId` (the day-of order, never the deposit order; Game Zone card lines ride the deposit order at
+  full price). A finalize-time reward failure logs `REWARD NOT ISSUED AFTER CAPTURE` and proceeds — money is
+  already captured, never strand it.
 
 ### Why no double charge / no orphan
 - Terminal branch calls **no** `authorizeMultiTender`/`payOrder` — structurally no token to re-charge.

@@ -140,6 +140,14 @@ export function KioskTerminalCheckoutGate({
               email: contact.email,
               phone: contact.phone,
             },
+            // The selected Rewards tier — the same three fields reserve-all
+            // sends. Without them prepare priced the reader at the FULL amount
+            // while the screen showed the discounted one: a $25+ tier tripped
+            // the drift backstop ("price didn't add up"), a smaller one
+            // charged full price and quietly dropped the reward.
+            loyaltyAccountId: session.loyalty?.accountId,
+            rewardTierId: session.loyalty?.selectedRewardTier?.id,
+            rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
           }),
         });
         data = await res.json();
