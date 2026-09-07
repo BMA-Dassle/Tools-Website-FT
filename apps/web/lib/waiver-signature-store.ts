@@ -295,6 +295,41 @@ export async function hasUnexpiredCapturedWaiver(personId: string): Promise<bool
 }
 
 /**
+ * Batched hasUnexpiredCapturedWaiver — the SET of `personIds` our own record
+ * vouches for, in one query. The kiosk's Today's Crew sheet asks this for a
+ * whole group so it can say "waiver on file" without a single vendor call
+ * (Pandora was down mid-day 2026-09-05; this must not lean on it). Same
+ * predicate, same deliberate choices as the single-person read above.
+ * Fail-open to an EMPTY set: "unknown" is the honest answer when the DB is
+ * unreachable, and the kiosk then runs the ordinary per-person check only for
+ * the people who are actually added.
+ */
+export async function personsWithUnexpiredCapturedWaiver(
+  personIds: readonly string[],
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  const ids = [...new Set(personIds.filter((id) => /^\d+$/.test(id)))];
+  if (!isDbConfigured() || ids.length === 0) return out;
+  try {
+    await ensureSchema();
+    const today = new Date().toISOString().slice(0, 10);
+    const q = sql();
+    const rows = (await q`
+      SELECT DISTINCT person_id FROM waiver_signatures
+      WHERE person_id = ANY(${ids})
+        AND signature_png IS NOT NULL
+        AND rejected_reason IS NULL
+        AND invalidation_date IS NOT NULL
+        AND invalidation_date >= ${today}
+    `) as Array<Record<string, unknown>>;
+    for (const r of rows) if (typeof r.person_id === "string") out.add(r.person_id);
+  } catch (e) {
+    console.warn("[waiver-signature-store] personsWithUnexpiredCapturedWaiver failed:", e);
+  }
+  return out;
+}
+
+/**
  * One signature by its row id, image included.
  *
  * The queue carries this ID rather than the base64 PNG — Vercel Queues meters

@@ -84,6 +84,21 @@ export const peopleUiEn = {
   "peopleUi.family.selectPrompt": "Tap everyone who’s joining",
   "peopleUi.family.notToday": "Not today",
   "peopleUi.family.willSignSuffix": " · will sign waiver next",
+  // The pill while the family lookup is still running — short, the spinner
+  // already says "checking" (owner 2026-09-06: the row wrapped otherwise).
+  "peopleUi.family.checking": "Family…",
+
+  // Today's Crew (owner 2026-09-06) — the people who booked WITH this guest
+  // earlier today. Reuses the family sheet's select-all / add / not-today copy.
+  "peopleUi.crew.checking": "Today’s Crew…",
+  "peopleUi.crew.pill": "Today’s Crew · {n}",
+  "peopleUi.aria.crew": "Add the people who booked with {name} today",
+  "peopleUi.crew.eyebrow": "Today’s Crew",
+  "peopleUi.crew.titleRace": "Who’s racing again?",
+  "peopleUi.crew.titlePlay": "Who’s playing again?",
+  "peopleUi.crew.note": "Booked with you · {time}",
+  "peopleUi.crew.noteNoTime": "Booked with you today",
+  "peopleUi.crew.checkWaiverSuffix": " · we’ll check their waiver",
 
   // person form (new OR setup)
   "peopleUi.newPlayer": "New player",
@@ -248,6 +263,17 @@ export const peopleUiEs: Record<keyof typeof peopleUiEn, string> = {
   "peopleUi.family.selectPrompt": "Toca a todos los que participan",
   "peopleUi.family.notToday": "Hoy no",
   "peopleUi.family.willSignSuffix": " · firmará la exención después",
+  "peopleUi.family.checking": "Familia…",
+
+  "peopleUi.crew.checking": "Equipo de hoy…",
+  "peopleUi.crew.pill": "Equipo de hoy · {n}",
+  "peopleUi.aria.crew": "Agregar a quienes reservaron con {name} hoy",
+  "peopleUi.crew.eyebrow": "Equipo de hoy",
+  "peopleUi.crew.titleRace": "¿Quién corre otra vez?",
+  "peopleUi.crew.titlePlay": "¿Quién juega otra vez?",
+  "peopleUi.crew.note": "Reservó contigo · {time}",
+  "peopleUi.crew.noteNoTime": "Reservó contigo hoy",
+  "peopleUi.crew.checkWaiverSuffix": " · revisaremos su exención",
 
   // person form (new OR setup)
   "peopleUi.newPlayer": "Nuevo jugador",

@@ -94,20 +94,11 @@ const OTP_COOLDOWN = 45; // per-reservation send throttle (anti-griefing)
 const BROWSE_LOOKBACK_MIN = 180;
 const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 
-export type CenterSlug = "fort-myers" | "naples";
-export function isCenterSlug(v: string): v is CenterSlug {
-  return v === "fort-myers" || v === "naples";
-}
-
-/** Both center_code namespaces (v1 Square codes + v2 slugs) for one center. */
-const CENTER_CODES_FOR_SLUG: Record<CenterSlug, string[]> = {
-  "fort-myers": ["TXBSQN0FEKQ11", "LAB52GY480CJF", "fort-myers", "fasttrax"],
-  naples: ["PPTR5G2N0QXF7", "naples"],
-};
-
-function bmiClientKeyFor(slug: CenterSlug): string {
-  return slug === "naples" ? "headpinznaples" : "headpinzftmyers";
-}
+// Centre vocabulary lives in ./centers so a read that only needs the
+// center_code list (todays-crew/service.server) does not import this whole
+// module. Re-exported here because the check-in routes import them from here.
+import { CENTER_CODES_FOR_SLUG, bmiClientKeyFor, isCenterSlug, type CenterSlug } from "./centers";
+export { isCenterSlug, type CenterSlug };
 
 // ── booking record (direct Redis read — the route's referer-auth 401s S2S) ───
 interface BookingRecordRacer {

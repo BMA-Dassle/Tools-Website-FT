@@ -1,5 +1,52 @@
 # Open Tasks
 
+## Kiosk "Today's Crew" + pending pills (2026-09-06) — branch `feat/kiosk-todays-crew` — BUILT, gates green, NOT hardware-smoked
+
+Owner: "Me and five friends sign up for races on kiosk at 8pm. All did our waivers. We come back
+up later, allow one of us to sign in, I'd like a modal to pop up to pull in Today's Crew … then
+have a pill button 'Today's Crew' to reopen that page." Plus: "the family button and the today's
+crew button should have some loading indication before they grey out instead of just randomly
+appearing", and "those three pills can go on one line". Mockup approved on a design canvas
+(https://claude.ai/code/artifact/06245ad2-0b69-44cd-acf7-a300dc6f9972). Kiosk **1.35.0**.
+
+- [x] **Data = our own Neon rows, zero vendor calls.** There is NO person→reservation join in
+      BMI Office or Pandora; `bowling_reservations.booking_metadata` (heats / attraction / sim
+      rosters, written at capture by unified-reserve) is the only place "who booked with whom"
+      exists. `coBookedPeopleOnDate` (lib/bowling-db.ts) self-joins it. Names upgrade from our
+      check-in / waiver-join rows; "waiver on file" comes from our `waiver_signatures`
+      (`personsWithUnexpiredCapturedWaiver`). Owner's Pandora-load question answered: opening
+      the sheet costs nothing upstream; adding someone costs at most the ONE-person waiver read
+      every sign-in already does, and none when our record vouches.
+- [x] `GET /api/kiosk/todays-crew?personId&center` — read-only, personId is the capability
+      (race-history precedent), per-IP rate limit 30/5 min. Kill switch
+      `NEXT_PUBLIC_KIOSK_TODAYS_CREW` (defaults ON).
+- [x] `todays-crew/useTodaysCrew.ts` — ONE hook both people components call (the family lookup
+      was hand-copied and had drifted). Per-member status → the pill is drawn PENDING the instant
+      the sign-in lands. Sheet pops ONCE per member on booking screens + the crew page; check-in
+      "Add your group" and the waiver flow get the pill only; the phone /waiver flow (no kiosk)
+      gets nothing.
+- [x] `components/RosterPill.tsx` — family + crew pills through one component (pending =
+      disabled, aria-busy, spinner, "Family…" / "Today's Crew…"); chip row is `flex-nowrap`.
+      `importLinked` split into `verifyMember` (one Pandora read: waiver + DOB) + the relatives
+      fan-out, and gains `linkedStatus` so the family pill has the same three states.
+- [x] `FamilyPickerSheet` is now the shared people picker: `waiverValid: boolean | null`,
+      per-person `note` ("Booked with you · 8:00 PM"), `checkWaiverSuffix`. `addBatch` replaces
+      `addLinkedBatch` in both screens; only `waiverValid === null` picks get verified.
+- [x] EN + ES: `peopleUi.crew.*`, `peopleUi.family.checking`, `party.crew.*`, `party.linked.checking`.
+- [x] Mobile theme guard: `.wp-mobile` rules for `px-[18px]`, `py-[8px]`, `mt-[14px]` (RosterPill /
+      chip row) AND for `py-[6px]` + `k-recommended`, which the 1.34.0 sign-in tile shipped
+      WITHOUT — `waiver-party.theme.test.ts` was red on origin/main.
+- [x] Tests: `todays-crew.test.ts` (24), `todays-crew.structure.test.ts` (source contract across
+      BOTH screens), flags. Live-code rungs: `scripts/todays-crew-probe.mts` (real Neon, read-only),
+      `scripts/seed-todays-crew-smoke.mts` + `e2e/kiosk-todays-crew.spec.ts` on
+      `playwright.kiosk.config.ts` (opt-in `E2E_KIOSK_CREW=1`, needs a deployed URL + the test
+      kiosk's OTP bypass).
+- [ ] **NOT SMOKED ON HARDWARE.** On glass: pending → live pill timing; sheet over the action bar;
+      add 3 on an attraction screen → split-payment warning fires once OVER the picker; Spanish;
+      check-in shows the pill but never pops; flag literal "false" removes everything crew-shaped.
+- [ ] Follow-ups: phone mobile-join sign-ins trigger neither the family nor the crew lookup (shared
+      gap, own change); a JSONB index if `coBookedPeopleOnDate` shows in Neon slow logs.
+
 ## Kiosk family picker + guest race history (2026-09-05) — branch `feat/kiosk-family-picker` — BUILT, gates green, NOT hardware-smoked
 
 Owner: signing in with a BMI account on any racing screen threw every linked family member on

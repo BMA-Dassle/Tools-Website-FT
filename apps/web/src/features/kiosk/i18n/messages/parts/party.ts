@@ -68,6 +68,20 @@ export const partyEn = {
   "party.linked.selectPrompt": "Tap everyone who’s joining",
   "party.linked.notToday": "Not today",
   "party.linked.willSign": " · will sign waiver next",
+  // The pill while the family lookup is still running (owner 2026-09-06).
+  "party.linked.checking": "Family…",
+
+  // Today's Crew (owner 2026-09-06) — the people who booked WITH this guest
+  // earlier today. Reuses the family sheet's select-all / add / not-today copy.
+  "party.crew.checking": "Today’s Crew…",
+  "party.crew.pill": "Today’s Crew · {n}",
+  "party.crew.aria": "Add the people who booked with {name} today",
+  "party.crew.eyebrow": "Today’s Crew",
+  "party.crew.titleRace": "Who’s racing again?",
+  "party.crew.titlePlay": "Who’s playing again?",
+  "party.crew.note": "Booked with you · {time}",
+  "party.crew.noteNoTime": "Booked with you today",
+  "party.crew.checkWaiver": " · we’ll check their waiver",
 
   // Person form (new / setup)
   "party.form.newPlayer": "New player",
@@ -194,6 +208,17 @@ export const partyEs: Record<keyof typeof partyEn, string> = {
   "party.linked.selectPrompt": "Toca a todos los que participan",
   "party.linked.notToday": "Hoy no",
   "party.linked.willSign": " · firmará la exención después",
+  "party.linked.checking": "Familia…",
+
+  "party.crew.checking": "Equipo de hoy…",
+  "party.crew.pill": "Equipo de hoy · {n}",
+  "party.crew.aria": "Agregar a quienes reservaron con {name} hoy",
+  "party.crew.eyebrow": "Equipo de hoy",
+  "party.crew.titleRace": "¿Quién corre otra vez?",
+  "party.crew.titlePlay": "¿Quién juega otra vez?",
+  "party.crew.note": "Reservó contigo · {time}",
+  "party.crew.noteNoTime": "Reservó contigo hoy",
+  "party.crew.checkWaiver": " · revisaremos su exención",
 
   "party.form.newPlayer": "Nuevo jugador",
   "party.form.setUpName": "Registrar a {name}",

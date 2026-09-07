@@ -2178,6 +2178,120 @@ export async function vipComboPersonLegsOnDate(
   }
 }
 
+/** One participant on a reservation that shares a bill with the asked-for
+ *  person — the raw row behind the kiosk's Today's Crew sheet. Ids are STRINGS. */
+export interface CoBookedPersonRow {
+  bmiPersonId: string;
+  name: string;
+  category: "adult" | "junior" | null;
+  kind: string;
+  slot: string;
+  bmiBillId: string | null;
+  waiverValid: boolean | null;
+}
+
+/**
+ * Everyone who was booked TOGETHER WITH `personId` on `date` at one of
+ * `centerCodes` — the other names on the same reservation rows (owner
+ * 2026-09-06: "me and five friends sign up at 8pm… later one of us signs in,
+ * pull in Today's Crew"). Our own booking_metadata is the ONLY place this
+ * relationship exists: BMI Office has no reservations-for-person read and
+ * Pandora only knows a racer's next race. Three roster shapes are unioned —
+ * karting `heats[]` (first name + adult/junior class), `attractions[].
+ * participants[]` and `racesims[].participants[]` (full name + booking-time
+ * waiver flag) — then self-joined on the reservation row. The caller is
+ * excluded; rows without a person id are returned only so the caller can see
+ * them and are unusable (nobody signs in on a name). Cancelled / no-show rows
+ * are out; an 'arrived' row stays in — the 8pm group has usually checked in
+ * by the time one of them comes back.
+ *
+ * Same JSONB lateral shape and seq-scan profile as raceHeatsForPersonsOnDate.
+ * Fail-open: any error → [] (a missing suggestion, never a blocked sign-in).
+ */
+export async function coBookedPeopleOnDate(opts: {
+  personId: string;
+  /** Center-local date the heats/slots start on, "YYYY-MM-DD". */
+  date: string;
+  centerCodes: string[];
+}): Promise<CoBookedPersonRow[]> {
+  if (!isDbConfigured()) return [];
+  const { personId, date } = opts;
+  const codes = opts.centerCodes.filter(Boolean);
+  if (!/^\d+$/.test(personId) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || codes.length === 0) {
+    return [];
+  }
+  try {
+    await ensureBowlingSchema();
+    const q = sql();
+    const rows = await q`
+      WITH parts AS (
+        SELECT r.id AS res_id, r.bmi_bill_id, 'race'::text AS kind,
+               t.e->>'bmiPersonId' AS person_id, t.e->>'racer' AS name,
+               t.e->>'heatId' AS slot, t.e->>'category' AS category,
+               NULL::text AS waiver_valid
+        FROM bowling_reservations r
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(r.booking_metadata->'heats')='array'
+               THEN r.booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)
+        WHERE r.center_code = ANY(${codes})
+          AND r.status NOT IN ('cancelled','no_show')
+          AND left(t.e->>'heatId', 10) = ${date}
+        UNION ALL
+        SELECT r.id, r.bmi_bill_id, COALESCE(a.e->>'slug', 'attraction'),
+               p.e->>'bmiPersonId', p.e->>'name',
+               a.e->>'slot', NULL::text, p.e->>'waiverValid'
+        FROM bowling_reservations r
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(r.booking_metadata->'attractions')='array'
+               THEN r.booking_metadata->'attractions' ELSE '[]'::jsonb END) AS a(e)
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(a.e->'participants')='array'
+               THEN a.e->'participants' ELSE '[]'::jsonb END) AS p(e)
+        WHERE r.center_code = ANY(${codes})
+          AND r.status NOT IN ('cancelled','no_show')
+          AND left(a.e->>'slot', 10) = ${date}
+        UNION ALL
+        SELECT r.id, r.bmi_bill_id, COALESCE(s.e->>'slug', 'racesim'),
+               p.e->>'bmiPersonId', p.e->>'name',
+               s.e->>'slot', NULL::text, p.e->>'waiverValid'
+        FROM bowling_reservations r
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(r.booking_metadata->'racesims')='array'
+               THEN r.booking_metadata->'racesims' ELSE '[]'::jsonb END) AS s(e)
+        CROSS JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(s.e->'participants')='array'
+               THEN s.e->'participants' ELSE '[]'::jsonb END) AS p(e)
+        WHERE r.center_code = ANY(${codes})
+          AND r.status NOT IN ('cancelled','no_show')
+          AND left(s.e->>'slot', 10) = ${date}
+      )
+      SELECT DISTINCT p2.bmi_bill_id, p2.kind, p2.person_id, p2.name, p2.slot,
+             p2.category, p2.waiver_valid
+      FROM parts p1
+      JOIN parts p2 ON p2.res_id = p1.res_id
+      WHERE p1.person_id = ${personId}
+        AND p2.person_id IS NOT NULL
+        AND p2.person_id <> ${personId}
+      ORDER BY p2.slot, p2.name
+    `;
+    return rows
+      .map((r) => r as Record<string, unknown>)
+      .filter((r) => typeof r.person_id === "string" && typeof r.slot === "string")
+      .map((r) => ({
+        bmiPersonId: r.person_id as string,
+        name: typeof r.name === "string" ? r.name : "",
+        category: r.category === "adult" || r.category === "junior" ? r.category : null,
+        kind: typeof r.kind === "string" ? r.kind : "race",
+        slot: r.slot as string,
+        bmiBillId: typeof r.bmi_bill_id === "string" ? r.bmi_bill_id : null,
+        waiverValid: r.waiver_valid === "true" ? true : r.waiver_valid === "false" ? false : null,
+      }));
+  } catch (e) {
+    console.warn("[bowling-db] coBookedPeopleOnDate failed:", e);
+    return [];
+  }
+}
+
 /**
  * All reservations (kbf/open/race/attraction) belonging to a VERIFIED contact,
  * for the customer account dashboard. Authorization is the contact itself — the

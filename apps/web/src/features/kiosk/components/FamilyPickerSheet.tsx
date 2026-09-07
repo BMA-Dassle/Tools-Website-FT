@@ -15,17 +15,27 @@
  * One component, mounted by both people screens (KioskPeopleStep and its twin
  * KioskPartyManager), so the picker cannot drift between them the way the
  * roster card has. The selection rules live in ../family-picker.
+ *
+ * It is the kiosk's generic multi-select PEOPLE picker: Today's Crew (owner
+ * 2026-09-06 — the people who booked with you earlier today) mounts the same
+ * sheet with its own copy, a per-person `note` ("Booked with you · 8:00 PM")
+ * and `waiverValid: null` for "we'll check when you add them".
  */
 import { allSelected, resolvePicks, selectableLinked, tooYoungToRace } from "../family-picker";
 import { KioskSheetPortal } from "./KioskSheetPortal";
 
-/** What the sheet needs of a relative; both screens' LinkedSuggestion satisfies it. */
+/** What the sheet needs of a person; both screens' LinkedSuggestion and the
+ *  Today's Crew entries satisfy it. */
 export interface FamilyPickerPerson {
   id: string;
   firstName: string;
   lastName: string;
   age: number | null;
-  waiverValid: boolean;
+  /** null = not checked yet (see ../family-picker LinkedPerson). */
+  waiverValid: boolean | null;
+  /** Leads the second line when present, in place of the age / "Family" word —
+   *  Today's Crew says where the two of you were booked together. */
+  note?: string;
 }
 
 /** The message keys differ between the two screens (peopleUi.* vs party.*), so
@@ -47,6 +57,9 @@ export interface FamilyPickerCopy {
   waiverOnFileSuffix: string;
   needsWaiverSuffix: string;
   willSignSuffix: string;
+  /** For a person whose waiver has not been checked yet (`waiverValid: null`).
+   *  Falls back to `needsWaiverSuffix` when a caller has nothing to say. */
+  checkWaiverSuffix?: string;
 }
 
 export function FamilyPickerSheet({
@@ -150,17 +163,19 @@ export function FamilyPickerSheet({
                     </div>
                     <div
                       className={`text-[21px] ${
-                        !tooYoung && !lp.waiverValid ? "text-[#f0b341]" : "text-white/50"
+                        !tooYoung && lp.waiverValid !== true ? "text-[#f0b341]" : "text-white/50"
                       }`}
                     >
-                      {lp.age !== null ? copy.age(lp.age) : copy.family}
+                      {lp.note ?? (lp.age !== null ? copy.age(lp.age) : copy.family)}
                       {tooYoung
                         ? copy.tooYoungSuffix
-                        : lp.waiverValid
+                        : lp.waiverValid === true
                           ? copy.waiverOnFileSuffix
-                          : sel
-                            ? copy.willSignSuffix
-                            : copy.needsWaiverSuffix}
+                          : lp.waiverValid === null
+                            ? (copy.checkWaiverSuffix ?? copy.needsWaiverSuffix)
+                            : sel
+                              ? copy.willSignSuffix
+                              : copy.needsWaiverSuffix}
                     </div>
                   </div>
                 </button>

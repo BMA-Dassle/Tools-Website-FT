@@ -10,11 +10,23 @@
  * call site.
  */
 
-/** The shape both components hold for a linked relative. */
+/** The shape both components hold for a linked relative. `waiverValid` is
+ *  null when nobody has checked yet — Today's Crew offers people from our own
+ *  booking rows without a vendor call, and the one-person waiver read runs
+ *  only if they are actually added. */
 export interface LinkedPerson {
   id: string;
   age: number | null;
-  waiverValid: boolean;
+  waiverValid: boolean | null;
+}
+
+/** What a confirmed pick carries into the roster — the family sheet and the
+ *  Today's Crew sheet both produce this, and one `addBatch` consumes it. */
+export interface PickPerson extends LinkedPerson {
+  firstName: string;
+  lastName: string;
+  /** Known adult/junior class (a karting heat's), when there is no age. */
+  category?: "adult" | "junior" | null;
 }
 
 /** Racing hard floor: karts are 7+. An unknown age is NOT blocked — the

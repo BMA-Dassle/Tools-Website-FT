@@ -132,6 +132,13 @@ async function ensureSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS kiosk_checkin_people_event_idx
     ON kiosk_checkin_people (event_id)
   `;
+  // Today's Crew reads names BY PERSON (listCheckinNamesByPersonIds) — the
+  // only person-keyed read on this table, so it gets its own index.
+  await q`
+    CREATE INDEX IF NOT EXISTS kiosk_checkin_people_person_idx
+    ON kiosk_checkin_people (person_id)
+    WHERE person_id IS NOT NULL
+  `;
   schemaReady = true;
 }
 
@@ -385,4 +392,39 @@ export async function listPendingScheduleRows(
     center: String(r.center),
     eventBusinessDate: String(r.event_business_date),
   }));
+}
+
+/**
+ * First/last names we already hold for these people, from any check-in they
+ * have done — the newest row per person wins. Today's Crew uses this to turn a
+ * karting heat's bare first name ("Marcus") into "Marcus Bell" without a
+ * vendor call; a person we have never checked in is simply absent from the map.
+ * Fail-open to an empty map.
+ */
+export async function listCheckinNamesByPersonIds(
+  personIds: readonly string[],
+): Promise<Map<string, { firstName: string | null; lastName: string | null }>> {
+  const out = new Map<string, { firstName: string | null; lastName: string | null }>();
+  const ids = [...new Set(personIds.filter((id) => /^\d+$/.test(id)))];
+  if (!isDbConfigured() || ids.length === 0) return out;
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = (await q`
+      SELECT DISTINCT ON (person_id) person_id, first_name, last_name, display_name
+      FROM kiosk_checkin_people
+      WHERE person_id = ANY(${ids})
+      ORDER BY person_id, created_at DESC
+    `) as Array<Record<string, unknown>>;
+    for (const r of rows) {
+      if (typeof r.person_id !== "string") continue;
+      const first = typeof r.first_name === "string" ? r.first_name : null;
+      const last = typeof r.last_name === "string" ? r.last_name : null;
+      if (!first && !last) continue;
+      out.set(r.person_id, { firstName: first, lastName: last });
+    }
+  } catch (e) {
+    console.warn("[kiosk-checkins-db] listCheckinNamesByPersonIds failed:", e);
+  }
+  return out;
 }

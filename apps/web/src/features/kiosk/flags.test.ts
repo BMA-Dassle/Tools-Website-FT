@@ -10,12 +10,34 @@
  * Device ids below are the real fleet (kiosk_devices, probed 2026-09-01).
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { kioskRaceSimDoorOpen, kioskRaceSimEnabled } from "./flags";
+import { kioskRaceSimDoorOpen, kioskRaceSimEnabled, kioskTodaysCrewEnabled } from "./flags";
 
 const ORIGINAL = process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS;
 afterEach(() => {
   if (ORIGINAL === undefined) delete process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS;
   else process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS = ORIGINAL;
+});
+
+describe("kioskTodaysCrewEnabled — kill switch, defaults ON", () => {
+  const ORIGINAL_CREW = process.env.NEXT_PUBLIC_KIOSK_TODAYS_CREW;
+  afterEach(() => {
+    if (ORIGINAL_CREW === undefined) delete process.env.NEXT_PUBLIC_KIOSK_TODAYS_CREW;
+    else process.env.NEXT_PUBLIC_KIOSK_TODAYS_CREW = ORIGINAL_CREW;
+  });
+
+  it("is ON when the variable is unset — a merged feature is on", () => {
+    delete process.env.NEXT_PUBLIC_KIOSK_TODAYS_CREW;
+    expect(kioskTodaysCrewEnabled()).toBe(true);
+  });
+
+  it('is OFF only on the literal "false"', () => {
+    process.env.NEXT_PUBLIC_KIOSK_TODAYS_CREW = "false";
+    expect(kioskTodaysCrewEnabled()).toBe(false);
+    process.env.NEXT_PUBLIC_KIOSK_TODAYS_CREW = "FALSE";
+    expect(kioskTodaysCrewEnabled()).toBe(true);
+    process.env.NEXT_PUBLIC_KIOSK_TODAYS_CREW = "0";
+    expect(kioskTodaysCrewEnabled()).toBe(true);
+  });
 });
 
 describe("kioskRaceSimDoorOpen — venue rule", () => {

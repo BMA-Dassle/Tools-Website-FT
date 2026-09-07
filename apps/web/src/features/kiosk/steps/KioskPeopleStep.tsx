@@ -57,7 +57,7 @@ import { megaWindowTodayET } from "~/features/racing/mega-calendar";
 import { isTestKiosk, kioskHasCamera, kioskId } from "../config";
 import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
-import { kioskMobileJoinEnabled } from "../flags";
+import { kioskMobileJoinEnabled, kioskTodaysCrewEnabled } from "../flags";
 import { useMobileJoin } from "../hooks/useMobileJoin";
 import { useLicenseScan, type AamvaLicense, type MemberQr } from "../qr-scanner";
 import {
@@ -80,10 +80,13 @@ import { mergeJoinedGuests } from "../join/merge";
 import { KioskSignInBoxes } from "../components/KioskSignInBoxes";
 import { racerLicenseState } from "~/features/booking/service/license";
 import { LICENSE_PRICE } from "~/features/booking/service/race-pricing";
-import { useT } from "../i18n";
+import { useLocale, useT } from "../i18n";
 import { StaffPersonActions, useStaffCardScan } from "../staff-mode";
 import { GuestRaceHistoryActions } from "../race-history/GuestRaceHistory";
-import { resolvePicks, splitWarnNeeded } from "../family-picker";
+import { resolvePicks, splitWarnNeeded, type PickPerson } from "../family-picker";
+import { CREW_ICON, FAMILY_ICON, RosterPill } from "../components/RosterPill";
+import { useTodaysCrew } from "../todays-crew/useTodaysCrew";
+import { crewPillState, slotTimeLabel } from "../todays-crew/todays-crew";
 import { FamilyPickerSheet } from "../components/FamilyPickerSheet";
 
 /** Waiver-gated attraction slugs (duckpin is exempt — uses the party-count step). */
@@ -289,6 +292,35 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
   // has been completed/skipped so each signer gets their own capture.
   const { config: kioskCfg } = useKioskConfig();
   const [photoDoneFor, setPhotoDoneFor] = useState<string | null>(null);
+  // Family-lookup status per member: the family pill is drawn PENDING the
+  // instant a sign-in lands and resolves in place — it never appears out of
+  // nowhere when the fetch happens to finish (owner 2026-09-06).
+  const [linkedStatus, setLinkedStatus] = useState<Record<string, "loading" | "done">>({});
+  const { locale } = useLocale();
+  // TODAY'S CREW (owner 2026-09-06): the people who booked WITH this member
+  // earlier today at this centre, offered back as a sheet + a pill on the card.
+  // Pops once on booking screens and the crew page; check-in's "Add your
+  // group" and the waiver flow get the pill only. Neon-only read — no vendor.
+  const crew = useTodaysCrew({
+    center: kioskCfg?.center ?? null,
+    enabled: kioskTodaysCrewEnabled() && !!kioskCfg,
+    autoOpen: item.id !== "checkin" && item.id !== "waiver",
+    rosterIds: () => new Set(party.map((m) => m.bmiPersonId).filter(Boolean) as string[]),
+    overlayOpen: () =>
+      form !== null ||
+      lookupOpen ||
+      !!splitWarn ||
+      !!licenseMatches ||
+      licenseBusy ||
+      !!guardianFlow ||
+      !!waiverFor ||
+      linkedOpen !== null,
+  });
+  /** "Booked with you · 8:00 PM" — the second line on a Today's Crew card. */
+  const crewNote = (slot: string) => {
+    const time = slotTimeLabel(slot, locale === "es" ? "es" : "en");
+    return time ? t("peopleUi.crew.note", { time }) : t("peopleUi.crew.noteNoTime");
+  };
 
   const adults = party.filter((m) => !m.isMinor);
   // Signer-only guardians — NOT in the party, so purchase paths (products,
@@ -807,6 +839,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
             [m.personId, ...party.map((x) => x.bmiPersonId)].filter(Boolean) as string[],
           );
           void importLinked(m.personId, member.id, alreadyIds);
+          void crew.load(m.personId, member.id, alreadyIds);
           return;
         }
         const result = await pandoraOnboardGuest(
@@ -1420,9 +1453,17 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
    *    party (racing races the whole party, so auto-adding pulled everyone in).
    *  allRelated=true here (the ONE call that needs the family array); the
    *  per-relative detail fetches below stay fast (route default allRelated=false). */
-  const importLinked = async (personId: string, memberId: string, alreadyIds: Set<string>) => {
-    // Flip the main member's card to "Checking waiver…" as soon as we're known to
-    // be verifying (cleared the instant the waiver status is applied below).
+  /** ONE authoritative Pandora read for a member who just landed on the
+   *  roster: patch their waiver validity and backfill the birthday. Shared by
+   *  importLinked (which goes on to fan out to the relatives) and by a Today's
+   *  Crew add whose waiver our own record could not vouch for — that person
+   *  gets THIS read and nothing more. Clears the card's "Checking waiver…" on
+   *  every exit. Returns the parsed person read, or null. */
+  const verifyMember = async (
+    personId: string,
+    memberId: string,
+    opts: { allRelated?: boolean } = {},
+  ): Promise<Record<string, unknown> | null> => {
     const doneChecking = () =>
       setCheckingIds((s) => {
         const n = new Set(s);
@@ -1431,14 +1472,13 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
       });
     try {
       const res = await fetch(
-        `/api/pandora?personId=${personId}&picture=false&allRelated=true&location=${brandLocation}`,
+        `/api/pandora?personId=${personId}&picture=false${
+          opts.allRelated ? "&allRelated=true" : ""
+        }&location=${brandLocation}`,
       );
-      if (!res.ok) {
-        doneChecking();
-        return;
-      }
-      const data = await res.json();
-      // Patch the main person's waiver validity from the authoritative check.
+      if (!res.ok) return null;
+      const data = (await res.json()) as Record<string, unknown>;
+      // Patch the person's waiver validity from the authoritative check.
       if (typeof data.valid === "boolean") {
         dispatch({ type: "updatePartyMember", id: memberId, patch: { waiverValid: data.valid } });
       }
@@ -1446,7 +1486,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
       if (data.birthdate) {
         const iso = String(data.birthdate).slice(0, 10);
         const yrs = Math.floor(
-          (Date.now() - new Date(data.birthdate).getTime()) / (365.25 * 864e5),
+          (Date.now() - new Date(String(data.birthdate)).getTime()) / (365.25 * 864e5),
         );
         dispatch({
           type: "updatePartyMember",
@@ -1458,10 +1498,24 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
           },
         });
       }
-      // Main waiver status now known — flip the card (ready / waiver needed)
-      // BEFORE the slower per-relative fetches below.
+      return data;
+    } catch {
+      return null;
+    } finally {
+      // Waiver status now known (or unknowable) — flip the card (ready /
+      // waiver needed) BEFORE any slower per-relative fetches a caller runs.
       doneChecking();
-      const relatedIds: string[] = (data.related || [])
+    }
+  };
+
+  const importLinked = async (personId: string, memberId: string, alreadyIds: Set<string>) => {
+    // The family pill is drawn PENDING from here until the relatives are in
+    // (or the read failed) — it never appears out of nowhere (owner 2026-09-06).
+    setLinkedStatus((s) => ({ ...s, [memberId]: "loading" }));
+    try {
+      const data = await verifyMember(personId, memberId, { allRelated: true });
+      if (!data) return;
+      const relatedIds: string[] = ((data.related as unknown[] | undefined) ?? [])
         .map((r: unknown) => (typeof r === "string" ? r : ((r as { id?: string })?.id ?? "")))
         .filter(Boolean);
       const collected: LinkedSuggestion[] = [];
@@ -1506,33 +1560,44 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
     } catch {
       /* non-fatal */
     } finally {
-      doneChecking(); // belt-and-braces — never leave a card stuck "checking"
+      setLinkedStatus((s) => ({ ...s, [memberId]: "done" }));
     }
   };
 
-  /** Add the linked-family picks in ONE act (the picker sheet's confirm).
-   *  Members are built first and included with ONE setIncluded — calling
-   *  addLinked in a loop would read the same stale `included` each pass and
-   *  keep only the last member (the handleVerifiedMultiple stale-loop class). */
-  const addLinkedBatch = (ids: Set<string>) => {
-    const picks = resolvePicks(linked, ids, isRace);
+  /** Add a set of picked people in ONE act (a picker sheet's confirm) —
+   *  family relatives and Today's Crew alike. Members are built first and
+   *  included with ONE setIncluded — calling add in a loop would read the same
+   *  stale `included` each pass and keep only the last member (the
+   *  handleVerifiedMultiple stale-loop class). A pick whose waiver nobody has
+   *  checked yet (`waiverValid: null` — a co-booker our own record could not
+   *  vouch for) lands as "Checking waiver…" and gets the ONE-person read; a
+   *  known answer, true or false, is kept as is. */
+  const addBatch = (picks: PickPerson[]) => {
     if (picks.length === 0) return;
-    const members = picks.map((lp) =>
+    const members = picks.map((p) =>
       newPartyMember({
-        firstName: lp.firstName,
-        lastName: lp.lastName || undefined,
+        firstName: p.firstName,
+        lastName: p.lastName || undefined,
         isNewRacer: false,
-        category: lp.age !== null && lp.age < 13 ? "junior" : "adult",
-        isMinor: lp.age !== null && lp.age < 18,
-        bmiPersonId: lp.id,
-        waiverValid: lp.waiverValid,
+        category: p.category ?? (p.age !== null && p.age < 13 ? "junior" : "adult"),
+        isMinor: p.age !== null ? p.age < 18 : p.category === "junior" ? true : undefined,
+        bmiPersonId: p.id,
+        waiverValid: p.waiverValid === true,
       }),
     );
     members.forEach((member) => dispatch({ type: "addPartyMember", member }));
     if (!wholeParty) setIncluded(new Set([...included, ...members.map((m) => m.id)]));
     const taken = new Set(picks.map((p) => p.id));
     setLinked((prev) => prev.filter((l) => !taken.has(l.id)));
+    crew.take(taken);
+    const unverified = members.filter((_, i) => picks[i].waiverValid === null);
+    if (unverified.length > 0) {
+      setCheckingIds((s) => new Set([...s, ...unverified.map((m) => m.id)]));
+      unverified.forEach((m) => void verifyMember(m.bmiPersonId as string, m.id));
+    }
   };
+  /** The family sheet's confirm: its picks, resolved against the age floor. */
+  const addLinkedBatch = (ids: Set<string>) => addBatch(resolvePicks(linked, ids, isRace));
 
   // `claimMain` defaults to the first-added-becomes-main rule; a batch add
   // passes it explicitly so only ONE member claims main (reading party.length
@@ -1596,6 +1661,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
     }
     // Authoritative waiver check + linked family (mirrors web RacePartyStep).
     void importLinked(person.personId, member.id, alreadyIds);
+    // …and who booked with them earlier today (owner 2026-09-06).
+    void crew.load(person.personId, member.id, alreadyIds);
   };
 
   // Add several returning racers from ONE OTP (household sharing a phone/email).
@@ -1905,6 +1972,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
           const guardian = m.guardianMemberId ? findPerson(m.guardianMemberId) : null;
           const ready = !needsSetup(m);
           const checking = !ready && checkingIds.has(m.id);
+          // Chip row: family pill and Today's Crew pill, each drawn PENDING
+          // while its lookup runs and resolved in place (owner 2026-09-06).
+          const fam = linkedFor(m.id);
+          const famPending = linkedStatus[m.id] === "loading" && fam.length === 0;
+          const crewList = crew.crewFor(m.id);
+          const crewPill = crewPillState(crew.statusFor(m.id), crewList.length);
           return (
             <div
               key={m.id}
@@ -2029,9 +2102,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
                       metrics, so they stacked at mismatched sizes (owner
                       2026-09-05: "spacing could be better"). Spacing lives
                       here now — LicenceWalletChip has no margin of its own. */}
-                  {(linkedFor(m.id).length > 0 ||
-                    (m.loginCode && RACER_PUBLIC_CODE_RE.test(m.loginCode))) && (
-                    <div className="mt-[14px] flex flex-wrap items-center gap-[12px]">
+                  {/* ONE line, never wraps (owner 2026-09-06: "those three pills
+                      can go on one line") — pending labels are kept short for
+                      exactly that reason. */}
+                  {((m.loginCode && RACER_PUBLIC_CODE_RE.test(m.loginCode)) ||
+                    fam.length > 0 ||
+                    famPending ||
+                    crewPill !== "hidden") && (
+                    <div className="mt-[14px] flex flex-nowrap items-center gap-[12px]">
                       {m.loginCode && RACER_PUBLIC_CODE_RE.test(m.loginCode) && (
                         <LicenceWalletChip
                           loginCode={m.loginCode}
@@ -2046,36 +2124,41 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
                           chip, not a strip below the roster (owner 2026-09-05:
                           "what if multiple people had family, this would fill
                           up fast"). Only this member's un-added relatives; it
-                          vanishes once they have all been added. Metrics match
-                          the licence chip so the two read as one set. */}
-                      {linkedFor(m.id).length > 0 && (
-                        <button
-                          type="button"
+                          vanishes once they have all been added. */}
+                      {(famPending || fam.length > 0) && (
+                        <RosterPill
+                          icon={FAMILY_ICON}
+                          pending={famPending}
+                          label={
+                            famPending
+                              ? t("peopleUi.family.checking")
+                              : t("peopleUi.family.pill", { n: fam.length })
+                          }
+                          ariaLabel={t("peopleUi.aria.family", { name: m.firstName })}
                           onClick={() => {
                             setLinkedSel(new Set());
                             setLinkedOpen(m.id);
                           }}
-                          aria-label={t("peopleUi.aria.family", { name: m.firstName })}
-                          className="k-tap inline-flex items-center gap-[10px] rounded-full border border-[#00e2e5]/40 bg-[#00e2e5]/10 px-[18px] py-[8px] text-[20px] font-semibold text-[#00e2e5]"
-                        >
-                          <svg
-                            width="22"
-                            height="22"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                            <circle cx="9" cy="7" r="4" />
-                            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                          </svg>
-                          {t("peopleUi.family.pill", { n: linkedFor(m.id).length })}
-                        </button>
+                        />
+                      )}
+                      {/* TODAY'S CREW — who booked with this member earlier
+                          today (owner 2026-09-06). Reopens the sheet that
+                          popped after their sign-in. */}
+                      {crewPill !== "hidden" && (
+                        <RosterPill
+                          icon={CREW_ICON}
+                          pending={crewPill === "pending"}
+                          label={
+                            crewPill === "pending"
+                              ? t("peopleUi.crew.checking")
+                              : t("peopleUi.crew.pill", { n: crewList.length })
+                          }
+                          ariaLabel={t("peopleUi.aria.crew", { name: m.firstName })}
+                          onClick={() => {
+                            crew.setSel(new Set());
+                            crew.setOpen(m.id);
+                          }}
+                        />
                       )}
                     </div>
                   )}
@@ -2233,6 +2316,42 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem | RaceSimItem>["Com
             waiverOnFileSuffix: t("peopleUi.waiverOnFileSuffix"),
             needsWaiverSuffix: t("peopleUi.needsWaiverSuffix"),
             willSignSuffix: t("peopleUi.family.willSignSuffix"),
+          }}
+        />
+      )}
+
+      {/* Today's Crew sheet (owner 2026-09-06) — the people who booked with
+          THIS member earlier today. The same sheet as the family picker; it
+          pops once on its own after a sign-in (useTodaysCrew) and reopens from
+          the pill. Same z-[78]-under-splitWarn contract as the family sheet. */}
+      {crew.open !== null && crew.crewFor(crew.open).length > 0 && (
+        <FamilyPickerSheet
+          linked={crew.crewFor(crew.open).map((c) => ({ ...c, note: crewNote(c.bookedAt) }))}
+          isRace={isRace}
+          selected={crew.sel}
+          setSelected={crew.setSel}
+          onClose={() => crew.setOpen(null)}
+          onConfirm={(picks) => {
+            const list = crew.open !== null ? crew.crewFor(crew.open) : [];
+            // Close FIRST: guardAdd may intercept with the split-payment sheet.
+            crew.setOpen(null);
+            guardAdd(() => addBatch(resolvePicks(list, picks, isRace)), picks.size);
+          }}
+          copy={{
+            eyebrow: t("peopleUi.crew.eyebrow"),
+            title: isRace ? t("peopleUi.crew.titleRace") : t("peopleUi.crew.titlePlay"),
+            selectAll: t("peopleUi.family.selectAll"),
+            clearAll: t("peopleUi.family.clearAll"),
+            notToday: t("peopleUi.family.notToday"),
+            selectPrompt: t("peopleUi.family.selectPrompt"),
+            addLabel: (n) => t("peopleUi.family.add", { n }),
+            age: (n) => t("peopleUi.age", { age: n }),
+            family: t("peopleUi.family"),
+            tooYoungSuffix: t("peopleUi.tooYoungSuffix"),
+            waiverOnFileSuffix: t("peopleUi.waiverOnFileSuffix"),
+            needsWaiverSuffix: t("peopleUi.needsWaiverSuffix"),
+            willSignSuffix: t("peopleUi.family.willSignSuffix"),
+            checkWaiverSuffix: t("peopleUi.crew.checkWaiverSuffix"),
           }}
         />
       )}

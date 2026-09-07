@@ -33,6 +33,8 @@ const REACHABLE = [
   "src/features/kiosk/components/LicenseMatchPicker.tsx",
   // Family picker — the party manager opens it from a member's family pill.
   "src/features/kiosk/components/FamilyPickerSheet.tsx",
+  // The family / Today's Crew pills on each roster card (pending + live).
+  "src/features/kiosk/components/RosterPill.tsx",
   // Context-load spinner (WaiverFlow renders it inside the wp-mobile shell).
   "src/features/kiosk/components/BrandedLoader.tsx",
 ];

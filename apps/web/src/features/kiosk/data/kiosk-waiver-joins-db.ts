@@ -144,6 +144,39 @@ export async function removeJoin(projectId: string, personId: string): Promise<b
   return rows.length > 0;
 }
 
+/**
+ * First/last names from any group-waiver join these people have made, newest
+ * first — Today's Crew's second name source after the check-in rows. Fail-open
+ * to an empty map.
+ */
+export async function listJoinNamesByPersonIds(
+  personIds: readonly string[],
+): Promise<Map<string, { firstName: string | null; lastName: string | null }>> {
+  const out = new Map<string, { firstName: string | null; lastName: string | null }>();
+  const ids = [...new Set(personIds.filter((id) => /^\d+$/.test(id)))];
+  if (!isDbConfigured() || ids.length === 0) return out;
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = (await q`
+      SELECT DISTINCT ON (person_id) person_id, first_name, last_name
+      FROM kiosk_waiver_joins
+      WHERE person_id = ANY(${ids})
+      ORDER BY person_id, created_at DESC
+    `) as Array<Record<string, unknown>>;
+    for (const r of rows) {
+      if (typeof r.person_id !== "string") continue;
+      const first = typeof r.first_name === "string" ? r.first_name : null;
+      const last = typeof r.last_name === "string" ? r.last_name : null;
+      if (!first && !last) continue;
+      out.set(r.person_id, { firstName: first, lastName: last });
+    }
+  } catch (e) {
+    console.warn("[kiosk-waiver-joins-db] listJoinNamesByPersonIds failed:", e);
+  }
+  return out;
+}
+
 export async function listJoinsForProject(projectId: string): Promise<KioskWaiverJoinRow[]> {
   if (!isDbConfigured()) return [];
   await ensureSchema();

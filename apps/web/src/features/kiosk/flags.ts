@@ -423,6 +423,20 @@ export function kioskStaffModeEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_STAFF_MODE !== "false";
 }
 
+/**
+ * TODAY'S CREW (owner 2026-09-06) — after a sign-in, the people who booked
+ * with that guest earlier today at this centre are offered back as a
+ * multi-select sheet (auto-opens once on booking screens) and a pill on the
+ * member's card. Kill switch, defaults ON. Gates the CLIENT lookup only: with
+ * it off nothing crew-shaped renders and /api/kiosk/todays-crew is never
+ * called; the route itself stays up. Set the literal "false" in Vercel +
+ * redeploy to withdraw it (NEXT_PUBLIC_* values are build-baked). Read at
+ * call time (never module scope) so tests can stub process.env.
+ */
+export function kioskTodaysCrewEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_TODAYS_CREW !== "false";
+}
+
 // kioskSplitTenderEnabled is GONE (owner 2026-07-31) — paying with a gift card
 // (ONE gift card + ONE reader tap, "match web") is unconditional on every kiosk
 // checkout. History: tasks/split-tender-probes.md.

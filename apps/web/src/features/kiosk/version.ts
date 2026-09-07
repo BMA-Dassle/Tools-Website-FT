@@ -15,6 +15,25 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.35.0 — TODAY'S CREW (owner 2026-09-06: "me and five friends sign up for
+ *         races at 8pm… we come back later, one of us signs in — pull in
+ *         Today's Crew"). After a sign-in on any people screen, the OTHER
+ *         people on that guest's booking(s) earlier today at this centre are
+ *         offered back as a multi-select sheet — the same sheet as the family
+ *         picker, with "Booked with you · 8:00 PM" per person — and as a
+ *         "Today's Crew · N" pill on the member's card. The sheet pops ONCE
+ *         per member on booking screens and the crew page; check-in and the
+ *         waiver flow get the pill only. Built from OUR booking rows in Neon
+ *         (heats / attraction / sim rosters) plus our own waiver signatures:
+ *         opening it costs zero Pandora or Office calls, and adding someone
+ *         costs at most the one-person waiver read every sign-in already does
+ *         — none when our record vouches for them. Both pills (family and
+ *         crew) are now drawn PENDING the instant the sign-in lands — spinner,
+ *         dimmed, "Family…" / "Today's Crew…" — and resolve in place instead
+ *         of appearing when a fetch happens to finish; the chip row is one
+ *         line, and one RosterPill component ends the two screens' pill drift.
+ *         GET /api/kiosk/todays-crew (read-only, personId is the capability,
+ *         per-IP rate limit). Kill switch NEXT_PUBLIC_KIOSK_TODAYS_CREW.
  * 1.34.2 — A REWARDS TIER NO LONGER TRIPS "THE PRICE DIDN'T ADD UP" (owner
  *         2026-09-06). The racing/mixed-cart reader prepare sent session +
  *         contact only, so the server armed the reader at the FULL price while
@@ -1352,7 +1371,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.34.2";
+export const KIOSK_VERSION = "1.35.0";
 
 let bootVersion: string | null = null;
 let captured = false;
