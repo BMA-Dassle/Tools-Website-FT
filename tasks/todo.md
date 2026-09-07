@@ -1,5 +1,29 @@
 # Open Tasks
 
+## Briefing counts for the portal's pit board (2026-09-07) — branch `feat/portal-briefing-counts` — BUILT, gates green
+
+Half of a two-repo effort (portal side is `feat/pit-board-late-briefed`). The HeadPinz pit board TV
+wants "how many groups has each person briefed tonight" beside each name; we already record it on
+`briefing_assignments.staff_user_id` (the 7shifts USER id, the same key the portal's roster uses),
+so this ships the read. Same tally goes on our own check-in board, where the data is already in the
+page. Owner also asked for the check-in header to stay on one row.
+
+- [x] `countBriefingsByStaff(venue, businessDay)` in `features/signage/briefing/assignments-db.ts` —
+      grouped in Postgres, `COUNT(DISTINCT session_id)` so a Mega-night group in both rooms counts
+      once. Returns `unattributed` separately rather than dropping unclaimed sends.
+- [x] `GET /api/portal/briefings?date=YYYY-MM-DD` — thin shell, `verifyPortal`, `no-store`. The date
+      is the CALLER's: our racing day rolls at 2 AM, the portal's at 5 AM.
+- [x] Docs: `Briefings` tag + path + `adminToken` security scheme in the OpenAPI spec (1.2.0 →
+      1.3.0, this path is gated by `x-admin-token`, not `x-api-key`); section 7 in
+      `docs/portal-api-spec.md`.
+- [x] `briefedTodayByHost()` in `briefing-log.ts` (pure, + 5 tests) and a BRIEFED TODAY pill strip
+      under the check-in board header — no fetch, it folds `briefing.board.briefings`.
+- [x] Check-in header is one row: bar is `flex-nowrap`, the scanner warning drops its "— nobody is
+      being checked in" suffix into its tooltip and shrinks to 11px, "Run Self-Test" → "Self-Test".
+- [x] `Pit Board TV ↗` pill in the header → `PORTAL_PIT_BOARD_TV_URL` (public route, no token).
+- [ ] Portal side must deploy before the TV shows anything; until then the endpoint is unread.
+- [ ] Not smoked on the board's own screen — verified at 1280px and against live counts locally.
+
 ## Kiosk "Today's Crew" + pending pills (2026-09-06) — branch `feat/kiosk-todays-crew` — BUILT, gates green, NOT hardware-smoked
 
 Owner: "Me and five friends sign up for races on kiosk at 8pm. All did our waivers. We come back

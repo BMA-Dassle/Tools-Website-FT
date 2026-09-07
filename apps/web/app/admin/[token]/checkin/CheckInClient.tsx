@@ -17,6 +17,9 @@ import {
 } from "~/features/signage/nx/camera-preview";
 // Pure constants — no server import behind them, so a value import is safe.
 import { GREETING_TIMING_DEFAULTS } from "~/features/signage/briefing/return-greeting";
+// Pure fold over the log the page already polls — no server import behind it.
+import { briefedTodayByHost } from "~/features/signage/briefing/briefing-log";
+import { PORTAL_PIT_BOARD_TV_URL } from "~/lib/constants/admin-tools";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import {
   ADMIN_SANS,
@@ -36,6 +39,17 @@ const withAlphaAmber = (a: number) => `rgba(240,179,65,${a})`;
 const GREEN = "#4ade80";
 /** The board's red, same value RaceControlPanels uses for DANGER. */
 const RED = "#ff4d4f";
+/**
+ * The blue accent — blue-400/blue-300 over the navy, the same pair the pit
+ * board TV uses. It marks the two things on this page that point AT that board:
+ * the link to it, and the top briefer in the strip under the header. Not
+ * PORTAL_BLUE, which is the portal's solid button blue and too dark to read as
+ * text on this background.
+ */
+const ACCENT_BORDER = "rgba(96,165,250,.55)";
+/** Fainter, for the top-briefer pill — a tint, not a link. */
+const ACCENT_BORDER_SOFT = "rgba(96,165,250,.45)";
+const ACCENT_TEXT = "#93c5fd";
 
 /**
  * One labelled row of segmented choices in the settings sheet — used by the
@@ -184,6 +198,118 @@ function TimingChip({ timing, serverNowMs }: { timing?: TimingFeedStatus; server
       <span className="text-xs font-bold" style={{ color, fontFamily: ADMIN_MONO }}>
         {value}
       </span>
+    </div>
+  );
+}
+
+/** The checkered flag, 13px. Inline because it is used once and is nine paths —
+ *  a sprite or an icon-pack import would cost more than it saves. */
+function FlagIcon() {
+  return (
+    <svg width={13} height={13} viewBox="0 0 16 16" aria-hidden focusable="false">
+      <path fill="currentColor" d="M2 1h1v14H2z" />
+      <path fill="currentColor" d="M3 1h10v7H3z" />
+      <path
+        fill={PORTAL_DARK.card}
+        d="M3 1h2.5v1.75H3zM8 1h2.5v1.75H8zM5.5 2.75H8v1.75H5.5zM10.5 2.75H13v1.75h-2.5zM3 4.5h2.5v1.75H3zM8 4.5h2.5v1.75H8zM5.5 6.25H8V8H5.5zM10.5 6.25H13V8h-2.5z"
+      />
+    </svg>
+  );
+}
+
+/**
+ * BRIEFED TODAY — who has run how many groups, in the empty band under the
+ * header (owner 2026-09-07).
+ *
+ * WHY IT BELONGS HERE and not in the Briefing log panel: the log answers "what
+ * happened to that group", one row at a time, and you open it to ask. This
+ * answers "how is the night being shared out", which nobody opens a panel to
+ * ask and everybody wants to know at a glance — so it lives on the board, in a
+ * strip that was already empty.
+ *
+ * NO FETCH. Every record it counts is in `briefing.board.briefings`, which the
+ * page polls anyway for the log's count badge; this is arithmetic over state,
+ * so it cannot be stale relative to the rest of the board and cannot fail on
+ * its own.
+ */
+function BriefedTodayStrip({
+  briefings,
+}: {
+  briefings: ReadonlyArray<{ host: string | null; sessionId: string }>;
+}) {
+  const { hosts, unattributed, groups } = briefedTodayByHost(briefings);
+
+  return (
+    <div
+      className="flex items-center gap-2 px-6 pt-1.5 pb-3 border-b flex-wrap"
+      style={{ borderColor: PORTAL_DARK.border }}
+    >
+      <span
+        className="text-[10px] font-bold uppercase"
+        style={{ color: PORTAL_DARK.muted, letterSpacing: "0.14em", marginRight: 4 }}
+      >
+        Briefed today
+      </span>
+      {hosts.length === 0 ? (
+        <span className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+          No briefings yet today
+        </span>
+      ) : (
+        hosts.map((h, i) => {
+          // THE TOP BRIEFER IS TINTED, and only ever one of them: the strip is
+          // sorted, so index 0 is the answer to "who is carrying tonight".
+          const top = i === 0;
+          return (
+            <span
+              key={h.host}
+              className="inline-flex items-center text-xs font-semibold"
+              style={{
+                gap: 7,
+                padding: "4px 10px 4px 9px",
+                borderRadius: 999,
+                backgroundColor: PORTAL_DARK.card,
+                border: `1px solid ${top ? ACCENT_BORDER_SOFT : PORTAL_DARK.border}`,
+                color: PORTAL_DARK.fg,
+              }}
+            >
+              <span style={{ color: PORTAL_DARK.muted, display: "inline-flex" }}>
+                <FlagIcon />
+              </span>
+              {h.host}
+              <b
+                style={{
+                  fontWeight: 800,
+                  fontVariantNumeric: "tabular-nums",
+                  color: top ? ACCENT_TEXT : PORTAL_DARK.fg,
+                }}
+              >
+                {h.briefed}
+              </b>
+            </span>
+          );
+        })
+      )}
+      {/* The night's shape in one faint line. `unattributed` is omitted at zero
+          — a normal night should not carry a permanent "0 unattributed". */}
+      {groups > 0 && (
+        <span
+          className="text-[11px]"
+          style={{
+            marginLeft: "auto",
+            color: PORTAL_DARK.muted,
+            fontVariantNumeric: "tabular-nums",
+          }}
+          title={
+            unattributed > 0
+              ? "Unattributed groups were briefed before anybody typed a punch ID, or before hosts were recorded"
+              : undefined
+          }
+        >
+          {groups} {groups === 1 ? "group" : "groups"} · {hosts.length}{" "}
+          {hosts.length === 1 ? "briefer" : "briefers"}
+          {unattributed > 0 ? ` · ${unattributed} unattributed` : ""}
+        </span>
+      )}
     </div>
   );
 }
@@ -1476,9 +1602,16 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
           drops to the size of a label and the build number moves onto its line
           instead of below it; the plain check-in station keeps the full heading,
           where there is nothing underneath competing for the space. */}
+      {/* ONE ROW, and it stays one row (owner 2026-09-07: "all the buttons
+          moved to same row"). Wrapping was costing the board a whole second
+          band the moment the scanner warning appeared — the widest state is
+          also the busiest one, which is exactly when the room columns need
+          their height. Nothing here is essential enough to justify that, so the
+          bar clips instead of growing; every label below is trimmed to make the
+          clip unreachable at 1280px and up. */}
       <div
-        className={`flex items-center justify-between px-6 border-b ${boardMode ? "py-2" : "py-4"}`}
-        style={{ borderColor: PORTAL_DARK.border, flexWrap: "wrap", gap: 12 }}
+        className={`flex items-center justify-between px-6 border-b flex-nowrap overflow-hidden ${boardMode ? "py-2" : "py-4"}`}
+        style={{ borderColor: PORTAL_DARK.border, gap: 12 }}
       >
         <div style={boardMode ? { display: "flex", alignItems: "baseline", gap: 8 } : undefined}>
           <h1 style={{ fontSize: boardMode ? "1.05rem" : "1.5rem", fontWeight: 700 }}>
@@ -1514,7 +1647,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             New version ready — reload
           </button>
         )}
-        <div className="flex items-center gap-3" style={{ flexWrap: "wrap" }}>
+        <div className="flex items-center gap-3 flex-nowrap">
           {/* BOARD MODE: the scanner lives up here as a strip, not as a
               full-height hero in the middle of the page — the briefing rooms are
               what the screen is for (owner 2026-08-11: "get that connect scanner
@@ -1553,19 +1686,31 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                  * that now carries four boxes per track. The button is amber
                  * instead and says what is at stake, so the thing you press is
                  * the thing that told you.
+                 *
+                 * THE CONSEQUENCE MOVED INTO THE TOOLTIP (owner 2026-09-07:
+                 * "make that scanner warning smaller"). "— nobody is being
+                 * checked in" was the longest string on the bar and the reason
+                 * the row wrapped; amber on a control that says "not connected"
+                 * already carries the alarm, and the sentence is still one hover
+                 * away. A real driver error still shows on the button, because
+                 * that one names something you cannot guess.
                  */
                 <button
                   type="button"
                   onClick={requestPort}
-                  title="No scan will check anybody in until the scanner is connected"
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold"
+                  title={
+                    connectionError
+                      ? `No scan will check anybody in until the scanner is connected — ${connectionError}`
+                      : "No scan will check anybody in until the scanner is connected — nobody is being checked in"
+                  }
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap"
                   style={{ backgroundColor: AMBER, color: "#1a1205", borderRadius: 8 }}
                 >
                   <IconAlertTriangleFilled size={13} aria-hidden />
                   {connectionState === "error" ? "Retry scanner" : "Scanner not connected"}
-                  <span style={{ fontWeight: 600, opacity: 0.85 }}>
-                    {connectionError ? `— ${connectionError}` : "— nobody is being checked in"}
-                  </span>
+                  {connectionError && (
+                    <span style={{ fontWeight: 600, opacity: 0.85 }}>— {connectionError}</span>
+                  )}
                 </button>
               )}
             </>
@@ -1655,11 +1800,26 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
           <button
             type="button"
             onClick={runSelfTest}
-            className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
+            className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5 whitespace-nowrap"
             style={{ borderColor: PORTAL_DARK.border, color: PORTAL_DARK.muted, borderRadius: 8 }}
           >
-            Run Self-Test
+            Self-Test
           </button>
+          {/* THE OTHER BOARD, one click away (owner 2026-09-07). The pit board
+              TV answers "who is on which station tonight", which is the question
+              this desk asks the radio for — and the strip below is its
+              briefed-today count, so the two belong beside each other. Blue
+              because it LEAVES this page; every other pill here opens a panel on
+              it. The portal route is public: no token goes in this URL. */}
+          <a
+            href={PORTAL_PIT_BOARD_TV_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5 whitespace-nowrap"
+            style={{ borderColor: ACCENT_BORDER, color: ACCENT_TEXT, borderRadius: 8 }}
+          >
+            Pit Board TV ↗
+          </a>
           <button
             type="button"
             aria-label="Settings"
@@ -1688,6 +1848,11 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
           </button>
         </div>
       </div>
+
+      {/* Board mode only: a plain check-in station briefs nobody, so the strip
+          would be a permanent "No briefings yet today" on a screen that will
+          never have any. */}
+      {boardMode && <BriefedTodayStrip briefings={briefing.board?.briefings ?? []} />}
 
       {/* Active sessions — check-in counts.
           HIDDEN IN BOARD MODE (owner 2026-08-12: "in board mode move the number

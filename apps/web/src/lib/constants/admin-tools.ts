@@ -177,3 +177,6 @@ export function isSsoAdminTool(slug: string): boolean {
 export function isDeviceTokenTool(slug: string): boolean {
   return DEVICE_TOKEN_TOOLS.has(slug);
 }
+
+/** The HeadPinz portal's public pit board TV — unauthenticated, so no token in it, ever. */
+export const PORTAL_PIT_BOARD_TV_URL = "https://portal.headpinz.com/tv/pit-board";
