@@ -944,20 +944,26 @@ function StatusBar({
   return (
     <div
       style={{
-        height: compact ? 110 : 210,
+        /**
+         * A QUARTER SHORTER (owner 2026-09-07, on the live briefing-room camera
+         * page). The band was 210px of a 1080p screen for one sentence and its
+         * restatement, and the rail beside it is where the marshal actually
+         * reads the night. Both lines stay — it is the slab that shrinks.
+         */
+        height: compact ? 82 : 158,
         background: bg,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 6,
+        gap: 4,
         padding: `0 ${PAD}px`,
       }}
     >
       <span
         className="tv-display"
         style={{
-          fontSize: compact ? 64 : 118,
+          fontSize: compact ? 48 : 88,
           fontWeight: 800,
           lineHeight: 0.95,
           color: fg,
@@ -972,7 +978,7 @@ function StatusBar({
       {!compact && (
         <span
           style={{
-            fontSize: 46,
+            fontSize: 35,
             fontWeight: 600,
             // Always on a coloured slab now, so always the dark ink.
             color: withAlpha(dark, 0.8),

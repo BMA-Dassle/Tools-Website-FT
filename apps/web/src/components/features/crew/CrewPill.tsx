@@ -56,8 +56,22 @@ export type CrewPillDensity = "desk" | "wall" | "compact";
  */
 const PILL_FONT: Record<CrewPillDensity, string> = {
   desk: "12px",
-  wall: "clamp(16px, 1.7vw, 34px)",
-  compact: "clamp(13px, 1.4vw, 28px)",
+  /**
+   * THREE ACROSS A WALL PANEL (owner 2026-09-07). A step below the row detail
+   * beside it rather than level with it: seven people took four lines at the
+   * larger size, which is most of a rail spent on one row.
+   */
+  wall: "clamp(14px, 1.45vw, 29px)",
+  /**
+   * COMPACT IS THE ONE THAT IS ACTUALLY NARROW. Every other size in this system
+   * steps down by about a fifth from wall to compact, because the camera rail
+   * loses type, not structure. The pills lose WIDTH: eight of them wrap across a
+   * pane that is 58% of the screen minus a nine-em label column, so at the
+   * usual step they took four lines and pushed the stage rows off their own
+   * panel (caught on FT:5, 2026-09-07). This is sized to the width available
+   * rather than to the other clamps, which is why it is the odd one out.
+   */
+  compact: "clamp(11px, 1.05vw, 21px)",
 };
 
 /** The presence dot, when a state has one. Available and the two dim states do;
@@ -126,8 +140,10 @@ export function CrewPill({ entry, density }: { entry: CrewEntry; density: CrewPi
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: "0.55em",
-        padding: "0.33em 0.83em 0.33em 0.7em",
+        gap: "0.5em",
+        // Tighter across than down: the pills are budgeted by WIDTH — three to
+        // a wall panel — and the vertical padding is what keeps them legible.
+        padding: "0.33em 0.66em 0.33em 0.56em",
         borderRadius: 999,
         fontSize: PILL_FONT[density],
         fontWeight: 600,

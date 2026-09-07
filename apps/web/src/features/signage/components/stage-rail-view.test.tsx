@@ -228,9 +228,10 @@ describe("StageRailView", () => {
   for (const density of ["wall", "compact"] as const) {
     it(`never lets a ${density} stage label wrap onto a second line`, () => {
       const tree = StageRailView({ rows: megaRows(), density, accent: "#a06bff" });
-      const labels = walk(tree).filter(
-        (el) => typeof el.props?.style?.flex === "string" && el.props.style.flex !== undefined,
-      );
+      // The label columns are the only `em`-based flex bases in the tree — the
+      // detail span next to them is `1 1 0`, and the point of the em basis is
+      // that the column tracks the label's own clamp.
+      const labels = walk(tree).filter((el) => /em$/.test(String(el.props?.style?.flex ?? "")));
       // Seven rows on a Mega night, so seven label columns.
       expect(labels).toHaveLength(7);
       for (const el of labels) {

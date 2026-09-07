@@ -40,7 +40,14 @@ assigned (tag), on break (greyed, orange dot, tag kept), not-in (greyed, last).
       row list only the people currently holding a group, with a dim "roster unavailable" note.
       Re-check the four states on the glass once it lands — `presence` and `hasPunchedToday` are the
       portal's words and nothing here can validate them.
-- [ ] Not smoked on the boards' own screens.
+- [x] Owner review pass on the live briefing-room camera page (2026-09-07): the delay band is a
+      quarter shorter, the Track Ops pills fit three-plus across, the row no longer overdraws PIT
+      IN, "after the post" is gone from the check-in verdict, and no stage row's detail can wrap.
+      Verified in a real browser across 31 combinations (both densities x 1920x1080 / 1280x720 x
+      0/3/7/9 crew, every stage occupied, every briefing phase): no overlap, no wrap, no ellipsis,
+      no scrolling.
+- [ ] Not smoked on the boards' own screens (measured and screenshotted through the dev server
+      against live data, not walked to).
 
 ### Found and fixed on the way: the marshal never reached the walls
 

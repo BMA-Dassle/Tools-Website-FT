@@ -334,14 +334,24 @@ export function StageRailView({
         </div>
       )}
 
+      {/*
+        THE STAGE ROWS GIVE UP THEIR SPACING BEFORE ANYTHING ELSE GIVES.
+
+        Their vertical rhythm is `space-evenly` ALONE — no fixed `gap`, which is
+        what this used to carry as well. A gap is a floor: it cannot shrink, so
+        once the Track Ops row below took real height the rows' combined
+        height exceeded this box and they overflowed it, painting through PIT IN
+        (owner 2026-09-07, the FT:5 camera board). Distributed free space
+        collapses to zero instead, so a crowded panel closes up its spacing and
+        every row stays where it belongs.
+      */}
       <div
         style={{
-          flex: 1,
+          flex: "1 1 auto",
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-evenly",
-          gap: s.rowGap,
         }}
       >
         {rows.map((r, i) => {
@@ -349,7 +359,22 @@ export function StageRailView({
           // Compact drops the word, never the number: the label column already
           // says which stage this is.
           const value = compact && r.heatNumber != null ? String(r.heatNumber) : r.value;
-          const type = compact ? shortLevel(r.type) : r.type;
+          /**
+           * THE SHORT LEVEL ON BOTH DENSITIES NOW (owner 2026-09-07).
+           *
+           * It was compact-only, from the day the camera boards were the only
+           * screens without room for "Junior Intermediate" (owner 2026-08-24:
+           * "junior intermediate is just way too book for no reason"). The row
+           * has since gained a host chip, and on a wall sign a nineteen-letter
+           * level plus a name left the detail ellipsising mid-word — measured
+           * on FT:7 at 1080p.
+           *
+           * The level is the right thing to give up the space: "Jr Inter" is
+           * what staff say out loud, and the row already carries the session
+           * number, the marshal and the state. Shedding a word beats cutting a
+           * sentence.
+           */
+          const type = shortLevel(r.type);
           const detail = compact ? (r.detailShort ?? r.detail) : r.detail;
           return (
             <div
@@ -467,10 +492,35 @@ export function StageRailView({
                   {compact ? calledCheckinAt : `check-in ${calledCheckinAt}`}
                 </span>
               )}
+              {/*
+                THE DETAIL NEVER TAKES A SECOND LINE (owner 2026-09-07). The
+                Checking-in row can carry three fragments and, on a camera
+                board, wrapped underneath itself — which pushes that row taller
+                and knocks the whole rail out of rhythm, the same complaint the
+                label column was fixed for.
+
+                `flex: 1 1 0` is what keeps it on the row at all: the row wraps,
+                and an item wraps to a new line when its flex BASIS exceeds the
+                space left, so a basis of zero can never be the thing that
+                wraps. It then takes whatever is left and ellipsises inside it.
+
+                Ellipsis is the floor, not the plan: the compact form already
+                sheds the least important fragment (see stage-rail.ts), so a
+                trimmed sentence is what a narrow pane normally shows.
+              */}
               {detail && (
                 <span
                   className="tv-eyebrow"
-                  style={{ fontSize: s.detail, color: TONE[r.tone], letterSpacing: "0.05em" }}
+                  style={{
+                    fontSize: s.detail,
+                    color: TONE[r.tone],
+                    letterSpacing: "0.05em",
+                    flex: "1 1 0",
+                    minWidth: 0,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
                 >
                   {detail}
                 </span>
@@ -510,6 +560,16 @@ export function StageRailView({
  * line at wall density and a busy Saturday runs to twelve; a second line costs
  * the stage rows a little of their generous spacing, and a hidden crew member
  * costs somebody a walk.
+ *
+ * BUT IT IS CAPPED, because the six rows above it are this panel's job and this
+ * one is the addition. The stage rows sit in a `flex: 1` box that distributes
+ * them with `space-evenly` and does not compress below their own height — so a
+ * crew row tall enough to squeeze that box does not shrink the rows, it makes
+ * them overflow it and paint straight through PIT IN. (Seen on the FT:5 camera
+ * board the first time this shipped: four wrapped lines of pills, and the last
+ * stage row underneath them.) At a third of the panel the cap is never reached
+ * by a real crew — a dozen people fit inside it at either density — and if one
+ * ever does, a clipped pill is a far better failure than an unreadable rail.
  */
 function TrackOpsRow({
   crew,
@@ -528,8 +588,15 @@ function TrackOpsRow({
         display: "flex",
         alignItems: "baseline",
         gap: compact ? 9 : 14,
-        flexShrink: 0,
+        // REAL LAYOUT HEIGHT, never a negotiation: this row's own content is
+        // what the box above has to fit around.
+        flex: "none",
         minWidth: 0,
+        // The backstop, for a crew nobody planned for. A dozen people fit
+        // inside a third of the panel at either density; past that a clipped
+        // pill is a far better failure than an unreadable rail.
+        maxHeight: "33%",
+        overflow: "hidden",
       }}
     >
       <span
@@ -547,7 +614,10 @@ function TrackOpsRow({
         style={{
           display: "flex",
           flexWrap: "wrap",
-          gap: compact ? "0.5vh 0.5vw" : "0.6vh 0.6vw",
+          // Tight enough that three pills reach across a wall panel — the
+          // owner's count, and what makes seven people two lines instead of
+          // four (2026-09-07).
+          gap: compact ? "0.5vh 0.4vw" : "0.6vh 0.4vw",
           minWidth: 0,
         }}
       >

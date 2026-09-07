@@ -339,17 +339,38 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     calledHeat != null && count && count.total > 0
       ? `${count.checkedIn} of ${count.total} checked in`
       : null;
+  /** The same count without the words the row's own label already says. */
+  const countShort =
+    calledHeat != null && count && count.total > 0 ? `${count.checkedIn} of ${count.total}` : null;
   /** How long they have been at it. Only ever from a real stamp, and never a
    *  negative one — a clock skew is not a group that checked in tomorrow. */
   const waitedText =
     calledHeat != null && input.calledForMs != null && input.calledForMs >= 0 && fmt
       ? `${fmt(input.calledForMs)} checking in`
       : null;
+  /**
+   * THE SAME LINE FOR A NARROW PANE, one fragment shorter.
+   *
+   * This row is the only one that can carry three fragments at once, and on a
+   * camera board (a rail in 58% of a small panel) all three wrapped under the
+   * row (owner 2026-09-07). Rather than ellipsising the end of a sentence, the
+   * compact form SHEDS its least important part: the count first, then how long
+   * they have been at it, and the verdict is what goes — its tone still colours
+   * the row, and the desk it is advice for is not reading a camera board.
+   *
+   * "5:25" without "checking in" for the same reason `pitIn` drops "karts in":
+   * the row's own label is already the noun.
+   */
+  const waitedShort =
+    calledHeat != null && input.calledForMs != null && input.calledForMs >= 0 && fmt
+      ? fmt(input.calledForMs)
+      : null;
   rows.push({
     label: "Checking in",
     value: sessionLabel(calledHeat),
     type: calledHeat != null ? (called?.raceType ?? undefined) : undefined,
     detail: [countText, waitedText, briefPhrase?.text].filter(Boolean).join(" · ") || undefined,
+    detailShort: [countShort, waitedShort].filter(Boolean).join(" · ") || undefined,
     heatNumber: calledHeat,
     // THE HARDER FACT WINS THE COLOUR. A complete grid is good news, but a
     // briefing that can no longer fit outranks it — green beside "no time"
@@ -407,6 +428,21 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
           : t.phase === "helmet"
             ? "helmets — ready to send"
             : "waiting to start",
+      /**
+       * THE SAME TWO STATES FOR A NARROW PANE. Both overran a camera board's
+       * detail column and were being ellipsised mid-word; the words dropped are
+       * the ones the row is already showing ("of film" beside a film clock, and
+       * "helmets" beside a room that is plainly on the helmet board).
+       */
+      detailShort:
+        t.phase === "video" && t.nextInMs != null && fmt
+          ? `${fmt(t.nextInMs)} left`
+          : t.phase === "helmet"
+            ? "ready to send"
+            : // Sent, film not started — "waiting to" is the part a row already
+              // labelled BRIEFING can do without, and the full phrase overran a
+              // camera board by a character.
+              "not started",
       heatNumber: state.heatNumber,
       tone: t.phase === "helmet" ? "good" : "none",
     };
@@ -485,6 +521,9 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     type: karts?.raceType ?? undefined,
     host: karts?.host ?? null,
     detail: karts ? "seated — waiting on the green" : undefined,
+    // "seated" is what IN KARTS means; the green is the news. Measured: the
+    // full sentence overruns a camera board's detail column by 188px.
+    detailShort: karts ? "on the green" : undefined,
     heatNumber: karts?.heatNumber ?? null,
     tone: karts ? "good" : "none",
     room: karts?.room ?? null,

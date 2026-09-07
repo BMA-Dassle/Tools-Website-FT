@@ -113,7 +113,9 @@ describe("briefVerdict", () => {
       calledForMs: 9 * M,
     });
     expect(v).toMatchObject({ kind: "blocked", act: false });
-    expect(v.phrase).toBe("no time to brief · after the post");
+    // No "after the post" tail: the rail's detail line has to survive on one
+    // line of a camera board (owner 2026-09-07).
+    expect(v.phrase).toBe("no time to brief");
   });
 
   it("counts the grace down rather than inviting a press", () => {

@@ -105,7 +105,12 @@ export function briefVerdict(input: BriefVerdictInput): BriefVerdict {
   if (w && w.kind === "blocked") {
     return {
       kind: "blocked",
-      phrase: "no time to brief · after the post",
+      // JUST THE VERDICT (owner 2026-09-07). "after the post" said WHEN the
+      // pull unlocks, on a line that already had three fragments and was
+      // wrapping under the row on the camera boards. The desk's own Send
+      // button and the room tablets' pull band both still say it, in the two
+      // places somebody is deciding to press something.
+      phrase: "no time to brief",
       tone: "alert",
       act: false,
       short,
