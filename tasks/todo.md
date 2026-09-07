@@ -17,6 +17,17 @@ appearing", and "those three pills can go on one line". Mockup approved on a des
       (`personsWithUnexpiredCapturedWaiver`). Owner's Pandora-load question answered: opening
       the sheet costs nothing upstream; adding someone costs at most the ONE-person waiver read
       every sign-in already does, and none when our record vouches.
+- [x] **A WEB reservation's crew comes from its kiosk CHECK-IN** (owner: "that check-in should
+      be able to mint this table"). Web rosters read "Adult 1 / Adult 2" with no ids until the
+      racers sign in / set up at check-in, which binds every one to a person in
+      `kiosk_checkin_people`; `coBookedPeopleOnDate` unions those rows (and the reservation's
+      `kiosk_waiver_joins`, which the online /waiver flow writes too) with the booking's own
+      rosters. No new table, nothing new written. Probed live 9/6: a 2-person "Adult 1/2" web
+      booking → "Donavan Solomon · waiver on file"; a 10-person web group comes back complete.
+- [x] **Duplicate person records are ONE person** (probed live: "Ryan Jones" under two ids —
+      check-in bound one, online waiver joined the other; a guest's own second record surfaced
+      in her own crew). Same full name collapses, preferring the check-in-verified record; a
+      roster member's own name is never offered back; first-name-only entries never collapse.
 - [x] `GET /api/kiosk/todays-crew?personId&center` — read-only, personId is the capability
       (race-history precedent), per-IP rate limit 30/5 min. Kill switch
       `NEXT_PUBLIC_KIOSK_TODAYS_CREW` (defaults ON).
