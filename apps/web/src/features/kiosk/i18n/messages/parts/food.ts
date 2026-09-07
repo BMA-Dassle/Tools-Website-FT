@@ -34,7 +34,6 @@ export const foodEn = {
   "food.edit.saving": "Saving…",
   "food.edit.saved": "Order updated — the kitchen has your choices.",
   "food.edit.laneOpen": "Your lane is already open — see the front desk to change your order.",
-  "food.edit.paidExtras": "This order includes paid extras — see the front desk to change it.",
   "food.edit.loadFail": "We couldn’t load your food options — tap Retry.",
   "food.edit.saveFail": "We couldn’t update your order. Try again, or see the front desk.",
   "food.lane": "Lane {n}",
@@ -72,8 +71,6 @@ export const foodEs: Record<keyof typeof foodEn, string> = {
   "food.edit.saving": "Guardando…",
   "food.edit.saved": "Pedido actualizado — la cocina ya tiene tus elecciones.",
   "food.edit.laneOpen": "Tu pista ya está abierta — pasa a recepción para cambiar tu pedido.",
-  "food.edit.paidExtras":
-    "Este pedido incluye adicionales pagados — pasa a recepción para cambiarlo.",
   "food.edit.loadFail": "No pudimos cargar tus opciones de comida — toca Reintentar.",
   "food.edit.saveFail": "No pudimos actualizar tu pedido. Inténtalo de nuevo o pasa a recepción.",
   "food.lane": "Pista {n}",

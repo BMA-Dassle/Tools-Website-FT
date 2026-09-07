@@ -240,6 +240,61 @@ export function withoutPaidOptions(foodItems: readonly FoodItem[]): FoodItem[] {
   }));
 }
 
+/** Ids of every PRICED option across the food items. */
+function paidOptionIds(foodItems: readonly FoodItem[]): Set<string> {
+  const ids = new Set<string>();
+  for (const f of foodItems)
+    for (const g of f.groups) for (const o of g.options) if ((o.priceCents ?? 0) > 0) ids.add(o.id);
+  return ids;
+}
+
+/** The selections with every priced option removed — what the included-only
+ *  picker shows and sends. */
+export function freePicksOnly(
+  selections: readonly LaneSelections[],
+  foodItems: readonly FoodItem[],
+): LaneSelections[] {
+  const paid = paidOptionIds(foodItems);
+  return selections.map((sel) =>
+    Object.fromEntries(
+      Object.entries(sel)
+        .map(([gid, ids]) => [gid, ids.filter((id) => !paid.has(id))])
+        .filter(([, ids]) => (ids as string[]).length > 0),
+    ),
+  );
+}
+
+/**
+ * Merge an included-only edit back over the stored picks: the guest's new $0
+ * picks replace the old $0 picks, and every PRICED pick already on the order
+ * is carried over untouched. Owner 2026-09-06: an order with paid extras is
+ * still editable — "just don't show extras" — so the bacon they paid for at
+ * booking survives a change of drink. Priced ids in the submission are
+ * ignored (the picker never offers them; a doctored client cannot add money).
+ */
+export function mergeFreePicks(args: {
+  stored: readonly LaneSelections[];
+  submitted: readonly LaneSelections[];
+  foodItems: readonly FoodItem[];
+  laneCount: number;
+}): LaneSelections[] {
+  const paid = paidOptionIds(args.foodItems);
+  const lanes = Math.max(1, args.laneCount);
+  return Array.from({ length: lanes }, (_, lane) => {
+    const stored = args.stored[lane] ?? {};
+    const submitted = args.submitted[lane] ?? {};
+    const out: LaneSelections = {};
+    const groupIds = new Set([...Object.keys(stored), ...Object.keys(submitted)]);
+    for (const gid of groupIds) {
+      const keptPaid = (stored[gid] ?? []).filter((id) => paid.has(id));
+      const newFree = (submitted[gid] ?? []).filter((id) => !paid.has(id));
+      const merged = [...newFree, ...keptPaid.filter((id) => !newFree.includes(id))];
+      if (merged.length > 0) out[gid] = merged;
+    }
+    return out;
+  });
+}
+
 /** Total extras charge across every lane. */
 export function extraCentsTotal(args: {
   foodItems: readonly FoodItem[];

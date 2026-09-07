@@ -17,6 +17,8 @@ import {
   FOOD_REASON,
   toggleSelection,
   withoutPaidOptions,
+  freePicksOnly,
+  mergeFreePicks,
   type FoodItem,
   type LaneSelections,
 } from "./food-config";
@@ -545,6 +547,93 @@ describe("withoutPaidOptions — the post-booking picker adds no money", () => {
         laneCount: 1,
       }),
     ).toBe(0);
+  });
+});
+
+describe("freePicksOnly / mergeFreePicks — paid extras stay, never re-offered", () => {
+  const INCL = {
+    id: "g_incl",
+    name: "One included Topping",
+    selectionType: "SINGLE" as const,
+    options: [
+      { id: "i_pep", name: "Pepperoni" },
+      { id: "i_cheese", name: "Extra Cheese" },
+    ],
+  };
+  const PAID = {
+    id: "g_paid",
+    name: "Pizza Toppings",
+    selectionType: "MULTIPLE" as const,
+    options: [
+      { id: "p_bacon", name: "Bacon", priceCents: 200 },
+      { id: "p_onion", name: "Onions", priceCents: 100 },
+    ],
+  };
+  const DRINK = {
+    id: "g_soda",
+    name: "Soda Choice",
+    selectionType: "SINGLE" as const,
+    options: [
+      { id: "s_pepsi", name: "Pepsi" },
+      { id: "s_dp", name: "Dr. Pepper" },
+    ],
+  };
+  const items: FoodItem[] = [
+    {
+      catalogObjectId: PIZZA,
+      name: "Pizza Bowl Pizza",
+      includedModifierCount: 1,
+      extraModifierCents: 0,
+      groups: [INCL, PAID],
+    },
+    {
+      catalogObjectId: SODA,
+      name: "Pizza Bowl Soda Pitcher",
+      includedModifierCount: 1,
+      extraModifierCents: 0,
+      groups: [DRINK],
+    },
+  ];
+  const stored = [{ g_incl: ["i_pep"], g_paid: ["p_bacon", "p_onion"], g_soda: ["s_pepsi"] }];
+
+  it("shows the guest only the free picks", () => {
+    expect(freePicksOnly(stored, items)).toEqual([{ g_incl: ["i_pep"], g_soda: ["s_pepsi"] }]);
+  });
+
+  it("a drink change keeps the bacon and onions they paid for", () => {
+    const merged = mergeFreePicks({
+      stored,
+      submitted: [{ g_incl: ["i_cheese"], g_soda: ["s_dp"] }],
+      foodItems: items,
+      laneCount: 1,
+    });
+    expect(merged).toEqual([
+      { g_incl: ["i_cheese"], g_paid: ["p_bacon", "p_onion"], g_soda: ["s_dp"] },
+    ]);
+    // and the money is unchanged
+    expect(extraCentsTotal({ foodItems: items, selections: merged, laneCount: 1 })).toBe(
+      extraCentsTotal({ foodItems: items, selections: stored, laneCount: 1 }),
+    );
+  });
+
+  it("ignores a priced id smuggled into the submission", () => {
+    const merged = mergeFreePicks({
+      stored: [{ g_incl: ["i_pep"], g_soda: ["s_pepsi"] }],
+      submitted: [{ g_incl: ["i_pep"], g_paid: ["p_bacon"], g_soda: ["s_pepsi"] }],
+      foodItems: items,
+      laneCount: 1,
+    });
+    expect(merged[0].g_paid).toBeUndefined();
+  });
+
+  it("pads to the lane count and drops a lane that no longer exists", () => {
+    const merged = mergeFreePicks({
+      stored: [stored[0], stored[0]],
+      submitted: [stored[0]],
+      foodItems: items,
+      laneCount: 1,
+    });
+    expect(merged).toHaveLength(1);
   });
 });
 

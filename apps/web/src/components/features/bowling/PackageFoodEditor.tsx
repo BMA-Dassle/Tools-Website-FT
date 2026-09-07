@@ -12,8 +12,9 @@
  *
  * INCLUDED PICKS ONLY. Owner 2026-09-06: post-booking edits never add money to
  * the bill. Priced options are not shown (withoutPaidOptions), a tap that would
- * cost anything is ignored, and the server refuses a non-zero extras total. An
- * order that already carries paid extras is not editable here (front desk).
+ * cost anything is ignored, and the server refuses any edit that raises the
+ * extras total. Paid extras already on the order are simply not shown — the
+ * server carries them over untouched when the guest changes a drink.
  *
  * It reads GET …/food (config + live groups + the guest's current picks parsed
  * back from our stored lines) and writes PATCH …/food with the new picks; the
@@ -30,6 +31,7 @@ import { useT } from "~/features/kiosk/i18n/useT";
 import {
   extraCentsTotal,
   foodSelectionIssue,
+  freePicksOnly,
   toggleSelection,
   withoutPaidOptions,
   type LaneSelections,
@@ -111,8 +113,11 @@ export const PackageFoodEditor = forwardRef<PackageFoodEditorHandle, Props>(
           const data = (await res.json()) as ReservationFoodState;
           if (cancelled) return;
           setState(data);
-          setSelections(data.selections);
-          setSaved(data.selections);
+          // Prefill with the $0 picks only — paid extras are hidden here and
+          // carried over untouched by the server on save.
+          const free = freePicksOnly(data.selections, data.foodItems);
+          setSelections(free);
+          setSaved(free);
         } catch (err) {
           if (cancelled) return;
           console.warn("[PackageFoodEditor] load failed:", err);
@@ -217,12 +222,8 @@ export const PackageFoodEditor = forwardRef<PackageFoodEditorHandle, Props>(
     if (!hasFood) return null;
 
     if (!editable) {
-      // Lane already open (guest), or paid extras on the order (everyone).
-      const reason =
-        gate && !gate.ok && state.paidExtrasCents > 0
-          ? t("food.edit.paidExtras")
-          : t("food.edit.laneOpen");
-      return <p className="py-3 text-center text-sm text-white/60">{reason}</p>;
+      // Lane already open (guest), cancelled, or no order on file.
+      return <p className="py-3 text-center text-sm text-white/60">{t("food.edit.laneOpen")}</p>;
     }
 
     return (

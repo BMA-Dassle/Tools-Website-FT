@@ -11,11 +11,11 @@
  * MONEY: NONE. Owner 2026-09-06 — "to keep this simple don't allow edits to
  * anything that adds money to the bill. Just do the required included." A
  * post-booking edit may only change the picks the package already paid for
- * (the included topping, the drink). Priced options are not offered, and an
- * edit whose extras total is not zero is refused. An order that ALREADY carries
- * paid extras from booking is not editable here at all — re-writing its notes
- * from the included-only picker would drop something the guest paid for — so
- * those go to the front desk.
+ * (the included topping, the drink). Priced options are never offered, and the
+ * edit is MERGED over the stored picks: the new $0 picks replace the old $0
+ * picks, and every paid extra already on the order is carried over untouched
+ * (owner: "for this one just don't show extras"). An edit whose extras total
+ * would rise is refused.
  *
  * Order of operations on an edit: validate → PERSIST TO NEON → update the
  * Square order. Neon first because our DB is the source of truth for what the
@@ -31,6 +31,7 @@ import {
   configurableFoodItems,
   extraCentsTotal,
   foodSelectionIssue,
+  mergeFreePicks,
   missingRequiredFoodLines,
   type FoodItem,
   type LaneSelections,
@@ -46,10 +47,6 @@ import {
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_VERSION = "2024-12-18";
-
-/** Why a guest (or staff) may not edit — one string, reused by the editor. */
-export const PAID_EXTRAS_REASON =
-  "This order includes paid extras — see the front desk to change it.";
 
 function sqHeaders(): Record<string, string> {
   return {
@@ -115,12 +112,12 @@ export interface ReservationFoodState {
   complete: boolean;
   /** Why not complete, guest-readable; null when complete. */
   issue: string | null;
-  /** Paid extras already on the booking (cents) — if > 0 the order is not
-   *  editable here (see PAID_EXTRAS_REASON). */
+  /** Paid extras already on the booking (cents). Informational — they are
+   *  carried over untouched by an edit, never re-offered, never refunded. */
   paidExtrasCents: number;
   /** May the GUEST change this right now? */
   guestEditable: { ok: true } | { ok: false; reason: string };
-  /** May STAFF change this right now? (No time limit; paid extras still block.) */
+  /** May STAFF change this right now? (No time limit — lane open or not.) */
   adminEditable: { ok: true } | { ok: false; reason: string };
 }
 
@@ -215,8 +212,6 @@ export async function resolveReservationFood(neonId: number): Promise<Reservatio
     guestEditable = adminEditable = { ok: false, reason: "reservation is cancelled" };
   } else if (!orderId) {
     guestEditable = adminEditable = { ok: false, reason: "no day-of order on file" };
-  } else if (paidExtrasCents > 0) {
-    guestEditable = adminEditable = { ok: false, reason: PAID_EXTRAS_REASON };
   } else if (reservation.status !== "confirmed" && reservation.status !== "confirm_pending") {
     guestEditable = { ok: false, reason: `not editable (status ${reservation.status})` };
   } else if (laneOpen) {
@@ -261,12 +256,23 @@ export async function applyFoodEdit(args: {
   if (!gate.ok) return { ok: false, status: 409, error: gate.reason, code: "not_editable" };
 
   const { foodItems, laneCount } = state;
-  const selections = Array.from({ length: laneCount }, (_, i) => args.selections?.[i] ?? {});
+  // Included-only edit merged over what is stored: new $0 picks replace old $0
+  // picks; every PAID pick already on the order is kept exactly as it was
+  // (owner 2026-09-06 — never re-offer extras, never lose the ones they bought).
+  const selections = mergeFreePicks({
+    stored: state.selections,
+    submitted: args.selections ?? [],
+    foodItems,
+    laneCount,
+  });
   const issue = foodSelectionIssue({ foodItems, selections, laneCount });
   if (issue) return { ok: false, status: 400, error: issue, code: "food_incomplete" };
 
-  // Included picks only — nothing that adds money (owner 2026-09-06).
-  if (extraCentsTotal({ foodItems, selections, laneCount }) > 0) {
+  // Nothing that adds money (owner 2026-09-06). The merge keeps paid extras and
+  // drops priced ids from the submission, so the total can only stay or fall.
+  const before = extraCentsTotal({ foodItems, selections: state.selections, laneCount });
+  const after = extraCentsTotal({ foodItems, selections, laneCount });
+  if (after > before) {
     return {
       ok: false,
       status: 400,
