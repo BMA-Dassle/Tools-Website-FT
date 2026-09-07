@@ -167,6 +167,18 @@ export async function ensureBowlingSchema(): Promise<void> {
   // published price must match the catalog — charging our $1 on top would
   // double-bill. The included pick comes from the $0 "One included Topping"
   // list. The seed scripts carry the same rows so a full re-seed keeps them.
+  //
+  // The UPDATE below exists because the previous build's backfill ("SET 100
+  // WHERE 0") was still running in production when the preview build seeded
+  // these rows into the shared database, and flipped the pizza to $1. Guarded
+  // on `= 100` — exactly the old backfill's value — so a later deliberate price
+  // is never clobbered.
+  await q`
+    UPDATE bowling_experience_items
+       SET extra_modifier_cents = 0
+     WHERE square_catalog_object_id = '2IKZB4O2HQBXWMTSUQ2SEKJY'
+       AND extra_modifier_cents = 100
+  `;
   for (const catalog of PIZZA_BOWL_BUNDLED_FOOD) {
     for (const center of ["TXBSQN0FEKQ11", "PPTR5G2N0QXF7"]) {
       await q`
