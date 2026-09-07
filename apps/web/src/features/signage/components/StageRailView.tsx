@@ -40,18 +40,33 @@ import { withAlpha } from "../color";
 import { shortLevel, type StageRow } from "../briefing/stage-rail";
 import { TRACK_ACCENTS } from "../track";
 import type { TvFeed } from "../types";
+import { HostChip } from "./HostChip";
+import { CrewPill } from "~/components/features/crew/CrewPill";
+import { CREW_GREEN } from "~/lib/constants/crew";
+import type { CrewBoard } from "~/features/staff/crew-list";
 
 export type RailDensity = "wall" | "compact";
+
+/**
+ * ONE GREEN ON THIS PANEL (owner 2026-09-07).
+ *
+ * The ON TIME chip, an all-here check-in count and the available pills in the
+ * TRACK OPS row are all "good" and all sit within a hand's width of each other.
+ * They used to be two different greens — this panel's `#46d68c` and the crew
+ * palette's `#4ade80` — which side by side read as a rendering fault rather
+ * than as two meanings. Green now means one thing here, and the value lives
+ * with the pills that also use it.
+ */
+const GOOD = CREW_GREEN;
 
 /** ONE tone map. The only place a rail row's colour is decided. */
 const TONE: Record<StageRow["tone"], string> = {
   none: "rgba(245,236,238,0.62)",
-  good: "#46d68c",
+  good: GOOD,
   warn: "#f0b341",
   alert: "#ff4d4d",
 };
 
-const GOOD = "#46d68c";
 const WARN = "#f0b341";
 
 /**
@@ -189,6 +204,20 @@ export interface StageRailViewProps {
    * somewhere a group already is, and a schedule beside it would be noise.
    */
   calledCheckinAt?: string | null;
+  /**
+   * WHO IS ON TRACK OPS, as a row under PIT IN (owner 2026-09-07).
+   *
+   * FLOOR-WIDE, NOT PER TRACK, and shown identically on both tracks' panels —
+   * "who is free" is a fact about the building, and a marshal standing at Red
+   * needs to know that the person available is over at Blue. Same list, same
+   * order and the same pill as the check-in board's strip, from the one fold
+   * (features/staff/crew-list.ts).
+   *
+   * Omitted on every screen that is not a FastTrax rail, and the row is dropped
+   * entirely when the list is empty — a permanent empty TRACK OPS band on a
+   * quiet Tuesday is furniture.
+   */
+  crew?: CrewBoard | null;
   style?: CSSProperties;
 }
 
@@ -203,6 +232,7 @@ export function StageRailView({
   trackShort,
   timeOfDay,
   calledCheckinAt,
+  crew,
   style,
 }: StageRailViewProps) {
   const s = SCALE[density];
@@ -387,21 +417,20 @@ export function StageRailView({
 
                 AFTER the level and BEFORE the room pill, which is the order the
                 row already reads in: what the race IS, then who has it, then
-                where it goes. Dimmer than the level, because a marshal scanning
-                this rail is looking for a session number first and a name only
-                once they have found the row.
+                where it goes.
 
-                NEVER BESIDE A "—", same rule as the room pill: a name floating
-                against an empty stage would be about nobody.
+                A CHIP ON EVERY ROW, INCLUDING THE UNCLAIMED ONES (owner
+                2026-09-07). It used to be dim caps butted against the level, so
+                a row read "35 STARTER PEDRO" and the name looked like part of
+                the race type — and it appeared on the four lane rows only,
+                which made a marshal look like a property of the pit. Same slot,
+                same treatment, every row; a group nobody has claimed says so.
+
+                NEVER BESIDE A "—", same rule as the room pill: a chip floating
+                against an empty stage would be about nobody, and "no host yet"
+                on an empty stage would be about no group.
               */}
-              {r.host && !empty && (
-                <span
-                  className="tv-eyebrow"
-                  style={{ fontSize: s.type, color: "rgba(245,236,238,0.42)" }}
-                >
-                  {r.host}
-                </span>
-              )}
+              {!empty && <HostChip name={r.host ?? null} fontSize={s.pill} />}
               {/*
                 THE ROOM THIS RACE COMES BACK TO (owner 2026-08-17: "for mega
                 keep a pill next to the race on what room they will be returning
@@ -451,6 +480,8 @@ export function StageRailView({
         })}
       </div>
 
+      {crew && crew.list.length > 0 && <TrackOpsRow crew={crew} scale={s} compact={compact} />}
+
       {returning && returning.groups.length > 0 && (
         <BackToBack
           returning={returning}
@@ -459,6 +490,87 @@ export function StageRailView({
           trackShort={trackShort ?? ((t) => t)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * WHO IS ON TRACK OPS — the row under PIT IN (owner 2026-09-07).
+ *
+ * It reads as a seventh stage on purpose: the six above it say where every
+ * GROUP is, and this one says where the PEOPLE are, in the same label column
+ * and the same reading order. A marshal walking past has been able to see which
+ * heat is where for a month and has never been able to see who is free.
+ *
+ * The pills are the check-in board's pills — literally, the same component and
+ * the same fold — because the strip and this row answer one question and the
+ * desk reads both within a minute of each other.
+ *
+ * IT WRAPS RATHER THAN SCROLLS OR TRUNCATES. Seven or eight people fit on a
+ * line at wall density and a busy Saturday runs to twelve; a second line costs
+ * the stage rows a little of their generous spacing, and a hidden crew member
+ * costs somebody a walk.
+ */
+function TrackOpsRow({
+  crew,
+  scale,
+  compact,
+}: {
+  crew: CrewBoard;
+  scale: Scale;
+  compact: boolean;
+}) {
+  return (
+    <div
+      style={{
+        borderTop: "1px solid rgba(245,236,238,0.15)",
+        paddingTop: compact ? 10 : 14,
+        display: "flex",
+        alignItems: "baseline",
+        gap: compact ? 9 : 14,
+        flexShrink: 0,
+        minWidth: 0,
+      }}
+    >
+      <span
+        className="tv-eyebrow"
+        style={{
+          ...LABEL_COL,
+          fontSize: scale.label,
+          letterSpacing: "0.08em",
+          color: "rgba(245,236,238,0.45)",
+        }}
+      >
+        Track Ops
+      </span>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: compact ? "0.5vh 0.5vw" : "0.6vh 0.6vw",
+          minWidth: 0,
+        }}
+      >
+        {crew.list.map((entry) => (
+          <CrewPill key={entry.userId} entry={entry} density={compact ? "compact" : "wall"} />
+        ))}
+        {/* The portal could not be reached, so this is only the people holding
+            a group — said out loud, because a short list would otherwise read
+            as a quiet floor. */}
+        {!crew.rosterAvailable && (
+          <span
+            className="tv-eyebrow"
+            style={{
+              fontSize: scale.type,
+              color: "rgba(245,236,238,0.35)",
+              fontStyle: "italic",
+              alignSelf: "center",
+            }}
+          >
+            roster unavailable
+          </span>
+        )}
+      </div>
     </div>
   );
 }

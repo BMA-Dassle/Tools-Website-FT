@@ -26,6 +26,8 @@ import type { TrackKey } from "./track";
 import { useRaceClockForTrack } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "./briefing/room-return";
 import type { PitLaneFeed } from "./pit/pit-board";
+import { HostChip } from "./components/HostChip";
+import { CREW_GREEN } from "~/lib/constants/crew";
 
 const WS_HOST = "webserver22.sms-timing.com";
 const WS_PORT = 10015;
@@ -470,8 +472,10 @@ export function LiveSessionChip({
           height: compact ? 9 : 12,
           borderRadius: "50%",
           alignSelf: "center",
-          background: paused ? "#f0b341" : "#46d68c",
-          boxShadow: `0 0 10px ${paused ? "#f0b341" : "#46d68c"}`,
+          // THE ONE GREEN. The same value the session panel's ON TIME chip and
+          // the available Track Ops pills use — this dot sits inches from both.
+          background: paused ? "#f0b341" : CREW_GREEN,
+          boxShadow: `0 0 10px ${paused ? "#f0b341" : CREW_GREEN}`,
         }}
       />
       <span
@@ -490,30 +494,17 @@ export function LiveSessionChip({
       >
         {formatRemaining(clock.remainingMs)}
       </span>
+      {/* THE SAME CHIP THE STAGE ROWS WEAR (owner 2026-09-07). It was a dim
+          span here and dim caps there, for one fact — a marshal reading the
+          corner and then the rows had to recognise the same person twice in two
+          treatments. One component now, sized to this chip's own type.
+
+          (The camera strip's compact chip is never handed a host: its 200px
+          clock reserve is what lets a 12-kart grid fit.) */}
       {who && (
-        <>
-          <span aria-hidden style={{ fontSize: compact ? 17 : 26, color: "rgba(245,236,238,0.3)" }}>
-            ·
-          </span>
-          {/* CAPPED. The pill sits at the end of rows that make room for it —
-              the pit header clips its session block to do so — and a long first
-              name ellipsises here rather than pushing the pill into what stands
-              beside it. (The camera strip's compact chip is never handed a host:
-              its 200px clock reserve is what lets a 12-kart grid fit.) */}
-          <span
-            style={{
-              fontSize: compact ? 17 : 26,
-              color: "rgba(245,236,238,0.55)",
-              letterSpacing: "0.04em",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              maxWidth: compact ? 80 : 220,
-            }}
-          >
-            {who}
-          </span>
-        </>
+        <span style={{ maxWidth: compact ? 110 : 260, overflow: "hidden" }}>
+          <HostChip name={who} fontSize={compact ? 17 : 26} placeholder={false} />
+        </span>
       )}
     </div>
   );

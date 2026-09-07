@@ -40,6 +40,7 @@ import { afterResponse } from "../after-response.server";
 import { nudgeStaySeated } from "../pit/audio.server";
 import { buildPitBoard } from "../pit/service";
 import { readPitLanes } from "../pit/lane.server";
+import { crewBoard } from "~/features/staff/crew.server";
 import { readFastPitRosters } from "../pit/fast-roster.server";
 import { buildWelcomeBoard } from "./welcome";
 import { resolveResultsBoard } from "./results-board.server";
@@ -127,6 +128,9 @@ export async function buildTvFeed(
     // PULSE-ONLY — the full feed never carries the fast roster; useTvFeed
     // merges the pulse's copy over this null.
     pitRosters: null,
+    // Filled below for the FastTrax screens that draw a stage rail; null on
+    // every other screen, which has no Track Ops row to feed.
+    crew: null,
     checkinProgress: null,
     checkinReturning: null,
     raceResults: null,
@@ -243,6 +247,18 @@ export async function buildTvFeed(
   // above for the same reason the last-race board does: on a Mega day nobody
   // has raced this screen's own track since morning.
   const wantsTopTimes = wantsResults && config.resultsBoard?.role === "top-times";
+  /**
+   * WHO IS ON TRACK OPS — for every FastTrax screen that draws a stage rail,
+   * and only those: the briefing rooms' idle wall, the camera boards' rail pane
+   * and the Mega session tracker. Those three are exactly the callers of
+   * StageRailView, which is where the row lives.
+   *
+   * Gated per screen rather than per venue because the section costs a Neon
+   * read and a cross-service GET (both cached to their own cost inside
+   * crew.server), and a lobby advertising panel would be paying for a row it
+   * has no rail to hang.
+   */
+  const wantsCrew = parsed.venue === "FT" && (wantsBriefing || wantsCheckinProgress || wantsPit);
 
   const [
     raceCheckin,
@@ -259,6 +275,7 @@ export async function buildTvFeed(
     bowlingTonight,
     bowlingCheckins,
     arena,
+    crew,
   ] = await Promise.all([
     track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
     wantsWelcome
@@ -309,6 +326,9 @@ export async function buildTvFeed(
     // cost one Pandora call — and, more to the point, cannot show two different
     // answers about the same call.
     wantsArena ? buildArenaSection(parsed.venue, now).catch(() => null) : Promise.resolve(null),
+    // Fails to null like every other section: a rail with no Track Ops row is
+    // the rail we shipped last month, never a screen that cannot paint.
+    wantsCrew ? crewBoard(now).catch(() => null) : Promise.resolve(null),
   ]);
 
   // Has the heat on the track board already been sent to a briefing room? One
@@ -349,6 +369,7 @@ export async function buildTvFeed(
     bowlingTonight,
     bowlingCheckins,
     arena,
+    crew,
     // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
     // Null events mean we could not ask — the welcome entry then self-skips

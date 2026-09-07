@@ -5,6 +5,7 @@ import { StageRailView } from "./StageRailView";
 import { buildStageRail, type RailRoom, type StageRow } from "../briefing/stage-rail";
 import { EMPTY_PIT_LANE } from "../pit/pit-board";
 import type { BriefingRoomState } from "../briefing/types";
+import type { CrewBoard, CrewEntry } from "~/features/staff/crew-list";
 
 /**
  * THE ONE RENDERER, HELD TO THE TWO RULES IT KEEPS BREAKING.
@@ -94,10 +95,73 @@ function splitRows(): StageRow[] {
   });
 }
 
+/** A floor at about 6 PM: two available, three on a group, one on a break, one
+ *  rostered who has not arrived — every state the pills can be in. */
+function crewBoard(over: Partial<CrewBoard> = {}): CrewBoard {
+  const entry = (o: Partial<CrewEntry> & { userId: number; firstName: string }): CrewEntry => ({
+    briefed: 0,
+    race: null,
+    state: "available",
+    top: false,
+    ...o,
+  });
+  return {
+    list: [
+      entry({ userId: 1, firstName: "Ivan", briefed: 7 }),
+      entry({ userId: 2, firstName: "Colton" }),
+      entry({
+        userId: 3,
+        firstName: "Pedro",
+        briefed: 9,
+        state: "assigned",
+        top: true,
+        race: { track: "blue", heatNumber: 35 },
+      }),
+      entry({
+        userId: 4,
+        firstName: "Dayanara",
+        briefed: 8,
+        state: "assigned",
+        race: { track: "red", heatNumber: 33 },
+      }),
+      entry({
+        userId: 5,
+        firstName: "Mia",
+        briefed: 2,
+        state: "assigned",
+        race: { track: "mega", heatNumber: null },
+      }),
+      entry({ userId: 6, firstName: "Joel", briefed: 3, state: "break" }),
+      entry({ userId: 7, firstName: "Jocelyn", state: "not-in" }),
+    ],
+    unattributed: 2,
+    groups: 31,
+    briefers: 5,
+    rosterAvailable: true,
+    ...over,
+  };
+}
+
 interface El {
   type?: unknown;
   key?: string | null;
   props?: { children?: ReactNode; style?: Record<string, unknown> };
+}
+
+/**
+ * A child component's own output, or null for a host element.
+ *
+ * The rail composes three hook-free components of its own — the Track Ops row,
+ * the crew pills, the host chips — and an element referencing one of those is
+ * an unrendered `{ type: fn }` node whose words are nowhere in the tree. Since
+ * every one of them is a plain function of its props (the same property that
+ * lets this file call `StageRailView` directly), calling it is all the
+ * rendering these assertions need.
+ */
+function expand(el: El): ReactNode {
+  return typeof el.type === "function"
+    ? (el.type as (p: unknown) => ReactNode)(el.props ?? {})
+    : null;
 }
 
 /** Every element in the tree, flattened. */
@@ -110,6 +174,7 @@ function walk(node: ReactNode, out: El[] = []): El[] {
   }
   const el = node as El;
   out.push(el);
+  walk(expand(el), out);
   if (el.props) walk(el.props.children, out);
   return out;
 }
@@ -119,8 +184,9 @@ function textOf(node: ReactNode): string {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(textOf).join("");
-  const el = node as { props?: { children?: ReactNode } };
-  return el.props ? textOf(el.props.children) : "";
+  const el = node as El;
+  const own = textOf(expand(el));
+  return own + (el.props ? textOf(el.props.children) : "");
 }
 
 describe("StageRailView", () => {
@@ -132,13 +198,22 @@ describe("StageRailView", () => {
    */
   for (const density of ["wall", "compact"] as const) {
     it(`sizes every ${density} row against the viewport, never in pixels`, () => {
-      const tree = StageRailView({ rows: megaRows(), density, accent: "#a06bff" });
+      // With the Track Ops row in, so the pills are held to the rule too.
+      const tree = StageRailView({
+        rows: megaRows(),
+        density,
+        accent: "#a06bff",
+        crew: crewBoard(),
+      });
       const sizes = walk(tree)
         .map((el) => el.props?.style?.fontSize)
         .filter((v): v is string | number => v != null);
       expect(sizes.length).toBeGreaterThan(5);
       for (const size of sizes) {
-        expect(String(size)).toMatch(/clamp\(|vw|vh/);
+        // `em` passes for the same reason LABEL_COL's basis does: it resolves
+        // against a parent whose own size is a clamp, so it tracks the viewport
+        // through it. A bare number is a pixel, and a pixel is the bug.
+        expect(String(size)).toMatch(/clamp\(|vw|vh|em$/);
       }
     });
   }
@@ -229,6 +304,123 @@ describe("StageRailView", () => {
       .map((el) => el.props?.style?.borderTop)
       .filter((v) => typeof v === "string" && v.startsWith("1px"));
     expect(borders).toHaveLength(0);
+  });
+
+  /**
+   * THE HOST CHIP, ON EVERY ROW (owner 2026-09-07). It used to be dim caps butted
+   * against the level — "35 STARTER PEDRO" — and only on the four lane rows, so
+   * a marshal looked like a property of the pit rather than a fact about a
+   * group. Same slot, same treatment, every row that HAS a group.
+   */
+  it("names the host on every occupied row, the briefing room included", () => {
+    const rooms: RailRoom[] = [
+      { room: "red", state: roomState({ heatNumber: 63 }), host: "Anthony" },
+      { room: "blue", state: roomState({ heatNumber: 64, marshal: "Lexiel" }) },
+    ];
+    const rows = buildStageRail({
+      called: { heatNumber: 65, raceType: "Intermediate" },
+      rooms,
+      lane: {
+        ...EMPTY_PIT_LANE,
+        racing: { sessionId: "3", heatNumber: 60, raceType: "Pro", room: "red", host: "Pedro" },
+      },
+      nowMs: NOW,
+    });
+    const text = textOf(StageRailView({ rows, density: "wall", accent: "#a06bff" }));
+    // Beside the state (the check-in board's shape) and on the state (the TV
+    // feeds' shape) both reach the row.
+    expect(text).toContain("Anthony");
+    expect(text).toContain("Lexiel");
+    expect(text).toContain("Pedro");
+  });
+
+  it("says so when a group has nobody, and stays quiet on an empty stage", () => {
+    const rows = buildStageRail({
+      // Checking in has a heat but no host — nobody claims a group until the
+      // film starts — while Holding and the rest have no group at all.
+      called: { heatNumber: 65, raceType: "Intermediate" },
+      rooms: [{ room: "red", state: null }],
+      lane: null,
+      nowMs: NOW,
+    });
+    const text = textOf(StageRailView({ rows, density: "wall", accent: "#a06bff" }));
+    expect(text.match(/no host yet/g)).toHaveLength(1);
+  });
+
+  /**
+   * THE TRACK OPS ROW — who is free, under Pit in, on both tracks' panels.
+   */
+  describe("Track Ops row", () => {
+    it("lists the crew in the order the fold gave them", () => {
+      const text = textOf(
+        StageRailView({
+          rows: megaRows(),
+          density: "wall",
+          accent: "#a06bff",
+          crew: crewBoard(),
+        }),
+      );
+      expect(text).toContain("Track Ops");
+      const order = ["Ivan", "Colton", "Pedro", "Dayanara", "Joel", "Jocelyn"];
+      let at = -1;
+      for (const name of order) {
+        const next = text.indexOf(name);
+        expect(next).toBeGreaterThan(at);
+        at = next;
+      }
+    });
+
+    it("tags each assigned marshal with the track letter and heat", () => {
+      const text = textOf(
+        StageRailView({ rows: megaRows(), density: "wall", accent: "#a06bff", crew: crewBoard() }),
+      );
+      expect(text).toContain("B35");
+      expect(text).toContain("R33");
+      // A group with no heat number keeps the letter alone rather than "Mnull".
+      expect(text).toContain("M");
+      expect(text).not.toContain("Mnull");
+    });
+
+    it("is dropped entirely when nobody is on the floor", () => {
+      const empty = textOf(
+        StageRailView({
+          rows: megaRows(),
+          density: "wall",
+          accent: "#a06bff",
+          crew: crewBoard({ list: [] }),
+        }),
+      );
+      expect(empty).not.toContain("Track Ops");
+      const absent = textOf(
+        StageRailView({ rows: megaRows(), density: "wall", accent: "#a06bff" }),
+      );
+      expect(absent).not.toContain("Track Ops");
+    });
+
+    it("says the roster is unavailable rather than letting a short list lie", () => {
+      const text = textOf(
+        StageRailView({
+          rows: megaRows(),
+          density: "wall",
+          accent: "#a06bff",
+          crew: crewBoard({ rosterAvailable: false }),
+        }),
+      );
+      expect(text).toContain("roster unavailable");
+    });
+
+    it("keeps every pill's key distinct", () => {
+      const tree = StageRailView({
+        rows: megaRows(),
+        density: "compact",
+        accent: "#a06bff",
+        crew: crewBoard(),
+      });
+      const keys = walk(tree)
+        .map((el) => el.key)
+        .filter((k): k is string => k != null);
+      expect(new Set(keys).size).toBe(keys.length);
+    });
   });
 
   it("never pills an empty stage — a room beside a dash is about nobody", () => {

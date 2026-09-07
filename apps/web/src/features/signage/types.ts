@@ -20,6 +20,7 @@ import type { FastPitRoster, PitBoardInfo, PitLanes } from "./pit/pit-board";
 import type { ResultsBoardView } from "./results-board";
 import type { TopTimesView } from "./top-times";
 import type { ArenaCall, ArenaUpcoming } from "./arena/arena-board";
+import type { CrewBoard } from "~/features/staff/crew-list";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -886,6 +887,25 @@ export interface TvFeed {
    * in, and BMI's grid position all land within a pulse or two.
    */
   pitRosters: Record<"blue" | "red" | "mega", FastPitRoster | null> | null;
+  /**
+   * WHO IS ON TRACK OPS AND WHAT THEY ARE RUNNING — the row under PIT IN on
+   * every session-status panel (owner 2026-09-07).
+   *
+   * ON THE 15s FEED, NOT THE PULSE, and that is a rule rather than a
+   * preference: the pulse is Redis-only by contract (it is three reads and
+   * nothing else, which is what lets every screen in the building have one
+   * every two seconds), and this needs a Neon `GROUP BY` and a cross-service
+   * GET. Both of those are cached to their own cost server-side, so the field
+   * is affordable here and would not be there.
+   *
+   * FastTrax rail screens only — null everywhere else, including every
+   * HeadPinz lobby screen, which has no Track Ops and no briefing rooms.
+   *
+   * PII: first names and 7shifts user ids for STAFF. No guest data, and the
+   * ids never leave the building — they are the join key the portal's own
+   * boards already use.
+   */
+  crew: CrewBoard | null;
   /**
    * Camera-monitor extra: how far the check-in station has got through EVERY
    * heat it currently has open — "6 of 14 checked in", per track.

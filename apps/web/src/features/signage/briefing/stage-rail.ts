@@ -88,6 +88,17 @@ export const ROOM_STAGE_LABEL: Record<BriefingRoom, StageLabel> = {
 export interface RailRoom {
   room: BriefingRoom;
   state: BriefingRoomState | null;
+  /**
+   * THE MARSHAL RUNNING THIS ROOM'S GROUP, when the caller holds it separately
+   * from the state.
+   *
+   * The TV feeds join it ONTO the state (`state.marshal`, see
+   * withRoomMarshals), so those callers pass nothing and the row picks it up
+   * from there. The check-in board's payload carries it as a sibling of the
+   * state instead — `BriefingRoomStatus.host` — because that shape predates the
+   * join. Both arrive at the same row; neither is asked to reshape itself.
+   */
+  host?: string | null;
 }
 
 export interface StageRow {
@@ -370,6 +381,17 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
       label,
       value: state.heatNumber != null ? sessionLabel(state.heatNumber) : "In a room",
       type: state.raceType ?? undefined,
+      /**
+       * THE ROOM'S MARSHAL — the row that never carried one (owner 2026-09-07).
+       *
+       * The four lane rows have named their host since 2026-09-03 and this one
+       * did not, which made the name look like a property of the pit rather
+       * than a fact about the group. It is the same claim, from the same press:
+       * a session is claimed at the tablet when the film starts, so a room
+       * still on its "take a seat" board legitimately has nobody yet, and the
+       * renderer says so rather than leaving a hole.
+       */
+      host: entry.host ?? state.marshal ?? null,
       detail:
         t.phase === "video" && t.nextInMs != null
           ? // A REAL CLOCK, NOT A ROUNDED MINUTE (owner 2026-08-24: "instead of

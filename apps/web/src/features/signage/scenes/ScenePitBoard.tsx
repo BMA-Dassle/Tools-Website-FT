@@ -43,6 +43,7 @@ import { useRaceClockForRace } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "../briefing/room-return";
 import { buildStageRail, type StageRow } from "../briefing/stage-rail";
 import { StageRailView } from "../components/StageRailView";
+import { HostChip } from "../components/HostChip";
 import { railClock, venueTimeOfDay } from "../components/rail-clock";
 import { briefingTimelineAt } from "../briefing/phase";
 import {
@@ -477,6 +478,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         timeOfDay={venueTimeOfDay(nowMs)}
         calledCheckinAt={calledCheckinAt}
         returning={feed?.checkinReturning ?? null}
+        crew={feed?.crew ?? null}
         onTrackHost={onTrackHost}
       />
     );
@@ -812,6 +814,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
             returning={feed?.checkinReturning ?? null}
             timeOfDay={venueTimeOfDay(nowMs)}
             calledCheckinAt={calledCheckinAt}
+            crew={feed?.crew ?? null}
           />
         )}
       </div>
@@ -1348,6 +1351,7 @@ function Idle({
   returning,
   timeOfDay,
   calledCheckinAt,
+  crew,
 }: {
   accent: string;
   hasSession: boolean;
@@ -1358,6 +1362,9 @@ function Idle({
   returning: TvFeed["checkinReturning"];
   timeOfDay: string;
   calledCheckinAt: string | null;
+  /** Who is on Track Ops — the row under Pit in, same list as the check-in
+   *  board's strip and the camera boards'. */
+  crew: TvFeed["crew"];
 }) {
   if (hasSession) return <div style={{ flex: 1 }} />;
   // No wrapper: StageRailView already carries flex:1 / minHeight:0, and with the
@@ -1373,6 +1380,7 @@ function Idle({
       returning={returning}
       timeOfDay={timeOfDay}
       calledCheckinAt={calledCheckinAt}
+      crew={crew}
       trackShort={(t) => TRACK_SHORT[trackFromName(t) ?? "mega"] ?? t}
       style={{ background: "transparent", borderLeft: "none", padding: 0 }}
     />
@@ -1412,6 +1420,7 @@ function SessionTracker({
   timeOfDay,
   calledCheckinAt,
   returning,
+  crew,
   onTrackHost,
 }: {
   accent: string;
@@ -1425,6 +1434,9 @@ function SessionTracker({
   timeOfDay: string;
   calledCheckinAt: string | null;
   returning: TvFeed["checkinReturning"];
+  /** Who is on Track Ops, for the row under Pit in — the same list the check-in
+   *  board's strip and the camera boards show. */
+  crew: TvFeed["crew"];
   /** The marshal running the mega heat, for the header's clock chip. */
   onTrackHost: OnTrackHost | null;
 }) {
@@ -1512,6 +1524,7 @@ function SessionTracker({
           timeOfDay={null}
           calledCheckinAt={calledCheckinAt}
           returning={returning}
+          crew={crew}
           trackShort={(t) => TRACK_SHORT[trackFromName(t) ?? "mega"] ?? t}
           style={{
             background: "transparent",
@@ -1661,23 +1674,32 @@ function Rail({
    * second line is sized to the instruction above it and ellipsises on its
    * own, so nothing on this half can cross the divider again.
    */
-  const left: { text: string; detail: string | null } = karts
-    ? { text: `${kartsName} in karts`, detail: railHost }
+  /**
+   * THE NAME IS A CHIP, THE REST IS THE SENTENCE (owner 2026-09-07). The second
+   * line used to be a plain string, so on the "Nothing to seat" state it read
+   * "Pedro running 35" in the same dim ink as everything else and the person
+   * disappeared into it. `host` renders as the panel's amber host chip; `after`
+   * is whatever the sentence still says about them.
+   */
+  const left: { text: string; host: string | null; after: string | null } = karts
+    ? { text: `${kartsName} in karts`, host: railHost, after: null }
     : !session
       ? {
           text: "Nothing to seat",
-          detail: racing?.host ? `${racing.host} running ${racing.heatNumber ?? "the race"}` : null,
+          host: racing?.host ?? null,
+          after: racing?.host ? `running ${racing.heatNumber ?? "the race"}` : null,
         }
       : kind === "racing"
-        ? { text: `${sessionName} racing`, detail: railHost }
+        ? { text: `${sessionName} racing`, host: railHost, after: null }
         : session.inHolding
-          ? { text: `Seat ${sessionName} now`, detail: railHost }
+          ? { text: `Seat ${sessionName} now`, host: railHost, after: null }
           : session.briefedAtMs != null
             ? {
                 text: `In briefing${session.briefedRoom ? ` · ${session.briefedRoom} room` : ""}`,
-                detail: railHost,
+                host: railHost,
+                after: null,
               }
-            : { text: `${sessionName} checking in`, detail: railHost };
+            : { text: `${sessionName} checking in`, host: railHost, after: null };
   // Not a call to action while somebody is strapped in — the green "go" belongs
   // to the seat instruction, and there is nothing to seat until the karts clear.
   const leftGo = !karts && kind === "seat" && session?.inHolding === true;
@@ -1771,23 +1793,30 @@ function Rail({
           >
             {left.text}
           </span>
-          {left.detail && (
+          {(left.host || left.after) && (
             <span
               className="tv-display"
               style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 10,
                 fontSize: 26,
                 whiteSpace: "nowrap",
                 overflow: "hidden",
-                textOverflow: "ellipsis",
                 width: 0,
                 minWidth: "100%",
-                // Dimmer by opacity, not by colour, so it still follows the
-                // flash keyframes' ink swing on a READY TO SEND box.
-                opacity: 0.6,
                 ...(readyToSend ? null : { color: "rgba(245,236,238,0.85)" }),
               }}
             >
-              {left.detail}
+              <HostChip name={left.host} fontSize={20} placeholder={false} />
+              {left.after && (
+                // Dimmer by opacity, not by colour, so it still follows the
+                // flash keyframes' ink swing on a READY TO SEND box. The chip
+                // beside it keeps its own amber — that is the point of it.
+                <span style={{ opacity: 0.6, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {left.after}
+                </span>
+              )}
             </span>
           )}
         </div>

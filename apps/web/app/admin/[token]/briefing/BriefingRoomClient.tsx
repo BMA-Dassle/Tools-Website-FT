@@ -1326,11 +1326,14 @@ export default function BriefingRoomClient({
    * two of them serve the single circuit.
    */
   const railRooms: RailRoom[] = megaEnabled
-    ? BRIEFING_ROOMS.map((r) => ({
-        room: r,
-        state: board?.rooms.find((x) => x.room === r)?.state ?? null,
-      }))
-    : [{ room, state }];
+    ? BRIEFING_ROOMS.map((r) => {
+        const status = board?.rooms.find((x) => x.room === r);
+        // The host rides BESIDE the state in this payload rather than on it —
+        // the TV feeds join it onto the state instead. Both shapes reach the
+        // same row; see RailRoom.host.
+        return { room: r, state: status?.state ?? null, host: status?.host ?? null };
+      })
+    : [{ room, state, host: board?.rooms.find((x) => x.room === room)?.host ?? null }];
   const railRows = buildStageRail({
     called: incomingRace
       ? { heatNumber: incomingRace.heatNumber, raceType: incomingRace.raceType }

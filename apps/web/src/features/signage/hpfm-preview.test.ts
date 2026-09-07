@@ -43,6 +43,7 @@ function feedAt(now: number): TvFeed {
     pitBoard: null,
     pitLanes: null,
     pitRosters: null,
+    crew: null,
     checkinProgress: null,
     checkinReturning: null,
     raceResults: null,

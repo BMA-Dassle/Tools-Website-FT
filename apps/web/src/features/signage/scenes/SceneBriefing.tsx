@@ -400,6 +400,7 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
             timeOfDay={venueTimeOfDay(nowMs)}
             calledCheckinAt={calledCheckinAt}
             returning={feed?.checkinReturning ?? null}
+            crew={feed?.crew ?? null}
             style={{ position: "absolute", inset: 0 }}
           />
         ) : (

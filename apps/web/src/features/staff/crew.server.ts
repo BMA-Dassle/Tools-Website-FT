@@ -21,7 +21,9 @@ import "server-only";
  */
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { countBriefingsByStaff } from "../signage/briefing/assignments-db";
+import { readBriefingRooms } from "../signage/briefing/state.server";
 import type { BriefingRoom, BriefingRoomState } from "../signage/briefing/types";
+import { readPitLanes } from "../signage/pit/lane.server";
 import type { PitLanes } from "../signage/pit/pit-board";
 import { buildCrewBoard, type BriefedCount, type CrewBoard } from "./crew-list";
 import { currentStaffRacesFrom } from "./current-races";
@@ -101,4 +103,22 @@ export async function crewBoardFrom(input: {
     currentRaces,
     onShiftTrackOps,
   });
+}
+
+/**
+ * The board for a caller holding nothing — the TV feed.
+ *
+ * Two MGETs of its own rather than threading the feed's `pitLanes` through:
+ * only pit-board screens read the lanes at all (a briefing TV and a camera
+ * board do not), so the alternative was reading them conditionally for one
+ * section and sequencing the rest of a flat `Promise.all` behind it. The lanes
+ * a wall RENDERS come off the 2-second pulse in any case, so threading the 15s
+ * copy in would have bought consistency it cannot actually have.
+ */
+export async function crewBoard(nowMs: number = Date.now()): Promise<CrewBoard> {
+  const [lanes, rooms] = await Promise.all([
+    readPitLanes().catch(() => null),
+    readBriefingRooms(VENUE).catch(() => null),
+  ]);
+  return crewBoardFrom({ lanes, rooms, nowMs });
 }
