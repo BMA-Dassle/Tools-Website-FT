@@ -28,6 +28,11 @@ import { useT } from "../i18n";
 import { SHOE_SIZES, SHOE_CATEGORIES, OWN_SHOES, categoryOf } from "../shoe-catalog";
 import { BrandedLoader } from "../components/BrandedLoader";
 import {
+  PackageFoodEditor,
+  type FoodEditorStatus,
+  type PackageFoodEditorHandle,
+} from "~/components/features/bowling/PackageFoodEditor";
+import {
   bowlerPatchBody,
   firstBowlerIssue,
   hasAnyBowlerName,
@@ -87,6 +92,13 @@ export function CheckinBowlingDetails(props: {
   // Which shoe category is expanded per (reservation, slot). Undefined → derive
   // from the stored size, exactly like the booking details step.
   const [openCat, setOpenCat] = useState<Record<string, string>>({});
+  // Package food (Pizza Bowl pizza + drink) per reservation — owner 2026-09-06:
+  // the kiosk check-in must take the picks too, not only the lane-open panel
+  // that follows (a guest whose lane is not ready yet would otherwise have
+  // nowhere to pick). Same shared editor as the web check-in page; "Check in"
+  // waits on every reservation's picks and saves them before the bowler rows.
+  const foodRefs = useRef<Record<number, PackageFoodEditorHandle | null>>({});
+  const [foodStatus, setFoodStatus] = useState<Record<number, FoodEditorStatus>>({});
 
   const patch = (neonId: number, p: Partial<ResState>) =>
     setByRes((prev) => ({ ...prev, [neonId]: { ...(prev[neonId] ?? emptyRes()), ...p } }));
@@ -164,7 +176,24 @@ export function CheckinBowlingDetails(props: {
   // check-in AND there is anything editable at all. A combo (racing anchor) or
   // an all-locked/failed load must never dead-end here.
   const needsName = requireName && editable.length > 0 && !anyName;
-  const disabled = anyLoading || saving || finishing || issue !== null || needsName;
+  // Food: block while an editor is still loading, or while a package with food
+  // has an unpicked included item. Reservations without food never block.
+  const foodIncomplete = editable.some((a) => {
+    const f = foodStatus[a.neonReservationId];
+    return !!f && f.hasFood && !f.complete;
+  });
+  const foodLoading = editable.some((a) => {
+    const f = foodStatus[a.neonReservationId];
+    return !f || f.loading;
+  });
+  const disabled =
+    anyLoading ||
+    saving ||
+    finishing ||
+    issue !== null ||
+    needsName ||
+    foodIncomplete ||
+    foodLoading;
 
   const finish = async () => {
     if (disabled) return;
@@ -172,6 +201,17 @@ export function CheckinBowlingDetails(props: {
     setSaveError(null);
     onBusyChange(true);
     try {
+      // Package food first — the lane-open gate on the next screen (and the
+      // server) refuses a Pizza Bowl whose food is missing.
+      for (const a of editable) {
+        const f = foodStatus[a.neonReservationId];
+        if (!f?.hasFood) continue;
+        const saved = await foodRefs.current[a.neonReservationId]?.save();
+        if (!saved?.ok) {
+          setSaveError(saved?.error ?? t("food.edit.saveFail"));
+          return;
+        }
+      }
       for (const a of editable) {
         const neonId = a.neonReservationId;
         const s = byRes[neonId];
@@ -242,6 +282,33 @@ export function CheckinBowlingDetails(props: {
         return (
           <div key={a.neonReservationId} className="space-y-[20px]">
             {showHeader && <SectionHeader activity={a} />}
+            {/* Pizza Bowl pizza + drink — hidden for packages without food (the
+                editor says so via onStatus); prefilled from the booking. */}
+            <div
+              hidden={!foodStatus[a.neonReservationId]?.hasFood}
+              className={`k-glass p-[28px] ${
+                foodStatus[a.neonReservationId]?.hasFood &&
+                !foodStatus[a.neonReservationId]?.complete
+                  ? "border-[#f0b341]/50"
+                  : ""
+              }`}
+            >
+              <div className="k-eyebrow mb-[16px] text-[#2dd4ea]">{t("food.edit.title")}</div>
+              {foodStatus[a.neonReservationId]?.hasFood &&
+                !foodStatus[a.neonReservationId]?.complete && (
+                  <p className="mb-[12px] text-[24px] text-[#f0b341]">{t("food.edit.pickFirst")}</p>
+                )}
+              <PackageFoodEditor
+                ref={(h) => {
+                  foodRefs.current[a.neonReservationId] = h;
+                }}
+                neonId={a.neonReservationId}
+                mode="embedded"
+                accent="#2dd4ea"
+                hideHeading
+                onStatus={(st) => setFoodStatus((prev) => ({ ...prev, [a.neonReservationId]: st }))}
+              />
+            </div>
             {s.shoePairsAllowed > 0 && (
               <div className="flex justify-end">
                 <span className="k-eyebrow text-[#00e2e5] tabular-nums">
@@ -255,7 +322,8 @@ export function CheckinBowlingDetails(props: {
               // Rental categories lock once the allowance is spent elsewhere —
               // the web disables its "Rental Shoes" toggle the same way.
               const allowanceSpent = !p.shoeSize && used >= s.shoePairsAllowed;
-              const selCat = openCat[catKey] !== undefined ? openCat[catKey] : categoryOf(p.shoeSize);
+              const selCat =
+                openCat[catKey] !== undefined ? openCat[catKey] : categoryOf(p.shoeSize);
               return (
                 <div
                   key={p.slot}
@@ -282,7 +350,9 @@ export function CheckinBowlingDetails(props: {
                     id={`checkin-bowler-name-${catKey}`}
                     type="text"
                     value={p.name}
-                    onChange={(e) => updateRow(a.neonReservationId, p.slot, { name: e.target.value })}
+                    onChange={(e) =>
+                      updateRow(a.neonReservationId, p.slot, { name: e.target.value })
+                    }
                     onBlur={(e) =>
                       updateRow(a.neonReservationId, p.slot, {
                         name: formatPersonName(e.target.value),
@@ -411,6 +481,9 @@ export function CheckinBowlingDetails(props: {
       </button>
       {needsName && (
         <p className="text-center text-[24px] text-white/45">{t("checkin.bowl.needOneName")}</p>
+      )}
+      {!needsName && foodIncomplete && (
+        <p className="text-center text-[24px] text-[#f0b341]">{t("food.edit.pickFirst")}</p>
       )}
     </div>
   );
