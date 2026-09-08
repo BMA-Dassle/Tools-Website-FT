@@ -316,6 +316,22 @@ const STYLES = `
    are two classes rather than one. */
 .rc-mono { font-family: ${TV_MONO}; }
 
+/* THE STAGE ROW'S OWN METRICS, IN CSS BECAUSE THEY ARE VIEWPORT-DEPENDENT.
+   The 88px label column and the 10px gutters are the pit board TV's, drawn at
+   1920 where the row has 700px to spend. On a 1280 desk monitor the same row
+   has 389px once the camera has its 208, and every pixel the label and the
+   padding take comes straight out of the one cell that carries a name — at
+   which point "Session 58 Intermediate Ivan" wraps onto the clock beside it.
+   So the label steps back to what it was below 1440 and the gutters tighten.
+   Inline styles cannot hold a media query, which is the whole reason these
+   four properties live here and the rest of the row stays inline. */
+.rc-stage-row { display: flex; align-items: center; gap: 12px; padding: 6px 10px; }
+.rc-stage-lbl { flex: 0 0 88px; font-size: 12px; letter-spacing: 0.12em; }
+@media (max-width: 1439px) {
+  .rc-stage-row { gap: 10px; padding: 6px 6px; }
+  .rc-stage-lbl { flex: 0 0 66px; font-size: 11px; letter-spacing: 0.10em; }
+}
+
 /* THE PREVIEW MUST LOOK PRESSABLE STANDING STILL (owner 2026-08-12: "make sure it
    is shown that it can be clicked"). A hover-only affordance is invisible on a
    desk touch monitor, and a camera picture otherwise reads as a picture. So,
@@ -2776,13 +2792,11 @@ function StageRow({
 }) {
   return (
     <div
+      className="rc-stage-row"
       style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
         // Tight, because three of these stack. The floor is what an empty row
         // needs to stay readable as a row rather than a stray line of text.
-        padding: "6px 10px",
+        // display / gap / padding live in .rc-stage-row — they change at 1440.
         minHeight: 40,
         // A ROW IS A SURFACE NOW, NOT A DIVIDER. It used to be bare text under a
         // 7-percent hairline, which reads as a list; the TV gives each row its
@@ -2795,14 +2809,8 @@ function StageRow({
       }}
     >
       <span
-        style={{
-          flex: "0 0 88px",
-          fontSize: 12,
-          fontWeight: 800,
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          color: TV_DARK.muted,
-        }}
+        className="rc-stage-lbl"
+        style={{ fontWeight: 800, textTransform: "uppercase", color: TV_DARK.muted }}
       >
         {stage}
       </span>
