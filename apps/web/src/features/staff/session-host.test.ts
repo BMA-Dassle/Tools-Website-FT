@@ -19,6 +19,7 @@ const fake = {
     return "OK";
   }),
   mget: vi.fn(async (...keys: string[]) => keys.map((k) => strings.get(k) ?? null)),
+  del: vi.fn(async (k: string) => (strings.delete(k) ? 1 : 0)),
 };
 
 vi.mock("@/lib/redis", () => ({ default: fake }));
@@ -122,5 +123,107 @@ describe("readSessionHosts", () => {
     const hosts = await readSessionHosts(["60", "61"]);
     expect(hosts["60"]).toMatchObject({ firstName: "Ada" });
     expect(hosts["61"]).toBeUndefined();
+  });
+});
+
+/**
+ * THE TWO WAYS OUT OF FIRST-PRESS-WINS, and both are here because the rule they
+ * bend is the one above. `reassignSessionHost` is the hand-over a person
+ * confirmed in a modal; `releaseSessionHost` is a mis-pull being undone. A
+ * refactor that gave either of them an NX would restore the exact bug staff
+ * reported — a group stuck with the last person's name for the night.
+ */
+describe("reassignSessionHost", () => {
+  it("takes a group that somebody else already holds", async () => {
+    const { assignSessionHost, reassignSessionHost, readSessionHost } = await load();
+    await assignSessionHost("60", ADA);
+
+    const host = await reassignSessionHost("60", GRACE);
+    expect(host).toMatchObject({ userId: 88, firstName: "Grace" });
+    expect(await readSessionHost("60")).toMatchObject({ userId: 88, firstName: "Grace" });
+  });
+
+  it("does NOT use NX — that is the whole difference from a claim", async () => {
+    const { assignSessionHost, reassignSessionHost } = await load();
+    await assignSessionHost("60", ADA);
+    fake.set.mockClear();
+
+    await reassignSessionHost("60", GRACE);
+    expect(fake.set).toHaveBeenCalledTimes(1);
+    expect(fake.set.mock.calls[0]).not.toContain("NX");
+  });
+
+  it("resets the 24h window for the new host", async () => {
+    const { reassignSessionHost } = await load();
+    await reassignSessionHost("60", GRACE);
+    expect(fake.set).toHaveBeenCalledWith(
+      "staff:session-host:60",
+      expect.any(String),
+      "EX",
+      24 * 60 * 60,
+    );
+  });
+
+  it("claims a free session just as well — a hand-over need not follow a claim", async () => {
+    const { reassignSessionHost, readSessionHost } = await load();
+    await reassignSessionHost("60", ADA);
+    expect(await readSessionHost("60")).toMatchObject({ firstName: "Ada" });
+  });
+
+  it("leaves other sessions alone", async () => {
+    const { assignSessionHost, reassignSessionHost, readSessionHost } = await load();
+    await assignSessionHost("60", ADA);
+    await assignSessionHost("61", ADA);
+
+    await reassignSessionHost("60", GRACE);
+    expect(await readSessionHost("61")).toMatchObject({ firstName: "Ada" });
+  });
+
+  it("survives Redis being down — a hand-over is never refused over a name", async () => {
+    fake.set.mockRejectedValueOnce(new Error("redis down"));
+    const { reassignSessionHost } = await load();
+    await expect(reassignSessionHost("60", GRACE)).resolves.toMatchObject({ firstName: "Grace" });
+  });
+
+  it("is a no-op without a session id", async () => {
+    const { reassignSessionHost } = await load();
+    await reassignSessionHost("", GRACE);
+    expect(fake.set).not.toHaveBeenCalled();
+  });
+});
+
+describe("releaseSessionHost", () => {
+  it("gives the group back — the next press claims a free key", async () => {
+    const { assignSessionHost, releaseSessionHost, readSessionHost } = await load();
+    await assignSessionHost("60", ADA);
+
+    await releaseSessionHost("60");
+    expect(await readSessionHost("60")).toBeNull();
+
+    // And the point of the release: the NX claim works again.
+    expect(await assignSessionHost("60", GRACE)).toMatchObject({ firstName: "Grace" });
+  });
+
+  it("leaves other sessions alone", async () => {
+    const { assignSessionHost, releaseSessionHost, readSessionHost } = await load();
+    await assignSessionHost("60", ADA);
+    await assignSessionHost("61", GRACE);
+
+    await releaseSessionHost("60");
+    expect(await readSessionHost("61")).toMatchObject({ firstName: "Grace" });
+  });
+
+  it("is a no-op on an unheld session, and on no session at all", async () => {
+    const { releaseSessionHost } = await load();
+    await expect(releaseSessionHost("60")).resolves.toBeUndefined();
+    await releaseSessionHost(null);
+    await releaseSessionHost(undefined);
+    expect(fake.del).toHaveBeenCalledTimes(1);
+  });
+
+  it("survives Redis being down", async () => {
+    fake.del.mockRejectedValueOnce(new Error("redis down"));
+    const { releaseSessionHost } = await load();
+    await expect(releaseSessionHost("60")).resolves.toBeUndefined();
   });
 });
