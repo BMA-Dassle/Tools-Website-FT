@@ -85,7 +85,7 @@ import { IconAlertTriangleFilled, IconCamera, IconMaximize, IconX } from "@table
 import { useTrackStatus, type CurrentRace } from "@/hooks/useTrackStatus";
 import type { OnTimeSnapshot } from "~/features/racing/on-time";
 import { CALL_WINDOW_MIN, type NextCheckIn } from "~/features/racing/session-call";
-import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
+import { TV_DARK, TV_MONO, TV_ROOM } from "~/components/features/admin-skin/theme";
 import { briefingTimelineAt, type BriefingTimeline } from "~/features/signage/briefing/phase";
 import {
   resolveFilmTier,
@@ -144,16 +144,45 @@ import {
 } from "~/features/signage/live-session";
 import type { TrackKey } from "~/features/signage/track";
 
-const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff5a52", blue: "#4a9bff" };
+/**
+ * THE ROOM'S OWN COLOUR — its name, its furniture, its pills. Tailwind's -400,
+ * from the pit board TV (TV_ROOM in admin-skin/theme). It used to be #ff5a52 /
+ * #4a9bff, which were this board's alone: the wall two rooms away drew the same
+ * two rooms in different reds, and the board's own DANGER sat one hex from its
+ * room red.
+ */
+const ROOM_COLOR: Record<BriefingRoom, string> = { red: TV_ROOM.red.head, blue: TV_ROOM.blue.head };
+/**
+ * THE SAME ROOM, ONE STEP LIGHTER — for a NAME inside it: a session number, a
+ * group on a stage row. The -300 against the -400 is what stops "Session 62"
+ * reading as another piece of the room's chrome (`.pb-nm` on the TV).
+ */
+const ROOM_NAME: Record<BriefingRoom, string> = { red: TV_ROOM.red.name, blue: TV_ROOM.blue.name };
 const MEGA = "#a06bff";
 const GREEN = "#4ade80";
-const AMBER = "#f0b341";
-/** Overdue. Distinct from ROOM_COLOR.red, which means "the Red room" — a warning
- *  must not be readable as a room's identity colour. Declared up here because
- *  STYLES interpolates it at module evaluation (a const below would be in its
- *  temporal dead zone). */
-const DANGER = "#ff4d4f";
-const INK = "#e8eef7";
+/** The alarm TONE — fills, borders, ring pulses, and the flash keyframes below.
+ *  Amber-500, the value the TV rings its own warnings in. */
+const AMBER = "#f59e0b";
+/** Amber as INK. A 500 is mixed to sit under something, and at 10-13px on a
+ *  dark ground it goes muddy; the TV writes its amber in amber-300 and keeps
+ *  the 500 for the edge around it. */
+const AMBER_INK = "#fcd34d";
+/**
+ * Overdue. It used to be #ff4d4f, chosen to be distinct from a #ff5a52 Red
+ * Room — two reds one hex apart, which is the distinction nobody could see.
+ *
+ * IT IS NOW THE SAME -400 AS THE RED ROOM'S HEADING, deliberately, and the
+ * separation moved to where it works: a room's CONTENT is drawn in ROOM_NAME
+ * (-300), so "Session 62" in the red room never wears the alarm colour, while
+ * the room's label and an overdue box share the one red the estate has. Owner
+ * decision 2026-09-07 (mockup question 3, option A).
+ *
+ * Declared up here because STYLES interpolates it at module evaluation (a const
+ * below would be in its temporal dead zone).
+ */
+const DANGER = "#f87171";
+/** Numerals, clocks and the focus ring — the TV's second-rank ink. */
+const INK = TV_DARK.ink2;
 
 /**
  * THE STAFF MEMO IS GONE (owner 2026-08-14) — it was added 2026-08-12 marked
@@ -278,6 +307,14 @@ const STYLES = `
 }
 @keyframes rcb-spin { to { transform: rotate(360deg); } }
 .rc-num { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+/* A LIVE NUMBER WEARS THE MONO FACE, and only a live number. The pit board TV
+   sets every clock, count and percentage in mono and everything with a word in
+   it in the sans -- so "3:08" is a reading that changes under your eye and
+   "Session 41" is a name that does not. Poppins' figures are proportional
+   enough that a counting clock shivers a digit's width every second; this is
+   the fix, and it is why .rc-num (the tabular shape) and .rc-mono (the face)
+   are two classes rather than one. */
+.rc-mono { font-family: ${TV_MONO}; }
 
 /* THE PREVIEW MUST LOOK PRESSABLE STANDING STILL (owner 2026-08-12: "make sure it
    is shown that it can be clicked"). A hover-only affordance is invisible on a
@@ -533,7 +570,7 @@ export default function RaceControlPanels({
     <section
       className="flex flex-col border-t"
       style={{
-        borderColor: PORTAL_DARK.border,
+        borderColor: TV_DARK.border,
         flex: 1,
         minHeight: 0,
         padding: "14px 20px 16px",
@@ -576,7 +613,7 @@ export default function RaceControlPanels({
             style={{
               marginLeft: "auto",
               fontSize: 12,
-              color: note.startsWith("✕") ? AMBER : GREEN,
+              color: note.startsWith("✕") ? AMBER_INK : GREEN,
             }}
           >
             {note}
@@ -768,7 +805,7 @@ export default function RaceControlPanels({
                 fontSize: 9,
                 fontWeight: 800,
                 letterSpacing: "0.08em",
-                color: PORTAL_DARK.muted,
+                color: TV_DARK.muted,
                 textTransform: "uppercase",
               }}
             >
@@ -803,7 +840,7 @@ export default function RaceControlPanels({
               <div
                 key={`${b.room}:${b.sessionId}`}
                 className="rc-num"
-                style={{ display: "flex", gap: 10, fontSize: 11, color: PORTAL_DARK.muted }}
+                style={{ display: "flex", gap: 10, fontSize: 11, color: TV_DARK.muted }}
               >
                 <span style={{ color: ROOM_COLOR[b.room], fontWeight: 800, minWidth: 38 }}>
                   {b.room.toUpperCase()}
@@ -814,7 +851,7 @@ export default function RaceControlPanels({
                 {/* A DASH, not a blank: every other cell on this row prints one
                     when it has nothing, and an empty gap here would read as a
                     column that failed rather than a group nobody signed for. */}
-                <span style={{ minWidth: 64, color: b.host ? INK : PORTAL_DARK.muted }}>
+                <span style={{ minWidth: 64, color: b.host ? INK : TV_DARK.muted }}>
                   {b.host ?? "—"}
                 </span>
                 {/* The film question, answered per group: which tier, and did it
@@ -823,7 +860,7 @@ export default function RaceControlPanels({
                 <span
                   style={{
                     minWidth: 96,
-                    color: b.startedAtMs == null ? AMBER : b.filmCompleted ? GREEN : AMBER,
+                    color: b.startedAtMs == null ? AMBER_INK : b.filmCompleted ? GREEN : AMBER_INK,
                   }}
                 >
                   {b.startedAtMs == null
@@ -860,7 +897,7 @@ export default function RaceControlPanels({
                       {clockTimeMs(b.photoAtMs ?? b.startedAtMs ?? b.sentAtMs)}
                     </a>
                   ) : b.startedAtMs != null ? (
-                    <span style={{ color: AMBER }}>no photo</span>
+                    <span style={{ color: AMBER_INK }}>no photo</span>
                   ) : (
                     "—"
                   )}
@@ -879,7 +916,7 @@ export default function RaceControlPanels({
                 {/* The figure a guest would give you, and the only one that is
                     bold: every other column is a leg of it. */}
                 <span
-                  className="rc-num"
+                  className="rc-num rc-mono"
                   style={{ marginLeft: "auto", color: INK, fontWeight: 800 }}
                 >
                   {b.totalMs != null ? formatClock(b.totalMs) : "—"}
@@ -1010,8 +1047,8 @@ function BoardModal({
           maxHeight: "86vh",
           display: "flex",
           flexDirection: "column",
-          background: PORTAL_DARK.card,
-          border: `1px solid ${PORTAL_DARK.border}`,
+          background: TV_DARK.card,
+          border: `1px solid ${TV_DARK.border}`,
           borderRadius: 10,
           boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
         }}
@@ -1022,7 +1059,7 @@ function BoardModal({
             alignItems: "baseline",
             gap: 12,
             padding: "14px 18px",
-            borderBottom: `1px solid ${PORTAL_DARK.border}`,
+            borderBottom: `1px solid ${TV_DARK.border}`,
             flexShrink: 0,
           }}
         >
@@ -1038,7 +1075,7 @@ function BoardModal({
           >
             {title}
           </h3>
-          {subtitle && <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{subtitle}</span>}
+          {subtitle && <span style={{ fontSize: 12, color: TV_DARK.muted }}>{subtitle}</span>}
           <button
             ref={closeRef}
             type="button"
@@ -1050,9 +1087,9 @@ function BoardModal({
               padding: "6px 12px",
               borderRadius: 6,
               fontSize: 12,
-              borderColor: PORTAL_DARK.border,
+              borderColor: TV_DARK.border,
               background: "transparent",
-              color: PORTAL_DARK.fg,
+              color: TV_DARK.fg,
             }}
           >
             <IconX size={14} stroke={2.4} />
@@ -1186,8 +1223,8 @@ function TrackWaitMatrix({
   return (
     <div
       style={{
-        background: PORTAL_DARK.card,
-        border: `1px solid ${PORTAL_DARK.border}`,
+        background: TV_DARK.card,
+        border: `1px solid ${TV_DARK.border}`,
         borderLeft: `3px solid ${color}`,
         borderRadius: 8,
         padding: "8px 14px 10px",
@@ -1210,14 +1247,14 @@ function TrackWaitMatrix({
               fontWeight: 800,
               letterSpacing: "0.08em",
               textTransform: "uppercase",
-              color: lead ? INK : PORTAL_DARK.muted,
+              color: lead ? INK : TV_DARK.muted,
               whiteSpace: "nowrap",
               paddingRight: 4,
             }}
           >
             {label}
             {stats?.roomToRaceMs?.n ? (
-              <span style={{ color: PORTAL_DARK.muted, fontWeight: 700 }}>
+              <span style={{ color: TV_DARK.muted, fontWeight: 700 }}>
                 {" · "}
                 {stats.roomToRaceMs.n}
               </span>
@@ -1247,7 +1284,7 @@ function ColumnHead({ children }: { children: React.ReactNode }) {
         fontWeight: 800,
         letterSpacing: "0.10em",
         textTransform: "uppercase",
-        color: PORTAL_DARK.muted,
+        color: TV_DARK.muted,
         whiteSpace: "nowrap",
       }}
     >
@@ -1279,7 +1316,7 @@ function WaitValue({ stat, against, lead }: { stat: WaitStat; against: WaitStat;
         style={{
           fontSize: lead ? 22 : 14,
           fontWeight: 400,
-          color: PORTAL_DARK.muted,
+          color: TV_DARK.muted,
           lineHeight: 1.25,
         }}
       >
@@ -1294,17 +1331,17 @@ function WaitValue({ stat, against, lead }: { stat: WaitStat; against: WaitStat;
     !lead || baseline == null || Math.abs(delta) < BEHIND_MS
       ? undefined
       : delta > 0
-        ? AMBER
+        ? AMBER_INK
         : GREEN;
 
   return (
     <span
-      className="rc-num"
+      className="rc-num rc-mono"
       style={{
         fontSize: lead ? 22 : 14,
         fontWeight: lead ? 800 : 700,
         lineHeight: 1.25,
-        color: tone ?? (lead ? INK : PORTAL_DARK.muted),
+        color: tone ?? (lead ? INK : TV_DARK.muted),
       }}
     >
       {formatWaitMs(ms)}
@@ -1813,8 +1850,16 @@ function RoomColumn({
         flexDirection: "column",
         gap: 10,
         minHeight: 0,
-        borderLeft: `3px solid ${color}`,
-        paddingLeft: 12,
+        // THE ROOM IS A PANEL, NOT AN EDGE (owner 2026-09-07, mockup question 2
+        // option A). A 3px rule down the left was the whole of a column's
+        // identity, and from the far side of the desk the two columns read as
+        // one grey field with a stripe in it. The TV paints the whole track in
+        // a 10-percent tint at a 30-percent border, so which room you are
+        // looking at is answered before a word of it is read.
+        background: TV_ROOM[room].bg,
+        border: `1px solid ${TV_ROOM[room].border}`,
+        borderRadius: 15,
+        padding: "12px 14px",
         // THE COLUMN SCROLLS, THE PAGE NEVER DOES. Three boxes fit a desk
         // monitor at the sizes above; a fourth (owner: "we might be going to 4
         // boxes") or a short screen must degrade to a scroll INSIDE this
@@ -1824,10 +1869,10 @@ function RoomColumn({
       }}
     >
       <div style={{ display: "flex", alignItems: "baseline", gap: 9, flexShrink: 0 }}>
-        <strong style={{ fontSize: 15, color, letterSpacing: "0.02em" }}>
+        <strong style={{ fontSize: 22, fontWeight: 700, color, letterSpacing: "0.06em" }}>
           {cap(room).toUpperCase()} ROOM
         </strong>
-        <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>{cap(track)} Track</span>
+        <span style={{ fontSize: 11, color: TV_DARK.muted }}>{cap(track)} Track</span>
         {/**
          * IS THIS TRACK RUNNING TO TIME (owner 2026-08-16: "add on time and not
          * on time here please on check in board").
@@ -1869,7 +1914,7 @@ function RoomColumn({
             letterSpacing: "0.04em",
             background: late ? withAlpha(AMBER, 0.16) : withAlpha(GREEN, 0.14),
             border: `1px solid ${late ? withAlpha(AMBER, 0.55) : withAlpha(GREEN, 0.45)}`,
-            color: late ? AMBER : GREEN,
+            color: late ? AMBER_INK : GREEN,
           }}
           title="Whether this track's heats are being CALLED on time, from our own timing data"
         >
@@ -1877,15 +1922,15 @@ function RoomColumn({
         </span>
         {liveClock && (
           <span
-            className="rc-num"
+            className="rc-num rc-mono"
             style={{
               marginLeft: "auto",
               display: "inline-flex",
               alignItems: "center",
               gap: 7,
-              fontSize: 13,
-              fontWeight: 800,
-              color: liveClock.state === "paused" ? AMBER : INK,
+              fontSize: 17,
+              fontWeight: 700,
+              color: liveClock.state === "paused" ? AMBER_INK : INK,
             }}
           >
             <span
@@ -1959,11 +2004,16 @@ function RoomColumn({
               <div style={{ minWidth: 150 }}>
                 <div
                   className="rc-num"
-                  style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.05, color: INK }}
+                  style={{
+                    fontSize: 34,
+                    fontWeight: 700,
+                    lineHeight: 1.05,
+                    color: ROOM_NAME[room],
+                  }}
                 >
                   Session {race.heatNumber}
                 </div>
-                <div style={{ fontSize: 14, color: PORTAL_DARK.muted, marginTop: 2 }}>
+                <div style={{ fontSize: 14, color: TV_DARK.muted, marginTop: 2 }}>
                   {race.raceType}
                   {/* Empty until somebody claims them — a called heat has had no
                       press yet, which is the honest state to show. */}
@@ -1986,7 +2036,9 @@ function RoomColumn({
                       ? `window closes in ${formatClock(checkinRemainingMs ?? 0)}`
                       : "since called"
                 }
-                tone={calledAlert === "late" ? DANGER : calledAlert === "warn" ? AMBER : undefined}
+                tone={
+                  calledAlert === "late" ? DANGER : calledAlert === "warn" ? AMBER_INK : undefined
+                }
               />
               {/* CHECKED IN, beside the clock it belongs to. Moved down from the
                   top of the board (owner 2026-08-12) so the number sits with the
@@ -2031,7 +2083,7 @@ function RoomColumn({
                       checkedIn.checkedIn >= checkedIn.total
                         ? GREEN
                         : scannerOffline && checkedIn.total > 0
-                          ? AMBER
+                          ? AMBER_INK
                           : undefined
                     }
                   />
@@ -2143,7 +2195,7 @@ function RoomColumn({
                 marginTop: 2,
               }}
             >
-              <span style={{ fontSize: 10, color: PORTAL_DARK.muted, letterSpacing: "0.06em" }}>
+              <span style={{ fontSize: 10, color: TV_DARK.muted, letterSpacing: "0.06em" }}>
                 VIDEO
               </span>
               {/* A READOUT, NOT A PICKER (owner 2026-08-16: block the briefing
@@ -2180,12 +2232,12 @@ function RoomColumn({
               >
                 {cap(tier)}
               </span>
-              <span style={{ fontSize: 10, color: PORTAL_DARK.muted }}>set by race type</span>
+              <span style={{ fontSize: 10, color: TV_DARK.muted }}>set by race type</span>
               {/* Say what will REALLY play, before the send — the fallback is
                   server-side, and hiding it would leave staff thinking a Pro grid
                   is getting a film that does not exist yet. */}
               {proMissing && (
-                <span style={{ fontSize: 10, color: AMBER }}>
+                <span style={{ fontSize: 10, color: AMBER_INK }}>
                   no Pro film yet — plays Intermediate
                 </span>
               )}
@@ -2344,7 +2396,7 @@ function RoomColumn({
           >
             <IconAlertTriangleFilled
               size={14}
-              style={{ flexShrink: 0, color: AMBER, marginTop: 2 }}
+              style={{ flexShrink: 0, color: AMBER_INK, marginTop: 2 }}
               aria-hidden
             />
             {/* THE WINDOW AS A COUNTDOWN (owner 2026-08-23: "a countdown to
@@ -2353,7 +2405,7 @@ function RoomColumn({
                 gone the count flips to how far past it the call is. The board
                 already ticks every second, so the number moves. */}
             <span style={{ fontSize: 12, lineHeight: 1.4 }}>
-              <b style={{ color: AMBER }}>
+              <b style={{ color: AMBER_INK }}>
                 {nextCall.state === "overdue" ? (
                   <>
                     {nextCall.heatNumber != null
@@ -2370,7 +2422,7 @@ function RoomColumn({
                     {nextCall.heatNumber != null
                       ? `Call Session ${nextCall.heatNumber} — `
                       : "Call the next session — "}
-                    <span className="rc-num">
+                    <span className="rc-num rc-mono">
                       {formatClock(Math.max(0, callWindowEndsMs - nowMs))}
                     </span>{" "}
                     left to call it on time.
@@ -2386,10 +2438,12 @@ function RoomColumn({
              down to its call time, quietly. The desk asked for the box to
              answer "when do I call what" before the clock starts nagging
              (owner 2026-08-23). */
-          <div style={{ fontSize: 12, color: PORTAL_DARK.muted, lineHeight: 1.5 }} role="status">
+          <div style={{ fontSize: 12, color: TV_DARK.muted, lineHeight: 1.5 }} role="status">
             <b style={{ color: INK, fontWeight: 650 }}>
               Next: call Session {nextCall.heatNumber ?? "?"} in{" "}
-              <span className="rc-num">{formatClock(Math.max(0, nextCall.callAtMs - nowMs))}</span>
+              <span className="rc-num rc-mono">
+                {formatClock(Math.max(0, nextCall.callAtMs - nowMs))}
+              </span>
             </b>
             {` · at ${clockMinuteMs(nextCall.callAtMs)} · ${nextCall.booked} booked · check-in ${clockMinuteMs(nextCall.slotMs)}`}
             {/* SAY WHY IT IS LATER. A Pro call two minutes off the house rule
@@ -2424,7 +2478,7 @@ function RoomColumn({
               fontSize: 10,
               fontWeight: 800,
               letterSpacing: "0.05em",
-              color: occupied ? phaseColor(timeline.phase, color) : PORTAL_DARK.muted,
+              color: occupied ? phaseColor(timeline.phase, color) : TV_DARK.muted,
             }}
           >
             <span
@@ -2433,7 +2487,7 @@ function RoomColumn({
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: occupied ? phaseColor(timeline.phase, color) : PORTAL_DARK.muted,
+                background: occupied ? phaseColor(timeline.phase, color) : TV_DARK.muted,
               }}
             />
             {occupied ? PHASE_LABEL[timeline.phase].toUpperCase() : "FREE"}
@@ -2728,19 +2782,26 @@ function StageRow({
         gap: 12,
         // Tight, because three of these stack. The floor is what an empty row
         // needs to stay readable as a row rather than a stray line of text.
-        padding: "4px 0",
-        minHeight: 38,
-        ...(first ? null : { borderTop: `1px solid ${withAlpha(INK, 0.07)}` }),
+        padding: "6px 10px",
+        minHeight: 40,
+        // A ROW IS A SURFACE NOW, NOT A DIVIDER. It used to be bare text under a
+        // 7-percent hairline, which reads as a list; the TV gives each row its
+        // own recessed ground, so a stage with somebody in it looks occupied
+        // from across the desk before a word of it is read (.pb-row).
+        background: TV_DARK.row,
+        border: `1px solid ${TV_DARK.hairRow}`,
+        borderRadius: 7,
+        ...(first ? null : { marginTop: 5 }),
       }}
     >
       <span
         style={{
-          flex: "0 0 66px",
-          fontSize: 9,
+          flex: "0 0 88px",
+          fontSize: 12,
           fontWeight: 800,
-          letterSpacing: "0.10em",
+          letterSpacing: "0.12em",
           textTransform: "uppercase",
-          color: PORTAL_DARK.muted,
+          color: TV_DARK.muted,
         }}
       >
         {stage}
@@ -2924,7 +2985,7 @@ function OutOfRoomPanel({
     ? { label: "LANE HELD", tone: DANGER }
     : holding
       ? { label: "CLEAR TO SEAT", tone: GREEN }
-      : { label: "EMPTY", tone: PORTAL_DARK.muted };
+      : { label: "EMPTY", tone: TV_DARK.muted };
 
   // Green, like CLEAR TO SEAT — "they are in and waiting on the flag" is good
   // news of the same kind. Deliberately NOT the room colour: red is one keystroke
@@ -2932,7 +2993,7 @@ function OutOfRoomPanel({
   // room's identity.
   const kartsBadge = karts
     ? { label: "IN THE KARTS", tone: GREEN }
-    : { label: "EMPTY", tone: PORTAL_DARK.muted };
+    : { label: "EMPTY", tone: TV_DARK.muted };
 
   /**
    * ON TRACK NO LONGER BORROWS THE PIT'S STATE (owner 2026-08-15: "on track only
@@ -2943,16 +3004,16 @@ function OutOfRoomPanel({
    */
   const trackBadge =
     clockIsOurs && liveClock?.state === "paused"
-      ? { label: "PAUSED", tone: AMBER }
+      ? { label: "PAUSED", tone: AMBER_INK }
       : outHeat != null
         ? { label: "RACING", tone: GREEN }
-        : { label: "TRACK CLEAR", tone: PORTAL_DARK.muted };
+        : { label: "TRACK CLEAR", tone: TV_DARK.muted };
 
   // The pit: occupied means an announcement is owed, which is the one state on
   // this rail with a press attached and the one that wants the eye.
   const pitInBadge = pitIn
     ? { label: "POST OWED", tone: DANGER }
-    : { label: "EMPTY", tone: PORTAL_DARK.muted };
+    : { label: "EMPTY", tone: TV_DARK.muted };
 
   const nothingOut = !holding && !karts && outHeat == null && !pitIn;
 
@@ -3011,7 +3072,7 @@ function OutOfRoomPanel({
                   fontWeight: 800,
                   letterSpacing: "0.10em",
                   textTransform: "uppercase",
-                  color: PORTAL_DARK.muted,
+                  color: TV_DARK.muted,
                 }}
               >
                 {s}
@@ -3040,13 +3101,16 @@ function OutOfRoomPanel({
                           "Session 52"s can be on screen at once. Identity colour
                           on identity data — the same rule the briefing log uses
                           for room names (owner 2026-08-23). */}
-                      <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color }}>
+                      <span
+                        className="rc-num"
+                        style={{ fontSize: 20, fontWeight: 700, color: ROOM_NAME[room] }}
+                      >
                         {holding.heatNumber != null
                           ? `Session ${holding.heatNumber}`
                           : "In holding"}
                       </span>
                       {holding.raceType && (
-                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
+                        <span style={{ fontSize: 12, color: TV_DARK.muted }}>
                           {holding.raceType}
                         </span>
                       )}
@@ -3054,7 +3118,7 @@ function OutOfRoomPanel({
                           dimmer than it — the desk reads the session number
                           first. */}
                       {holding.host && (
-                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted, opacity: 0.75 }}>
+                        <span style={{ fontSize: 12, color: TV_DARK.muted, opacity: 0.75 }}>
                           {holding.host}
                         </span>
                       )}
@@ -3079,9 +3143,10 @@ function OutOfRoomPanel({
                      fence is in holding too. stage-rail.ts was corrected at the
                      time; this copy of the same rail was missed. */
                   <Stat
+                    row
                     label="In holding"
                     value={formatClock(heldMs)}
-                    tone={holdLive ? AMBER : GREEN}
+                    tone={holdLive ? AMBER_INK : GREEN}
                   />
                 ) : undefined
               }
@@ -3100,19 +3165,20 @@ function OutOfRoomPanel({
                     <div
                       style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
                     >
-                      <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color }}>
+                      <span
+                        className="rc-num"
+                        style={{ fontSize: 20, fontWeight: 700, color: ROOM_NAME[room] }}
+                      >
                         {karts.heatNumber != null ? `Session ${karts.heatNumber}` : "In the karts"}
                       </span>
                       {karts.raceType && (
-                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
-                          {karts.raceType}
-                        </span>
+                        <span style={{ fontSize: 12, color: TV_DARK.muted }}>{karts.raceType}</span>
                       )}
                       {/* WHO HAS THIS GROUP (owner 2026-09-03). Beside the level,
                           dimmer than it — the desk reads the session number
                           first. */}
                       {karts.host && (
-                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted, opacity: 0.75 }}>
+                        <span style={{ fontSize: 12, color: TV_DARK.muted, opacity: 0.75 }}>
                           {karts.host}
                         </span>
                       )}
@@ -3128,7 +3194,7 @@ function OutOfRoomPanel({
                   /* Not "In the karts" a third time — the stage label and the
                      badge both already say it. The clock names what the wait is
                      FOR, the way Holding's trio does (owner 2026-08-23). */
-                  <Stat label="Waiting on green" value={formatClock(kartsMs)} tone={GREEN} />
+                  <Stat row label="Waiting on green" value={formatClock(kartsMs)} tone={GREEN} />
                 ) : undefined
               }
             />
@@ -3143,7 +3209,10 @@ function OutOfRoomPanel({
                     <div
                       style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
                     >
-                      <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color }}>
+                      <span
+                        className="rc-num"
+                        style={{ fontSize: 20, fontWeight: 700, color: ROOM_NAME[room] }}
+                      >
                         Session {outHeat}
                       </span>
                       <RoomPill room={pillRoom(outGroup)} />
@@ -3156,9 +3225,10 @@ function OutOfRoomPanel({
               clock={
                 clockIsOurs && liveClock ? (
                   <Stat
+                    row
                     label={liveClock.state === "paused" ? "Paused at" : "Time left"}
                     value={formatRemaining(liveClock.remainingMs)}
-                    tone={liveClock.state === "paused" ? AMBER : color}
+                    tone={liveClock.state === "paused" ? AMBER_INK : color}
                   />
                 ) : undefined
               }
@@ -3179,19 +3249,20 @@ function OutOfRoomPanel({
                     <div
                       style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}
                     >
-                      <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color }}>
+                      <span
+                        className="rc-num"
+                        style={{ fontSize: 20, fontWeight: 700, color: ROOM_NAME[room] }}
+                      >
                         {pitIn.heatNumber != null ? `Session ${pitIn.heatNumber}` : "In the pit"}
                       </span>
                       {pitIn.raceType && (
-                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
-                          {pitIn.raceType}
-                        </span>
+                        <span style={{ fontSize: 12, color: TV_DARK.muted }}>{pitIn.raceType}</span>
                       )}
                       {/* WHO HAS THIS GROUP (owner 2026-09-03). Beside the level,
                           dimmer than it — the desk reads the session number
                           first. */}
                       {pitIn.host && (
-                        <span style={{ fontSize: 12, color: PORTAL_DARK.muted, opacity: 0.75 }}>
+                        <span style={{ fontSize: 12, color: TV_DARK.muted, opacity: 0.75 }}>
                           {pitIn.host}
                         </span>
                       )}
@@ -3204,7 +3275,7 @@ function OutOfRoomPanel({
               }
               clock={
                 pitIn ? (
-                  <Stat label="Waiting" value={formatClock(sinceFinishMs)} tone={AMBER} />
+                  <Stat row label="Waiting" value={formatClock(sinceFinishMs)} tone={AMBER_INK} />
                 ) : undefined
               }
               end={
@@ -3333,22 +3404,21 @@ function InRoom({
           ) : (
             <>
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                <span className="rc-num" style={{ fontSize: 20, fontWeight: 800, color: INK }}>
+                <span
+                  className="rc-num"
+                  style={{ fontSize: 20, fontWeight: 700, color: ROOM_NAME[room] }}
+                >
                   {state?.heatNumber != null ? `Session ${state.heatNumber}` : "Briefing"}
                 </span>
                 {state?.raceType && (
-                  <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{state.raceType}</span>
+                  <span style={{ fontSize: 12, color: TV_DARK.muted }}>{state.raceType}</span>
                 )}
                 {/* WHO IS RUNNING THE ROOM (owner 2026-09-03). */}
                 {host && (
-                  <span style={{ fontSize: 12, color: PORTAL_DARK.muted, opacity: 0.75 }}>
-                    {host}
-                  </span>
+                  <span style={{ fontSize: 12, color: TV_DARK.muted, opacity: 0.75 }}>{host}</span>
                 )}
                 {state?.tier && (
-                  <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>
-                    · {state.tier} film
-                  </span>
+                  <span style={{ fontSize: 11, color: TV_DARK.muted }}>· {state.tier} film</span>
                 )}
               </div>
 
@@ -3378,7 +3448,7 @@ function InRoom({
                             ? "since sent — running long"
                             : "since sent"
                       }
-                      tone={alert === "late" ? DANGER : AMBER}
+                      tone={alert === "late" ? DANGER : AMBER_INK}
                       big
                     />
                     <div
@@ -3430,7 +3500,7 @@ function InRoom({
                       in its own face; only the missing-film case survives,
                       because that one changes what the press will DO. */}
                   {!state?.videoUrl && (
-                    <p style={{ fontSize: 11, color: PORTAL_DARK.muted, margin: 0 }}>
+                    <p style={{ fontSize: 11, color: TV_DARK.muted, margin: 0 }}>
                       No film for this tier — Start skips to helmet sizes.
                     </p>
                   )}
@@ -3527,7 +3597,10 @@ function InRoom({
                           column height spent on a sentence that is wallpaper by
                           the second heat of a shift. */}
                       {phase === "video" && timeline.videoMs > 0 && (
-                        <span className="rc-num" style={{ fontSize: 10, color: PORTAL_DARK.muted }}>
+                        <span
+                          className="rc-num rc-mono"
+                          style={{ fontSize: 14, color: TV_DARK.muted }}
+                        >
                           {Math.round(pct)}%
                         </span>
                       )}
@@ -3627,7 +3700,7 @@ function InRoom({
             fontSize: 12,
             fontWeight: 800,
             letterSpacing: "0.01em",
-            color: alert === "late" ? DANGER : AMBER,
+            color: alert === "late" ? DANGER : AMBER_INK,
           }}
         >
           <IconAlertTriangleFilled size={13} aria-hidden />
@@ -3702,7 +3775,7 @@ function CameraFrame({
           alignItems: "center",
           justifyContent: "center",
           fontSize: connectingSize,
-          color: PORTAL_DARK.muted,
+          color: TV_DARK.muted,
         }}
       >
         {connectingLabel ?? "Connecting to camera…"}
@@ -3860,7 +3933,7 @@ function RoomCamera({
             fontSize: 9,
             fontWeight: 800,
             letterSpacing: "0.06em",
-            color: offline ? AMBER : PORTAL_DARK.muted,
+            color: offline ? AMBER_INK : TV_DARK.muted,
           }}
         >
           <span
@@ -4018,7 +4091,7 @@ function HoldingCamera({
             fontSize: 9,
             fontWeight: 800,
             letterSpacing: "0.06em",
-            color: offline ? AMBER : PORTAL_DARK.muted,
+            color: offline ? AMBER_INK : TV_DARK.muted,
           }}
         >
           <span
@@ -4169,7 +4242,7 @@ function CameraLightbox({
         <strong style={{ fontSize: 18, color, letterSpacing: "0.02em" }}>
           {room ? `${cap(room).toUpperCase()} ROOM` : "HOLDING"}
         </strong>
-        <span style={{ fontSize: 12, color: PORTAL_DARK.muted }}>{cap(track)} Track</span>
+        <span style={{ fontSize: 12, color: TV_DARK.muted }}>{cap(track)} Track</span>
         {room ? (
           <span
             style={{
@@ -4179,7 +4252,7 @@ function CameraLightbox({
               fontSize: 11,
               fontWeight: 800,
               letterSpacing: "0.05em",
-              color: phase === "idle" ? PORTAL_DARK.muted : phaseColor(phase, color),
+              color: phase === "idle" ? TV_DARK.muted : phaseColor(phase, color),
             }}
           >
             <span
@@ -4194,7 +4267,7 @@ function CameraLightbox({
             {PHASE_LABEL[phase].toUpperCase()}
           </span>
         ) : (
-          <span style={{ fontSize: 11, color: PORTAL_DARK.muted }}>the pit seats</span>
+          <span style={{ fontSize: 11, color: TV_DARK.muted }}>the pit seats</span>
         )}
 
         {/* ANY CAMERA, WITHOUT REOPENING. Four now rather than two — the rooms
@@ -4215,9 +4288,9 @@ function CameraLightbox({
                   padding: "5px 12px",
                   borderRadius: 5,
                   fontSize: 11,
-                  borderColor: on ? withAlpha(tone, 0.85) : PORTAL_DARK.border,
+                  borderColor: on ? withAlpha(tone, 0.85) : TV_DARK.border,
                   background: on ? withAlpha(tone, 0.18) : "transparent",
-                  color: on ? INK : PORTAL_DARK.muted,
+                  color: on ? INK : TV_DARK.muted,
                 }}
               >
                 {isRoom(t) ? cap(t) : `${cap(holdingTrack(t))} holding`}
@@ -4238,7 +4311,7 @@ function CameraLightbox({
               fontSize: 11,
               fontWeight: 800,
               letterSpacing: "0.05em",
-              color: live.playing ? GREEN : PORTAL_DARK.muted,
+              color: live.playing ? GREEN : TV_DARK.muted,
             }}
           >
             <span
@@ -4247,14 +4320,14 @@ function CameraLightbox({
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: live.playing ? GREEN : PORTAL_DARK.muted,
+                background: live.playing ? GREEN : TV_DARK.muted,
                 boxShadow: live.playing ? `0 0 8px ${GREEN}` : "none",
               }}
             />
             {live.playing ? "LIVE" : "STILLS · 1/SEC"}
           </span>
           {offline && !live.playing && (
-            <span style={{ fontSize: 12, color: AMBER }}>Reconnecting…</span>
+            <span style={{ fontSize: 12, color: AMBER_INK }}>Reconnecting…</span>
           )}
           <button
             ref={closeRef}
@@ -4267,9 +4340,9 @@ function CameraLightbox({
               padding: "6px 12px",
               borderRadius: 6,
               fontSize: 12,
-              borderColor: PORTAL_DARK.border,
+              borderColor: TV_DARK.border,
               background: "transparent",
-              color: PORTAL_DARK.fg,
+              color: TV_DARK.fg,
             }}
           >
             <IconX size={14} stroke={2.4} />
@@ -4370,7 +4443,7 @@ function CameraLightbox({
                 <div className="rc-num" style={{ fontSize: 22, fontWeight: 800, color: INK }}>
                   {holding.heatNumber != null ? `Session ${holding.heatNumber}` : "In holding"}
                 </div>
-                <div style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
+                <div style={{ fontSize: 12, color: TV_DARK.muted }}>
                   {holding.raceType ?? ""}
                   {holding.host ? ` · ${holding.host}` : ""}
                   {holding.room ? ` · from the ${holding.room} room` : ""}
@@ -4385,12 +4458,12 @@ function CameraLightbox({
               />
             </>
           ) : (
-            <span style={{ fontSize: 14, color: PORTAL_DARK.muted }}>
+            <span style={{ fontSize: 14, color: TV_DARK.muted }}>
               Nobody in the seats on {cap(track)}.
             </span>
           )
         ) : phase === "idle" ? (
-          <span style={{ fontSize: 14, color: PORTAL_DARK.muted }}>
+          <span style={{ fontSize: 14, color: TV_DARK.muted }}>
             Nothing in this room — the TV is showing helmet sizes.
           </span>
         ) : (
@@ -4399,7 +4472,7 @@ function CameraLightbox({
               <div className="rc-num" style={{ fontSize: 22, fontWeight: 800, color: INK }}>
                 {state?.heatNumber != null ? `Session ${state.heatNumber}` : "Briefing"}
               </div>
-              <div style={{ fontSize: 12, color: PORTAL_DARK.muted }}>
+              <div style={{ fontSize: 12, color: TV_DARK.muted }}>
                 {state?.raceType ?? ""}
                 {state?.tier ? ` · ${state.tier} film` : ""}
               </div>
@@ -4409,7 +4482,7 @@ function CameraLightbox({
                 label="Waiting"
                 value={formatClock(Math.max(0, nowMs - (state?.triggeredAtMs ?? nowMs)))}
                 unit="since sent"
-                tone={AMBER}
+                tone={AMBER_INK}
                 big
               />
             ) : (
@@ -4475,46 +4548,57 @@ function CameraLightbox({
 
 /* ── pieces ───────────────────────────────────────────────────────────── */
 
-/** A labelled number with its unit. The board is read at a glance, so the value is
- *  large and tabular and the words around it are small. */
+/**
+ * A labelled number with its unit. The board is read at a glance, so the value
+ * is large and tabular and the words around it are small.
+ *
+ * THREE SIZES, AND THE SMALLEST IS WHY. 40 for the one number a box exists to
+ * carry, 34 for the rest, and 26 on a stage ROW — four of those stack inside a
+ * single box, and four 34px numerals is most of a desk monitor (the same
+ * argument the rail's own header makes about `big`). The pit board TV draws its
+ * rail clocks a step below its panel clocks for exactly this reason.
+ */
 function Stat({
   label,
   value,
   unit,
   tone,
   big,
+  row,
 }: {
   label: string;
   value: string;
   unit?: string;
   tone?: string;
   big?: boolean;
+  /** Inside a StageRow's clock slot — one step down from the panel scale. */
+  row?: boolean;
 }) {
   return (
     <div style={{ minWidth: big ? 118 : 96 }}>
       <div
         style={{
-          fontSize: 9,
+          fontSize: row ? 11 : 12,
           fontWeight: 800,
-          letterSpacing: "0.10em",
+          letterSpacing: row ? "0.10em" : "0.12em",
           textTransform: "uppercase",
-          color: PORTAL_DARK.muted,
+          color: TV_DARK.muted,
         }}
       >
         {label}
       </div>
       <div
-        className="rc-num"
+        className="rc-num rc-mono"
         style={{
-          fontSize: big ? 40 : 28,
-          fontWeight: 800,
-          lineHeight: 1.1,
+          fontSize: big ? 40 : row ? 26 : 34,
+          fontWeight: 700,
+          lineHeight: row ? 1.05 : 1.1,
           color: tone ?? INK,
         }}
       >
         {value}
       </div>
-      {unit && <div style={{ fontSize: 10, color: PORTAL_DARK.muted }}>{unit}</div>}
+      {unit && <div style={{ fontSize: 12, color: TV_DARK.muted2 }}>{unit}</div>}
     </div>
   );
 }
@@ -4558,9 +4642,9 @@ function Panel({
     <div
       className={flash}
       style={{
-        border: `1px solid ${accent ? withAlpha(accent, 0.35) : PORTAL_DARK.border}`,
-        background: flat ? "transparent" : PORTAL_DARK.card,
-        borderRadius: 8,
+        border: `1px solid ${accent ? withAlpha(accent, 0.35) : TV_DARK.hairSoft}`,
+        background: flat ? "transparent" : TV_DARK.card,
+        borderRadius: 9,
         // Tighter than it was. Four boxes multiply every millimetre of chrome by
         // four, and padding is the cheapest thing to give back.
         padding: "7px 10px 9px",
@@ -4573,11 +4657,11 @@ function Panel({
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span
           style={{
-            fontSize: 9,
+            fontSize: 13,
             fontWeight: 800,
-            letterSpacing: "0.12em",
+            letterSpacing: "0.14em",
             textTransform: "uppercase",
-            color: PORTAL_DARK.muted,
+            color: TV_DARK.muted,
           }}
         >
           {label}
@@ -4594,7 +4678,10 @@ function Panel({
  *  called) and must not be confused with "we do not know". */
 function Leg({ ms, pending }: { ms: number | null; pending?: string }) {
   return (
-    <span className="rc-num" style={{ minWidth: 66, color: ms != null ? INK : PORTAL_DARK.muted }}>
+    <span
+      className="rc-num rc-mono"
+      style={{ minWidth: 66, color: ms != null ? INK : TV_DARK.muted }}
+    >
       {ms != null ? formatClock(ms) : (pending ?? "—")}
     </span>
   );
@@ -4615,13 +4702,16 @@ function Leg({ ms, pending }: { ms: number | null; pending?: string }) {
 function Cue({ atMs, owed }: { atMs: number | null; owed: boolean }) {
   if (atMs != null) {
     return (
-      <span className="rc-num" style={{ minWidth: 72, color: GREEN }}>
+      <span className="rc-num rc-mono" style={{ minWidth: 72, color: GREEN }}>
         {clockTimeMs(atMs)}
       </span>
     );
   }
   return (
-    <span className="rc-num" style={{ minWidth: 72, color: owed ? AMBER : PORTAL_DARK.muted }}>
+    <span
+      className="rc-num rc-mono"
+      style={{ minWidth: 72, color: owed ? AMBER_INK : TV_DARK.muted }}
+    >
       {owed ? "not played" : "—"}
     </span>
   );
@@ -4697,11 +4787,14 @@ function ActionButton({
       disabled={isPending || held || disabled === true}
       style={{
         padding: pad,
-        borderRadius: 6,
+        // A PILL, NEVER A RECTANGLE. The pit board TV has no square corner on
+        // anything pressable, and a 6px radius beside a 999px chip in the same
+        // header reads as two different products (2026-09-07).
+        borderRadius: 999,
         fontSize: font,
         background: solid ? tone : "transparent",
-        borderColor: solid ? "transparent" : tone ? withAlpha(tone, 0.55) : PORTAL_DARK.border,
-        color: solid ? (textColor ?? "#0b1220") : (tone ?? PORTAL_DARK.fg),
+        borderColor: solid ? "transparent" : tone ? withAlpha(tone, 0.55) : TV_DARK.border,
+        color: solid ? (textColor ?? "#0b1220") : (tone ?? TV_DARK.fg),
       }}
     >
       {isPending && <span aria-hidden className="rcb-spin" />}
@@ -4719,8 +4812,8 @@ function ActionButton({
 }
 
 function phaseColor(phase: BriefingPhase, roomColor: string): string {
-  if (phase === "waiting") return AMBER;
-  if (phase === "idle") return PORTAL_DARK.muted;
+  if (phase === "waiting") return AMBER_INK;
+  if (phase === "idle") return TV_DARK.muted;
   return roomColor;
 }
 

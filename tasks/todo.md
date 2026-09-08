@@ -26,6 +26,42 @@ shouldn't we just ask in a modal: change assignment?").
       session-host with an in-memory Redis.
 - [ ] **Never seen on a live tablet.** First busy night, watch that the modal fires on Start and
       Send to holding and NOT on Play it again, and that an undone mis-pull frees the name.
+## Check-in board repainted in the pit board TV's language (2026-09-07) — branch `feat/checkin-tv-restyle`
+
+Owner approval 2026-09-07 ~22:05 ET: "green light on making changes to check in board color GUI
+scheme". PAINT ONLY — no layout, no handler, no endpoint, no threshold moved. The desk and the
+wall are read minutes apart by the same people and were speaking two visual languages; this is the
+desk learning the wall's.
+
+- [x] `admin-skin/theme.ts` — `TV_DARK`, `TV_ROOM`, `TV_MONO` ADDED beside `PORTAL_DARK`.
+      Additive: the seventeen other admin tools on `PORTAL_DARK` are untouched. Note the deliberate
+      key collision — `PORTAL_DARK.muted2` is a navy BAND, `TV_DARK.muted2` is INK.
+- [x] `admin-skin/font.ts` — Poppins gains 800; the TV's eyebrows need the real face.
+- [x] `lib/constants/crew.ts` — the pill ground becomes the TV's white wash
+      (`rgba(255,255,255,.08)` / `.14`) and the race tag gains a 999px radius and a 1px edge at
+      .35. Repaints the desk strip, the camera walls' TRACK OPS row and the pit-assign idle wall in
+      one edit, which is the whole reason that module exists.
+      `FlagIcon` had to stop punching its light squares with the pill ground — an 8-percent white
+      is not a hole. It draws the field at 35 percent instead, so it reads on any surface.
+- [x] `checkin/CheckInClient.tsx` — nine header controls collapse onto one `.ci-chip` class
+      (999px, 12.5px/700, white-wash ground) with four variants. Flat `#030712` page ground,
+      `rgba(14,23,41,.8)` header band, 13px/800/.14em Track Ops eyebrow, the move-chip pair on the
+      Pit Board TV link. ONE GREEN: the emerald-400s become `#4ade80`.
+- [x] `checkin/RaceControlPanels.tsx` — room panels are tinted surfaces, not 3px edges; the reds
+      become the TV's `#f87171` / `#fca5a5` pair; `AMBER` splits into a TONE (`#f59e0b`, fills and
+      keyframes) and an INK (`#fcd34d`, text); stage rows get their own ground; `Stat` and the
+      clocks get the mono face via a new `.rc-mono`; every button is a pill.
+- [x] `checkin/OverridePanel.tsx` — constants realigned, buttons pill. No structural edit.
+- [x] Gates: `npm run test -w fasttrax-web` (513 files / 7721 tests, token-leak check included),
+      `npx turbo run build`, `tsc --noEmit`, eslint — all green, the only two warnings pre-date
+      the branch.
+- [ ] Not walked to. Captured at 1920x1080 and 1280x720 off the dev server against tonight's live
+      data — the board, the header with the scanner disconnected, a flashing Called box, the
+      session-status TV panel and the pit-assign wall. Wants an owner look on the desk monitor.
+
+Deliberately NOT changed: the scan-result takeover's `#16A34A` ground (a full-screen flash, not a
+chip — the one green that is allowed to be its own), the four-boxes padding budget, and the
+`#a06bff` Mega purple.
 
 ## Track Ops race tags + free crew (2026-09-07) — branch `feat/crew-race-tags` — BUILT, gates green
 

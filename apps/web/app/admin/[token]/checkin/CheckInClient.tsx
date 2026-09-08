@@ -25,34 +25,90 @@ import { PORTAL_PIT_BOARD_TV_URL } from "~/lib/constants/admin-tools";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import {
   ADMIN_SANS,
-  ADMIN_MONO,
   PORTAL_BLUE,
   PORTAL_BLUE_SOFT,
-  PORTAL_DARK,
+  TV_DARK,
+  TV_MONO,
 } from "~/components/features/admin-skin/theme";
 
 // --------------- Types ---------------
 
-/** The board's warning amber, same value the briefing panels use. */
-const AMBER = "#f0b341";
-const withAlphaAmber = (a: number) => `rgba(240,179,65,${a})`;
+/** The board's warning TONE, same value the briefing panels use — fills, the
+ *  scanner button, dots and edges. Amber-500, from the pit board TV. */
+const AMBER = "#f59e0b";
+/** Amber as INK. A 500 is mixed to sit UNDER something; at 11-13px on a dark
+ *  ground it goes muddy, so amber text is written in amber-300. */
+const AMBER_INK = "#fcd34d";
+const withAlphaAmber = (a: number) => `rgba(245,158,11,${a})`;
 /** The board's green — same value as RaceControlPanels and OverridePanel, so an
  *  armed switch here reads as the same "good" as an all-here Called box. */
 const GREEN = "#4ade80";
 /** The board's red, same value RaceControlPanels uses for DANGER. */
-const RED = "#ff4d4f";
+const RED = "#f87171";
 /**
- * The blue accent — blue-400/blue-300 over the navy, the same pair the pit
- * board TV uses. It marks the one thing on this page that points AT that board:
- * the link to it. Not PORTAL_BLUE, which is the portal's solid button blue and
- * too dark to read as text on this background.
+ * THE HEADER'S ONE CHIP, and its four variants.
  *
- * (The Track Ops strip's own blue — the top-briefer tint — lives with the rest
- * of that palette in ~/lib/constants/crew.ts, because the walls draw the same
- * pill and had to be able to reach it.)
+ * WHY A STYLE BLOCK AND NOT TAILWIND. Every one of these controls carried its
+ * own `rounded-lg border text-xs` plus an inline `borderColor`/`color`/
+ * `borderRadius: 8` triple, which is nine near-identical copies of one shape
+ * and nine places for it to drift. It is one class now, and the variants say
+ * what they mean rather than what colour they are.
+ *
+ * THE SHAPE IS THE PIT BOARD TV'S: a 999px pill on a white wash, with the tone
+ * carried by the INK rather than by a fill, so the loud thing on the bar is
+ * loud because it is the only fill — see `.ci-chip-solid-amber`.
+ *
+ * (The Track Ops strip's own colours — the pill ground, the top-briefer tint
+ * — live in ~/lib/constants/crew.ts, because the walls draw the same pill and
+ * had to be able to reach them.)
  */
-const ACCENT_BORDER = "rgba(96,165,250,.55)";
-const ACCENT_TEXT = "#93c5fd";
+const CHIP_STYLES = `
+.ci-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 14px; border-radius: 999px;
+  font-family: inherit; font-size: 12.5px; font-weight: 700; line-height: 1.25;
+  white-space: nowrap; cursor: pointer;
+  background: ${TV_DARK.chipBg};
+  border: 1px solid ${TV_DARK.chipBorder};
+  color: #cbd5e1;
+  transition: filter 120ms ease, transform 60ms ease;
+}
+.ci-chip:hover { filter: brightness(1.25); }
+.ci-chip:active { transform: translateY(1px); filter: brightness(0.93); }
+.ci-chip:focus-visible { outline: 2px solid ${TV_DARK.ink2}; outline-offset: 2px; }
+/* A STATUS IS NOT A BUTTON. "Scanner ready" wears the chip so it lines up with
+   the row, but nothing about it is pressable except the word inside it. */
+.ci-chip-static { cursor: default; }
+.ci-chip-static:hover { filter: none; }
+/* The TV's own amber chip: amber-500 at a tenth, its edge at a quarter, and
+   the writing in amber-300. */
+.ci-chip-amber {
+  background: ${withAlphaAmber(0.1)};
+  border-color: ${withAlphaAmber(0.25)};
+  color: ${AMBER_INK};
+}
+/* THE ONE FILL ON THE BAR (owner decision 2026-09-07, mockup question 1
+   option B). Nobody being checked in is not a decorative state, and the TV's
+   tinted chip put it level with "Wait times". It keeps its 11px — it is the
+   loudest thing here by contrast, never by size. */
+.ci-chip-solid-amber {
+  background: ${AMBER}; border-color: ${AMBER}; color: #1a1205;
+  font-size: 11px; font-weight: 800;
+}
+/* The one control that LEAVES this page. Every other chip opens a panel on it. */
+.ci-chip-move {
+  background: ${TV_DARK.moveBg};
+  border-color: ${TV_DARK.moveBorder};
+  color: ${TV_DARK.moveInk};
+}
+.ci-chip-icon { padding: 7px 9px; color: ${TV_DARK.muted}; }
+/* The number a chip exists to carry. */
+.ci-chip-count {
+  font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums;
+  padding: 1px 8px; border-radius: 999px;
+  background: ${TV_DARK.chipCountBg}; color: ${TV_DARK.muted};
+}
+`;
 
 /**
  * One labelled row of segmented choices in the settings sheet — used by the
@@ -78,7 +134,7 @@ function GreetingChoiceRow({
 }) {
   return (
     <div>
-      <p className="block text-xs mb-1.5" style={{ color: PORTAL_DARK.muted }}>
+      <p className="block text-xs mb-1.5" style={{ color: TV_DARK.muted }}>
         {label}
       </p>
       <div className="flex gap-1.5 flex-wrap">
@@ -94,9 +150,9 @@ function GreetingChoiceRow({
               className="px-2.5 py-1 text-xs border hover:bg-white/5"
               style={{
                 borderRadius: 8,
-                borderColor: on ? GREEN : PORTAL_DARK.inputBorder,
+                borderColor: on ? GREEN : TV_DARK.inputBorder,
                 backgroundColor: on ? `${GREEN}22` : "transparent",
-                color: on ? GREEN : PORTAL_DARK.muted,
+                color: on ? GREEN : TV_DARK.muted,
                 opacity: disabled ? 0.5 : 1,
               }}
             >
@@ -160,10 +216,10 @@ function TimingChip({ timing, serverNowMs }: { timing?: TimingFeedStatus; server
     state === "live"
       ? GREEN
       : state === "stale"
-        ? AMBER
+        ? AMBER_INK
         : state === "down"
           ? RED
-          : PORTAL_DARK.muted;
+          : TV_DARK.muted;
 
   const age = (ms: number) =>
     ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m`;
@@ -176,8 +232,15 @@ function TimingChip({ timing, serverNowMs }: { timing?: TimingFeedStatus; server
 
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-1 rounded-lg border"
-      style={{ borderColor: `${color}55`, background: `${color}14`, borderRadius: 8 }}
+      className="flex items-center gap-1.5"
+      style={{
+        // A pill, like everything else on this bar. The tint and the edge are
+        // the reading's own colour, so the chip IS the verdict.
+        padding: "4px 11px",
+        borderRadius: 999,
+        border: `1px solid ${color}55`,
+        background: `${color}14`,
+      }}
       title={
         state === "live"
           ? "Kart timing feed is delivering"
@@ -193,12 +256,12 @@ function TimingChip({ timing, serverNowMs }: { timing?: TimingFeedStatus; server
         style={{ background: color }}
       />
       <span
-        className="text-xs font-bold"
-        style={{ color: PORTAL_DARK.muted, letterSpacing: "0.06em" }}
+        className="text-[11px] font-extrabold"
+        style={{ color: TV_DARK.muted, letterSpacing: "0.14em" }}
       >
         TIMING
       </span>
-      <span className="text-xs font-bold" style={{ color, fontFamily: ADMIN_MONO }}>
+      <span className="text-xs font-bold" style={{ color, fontFamily: TV_MONO }}>
         {value}
       </span>
     </div>
@@ -231,16 +294,16 @@ function TrackOpsStrip({ crew }: { crew: CrewBoard }) {
   return (
     <div
       className="flex items-center gap-2 px-6 pt-1.5 pb-3 border-b flex-wrap"
-      style={{ borderColor: PORTAL_DARK.border }}
+      style={{ borderColor: TV_DARK.border }}
     >
       <span
-        className="text-[10px] font-bold uppercase"
-        style={{ color: PORTAL_DARK.muted, letterSpacing: "0.14em", marginRight: 4 }}
+        className="text-[13px] font-extrabold uppercase"
+        style={{ color: TV_DARK.muted, letterSpacing: "0.14em", marginRight: 6 }}
       >
         Track Ops
       </span>
       {crew.list.length === 0 && crew.rosterAvailable && (
-        <span className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+        <span className="text-xs" style={{ color: TV_DARK.muted }}>
           Nobody on Track Ops right now
         </span>
       )}
@@ -253,7 +316,7 @@ function TrackOpsStrip({ crew }: { crew: CrewBoard }) {
       {!crew.rosterAvailable && (
         <span
           className="text-[11px] italic"
-          style={{ color: PORTAL_DARK.muted }}
+          style={{ color: TV_DARK.muted }}
           title="The portal's pit board roster is unreachable, so only staff currently running a group are listed"
         >
           roster unavailable
@@ -266,7 +329,7 @@ function TrackOpsStrip({ crew }: { crew: CrewBoard }) {
           className="text-[11px]"
           style={{
             marginLeft: "auto",
-            color: PORTAL_DARK.muted,
+            color: TV_DARK.muted,
             fontVariantNumeric: "tabular-nums",
           }}
           title={
@@ -431,7 +494,7 @@ function scanOutcomeColor(outcome: string): string {
     case "already-in":
       return PORTAL_BLUE_SOFT;
     case "not-checking-in":
-      return AMBER;
+      return AMBER_INK;
     case "failed":
     case "unreadable":
       return RED;
@@ -1515,11 +1578,12 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
     <div
       className="min-h-screen flex flex-col"
       style={{
-        background: PORTAL_DARK.bodyGradient,
-        color: PORTAL_DARK.fg,
+        background: TV_DARK.body,
+        color: TV_DARK.fg,
         fontFamily: ADMIN_SANS,
       }}
     >
+      <style>{CHIP_STYLES}</style>
       {/*
         LOOKING UP — the whole screen, immediately, for as long as it takes.
 
@@ -1549,17 +1613,17 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             style={{
               width: 84,
               height: 84,
-              border: `6px solid ${PORTAL_DARK.border}`,
+              border: `6px solid ${TV_DARK.border}`,
               borderTopColor: PORTAL_BLUE,
             }}
           />
           <p
             className="font-bold uppercase tracking-widest text-center"
-            style={{ fontSize: "clamp(28px, 5vw, 48px)", color: PORTAL_DARK.fg }}
+            style={{ fontSize: "clamp(28px, 5vw, 48px)", color: TV_DARK.fg }}
           >
             Finding racer
           </p>
-          <p className="text-center" style={{ fontSize: 18, color: PORTAL_DARK.muted }}>
+          <p className="text-center" style={{ fontSize: 18, color: TV_DARK.muted }}>
             Hold the badge — do not scan again
           </p>
         </div>
@@ -1581,13 +1645,13 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
           clip unreachable at 1280px and up. */}
       <div
         className={`flex items-center justify-between px-6 border-b flex-nowrap overflow-hidden ${boardMode ? "py-2" : "py-4"}`}
-        style={{ borderColor: PORTAL_DARK.border, gap: 12 }}
+        style={{ borderColor: TV_DARK.border, background: TV_DARK.band, gap: 12 }}
       >
         <div style={boardMode ? { display: "flex", alignItems: "baseline", gap: 8 } : undefined}>
           <h1 style={{ fontSize: boardMode ? "1.05rem" : "1.5rem", fontWeight: 700 }}>
             {boardMode ? "Check-In & Race Control" : "Check-In"}
           </h1>
-          <p className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+          <p className="text-xs" style={{ color: TV_DARK.muted }}>
             v{version}
           </p>
           {/* Board mode only — a plain check-in station does not poll the board,
@@ -1606,13 +1670,13 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
           <button
             type="button"
             onClick={buildUpdate.reloadNow}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold"
-            style={{ borderColor: PORTAL_BLUE, color: PORTAL_BLUE, borderRadius: 8 }}
+            className="ci-chip"
+            style={{ color: PORTAL_BLUE_SOFT }}
             title={`This tab is on v${version}; v${buildUpdate.serverVersion} is live`}
           >
             <span
               className="w-2 h-2 rounded-full animate-pulse"
-              style={{ background: PORTAL_BLUE }}
+              style={{ background: PORTAL_BLUE_SOFT }}
             />
             New version ready — reload
           </button>
@@ -1625,23 +1689,23 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
           {boardMode && serialSupported && (
             <>
               {connectionState === "ready" ? (
-                <span
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs"
-                  style={{ borderColor: "#14532d", color: "#4ade80", borderRadius: 8 }}
-                >
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="ci-chip ci-chip-static" style={{ color: GREEN }}>
+                  <span
+                    className="w-2 h-2 rounded-full animate-pulse"
+                    style={{ background: GREEN }}
+                  />
                   Scanner ready
                   <button
                     type="button"
                     onClick={disconnect}
                     className="underline"
-                    style={{ color: PORTAL_DARK.muted }}
+                    style={{ color: TV_DARK.muted, fontWeight: 600 }}
                   >
                     disconnect
                   </button>
                 </span>
               ) : connectionState === "connecting" ? (
-                <span className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+                <span className="text-xs" style={{ color: TV_DARK.muted }}>
                   Connecting scanner…
                 </span>
               ) : (
@@ -1673,8 +1737,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                       ? `No scan will check anybody in until the scanner is connected — ${connectionError}`
                       : "No scan will check anybody in until the scanner is connected — nobody is being checked in"
                   }
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap"
-                  style={{ backgroundColor: AMBER, color: "#1a1205", borderRadius: 8 }}
+                  className="ci-chip ci-chip-solid-amber"
                 >
                   <IconAlertTriangleFilled size={13} aria-hidden />
                   {connectionState === "error" ? "Retry scanner" : "Scanner not connected"}
@@ -1700,20 +1763,14 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               <button
                 type="button"
                 onClick={() => briefing.setOpenPanel("override")}
-                className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
-                style={{ borderColor: withAlphaAmber(0.55), color: AMBER, borderRadius: 8 }}
+                className="ci-chip ci-chip-amber"
               >
                 Override
               </button>
               <button
                 type="button"
                 onClick={() => briefing.setOpenPanel("waits")}
-                className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5 inline-flex items-center gap-1.5"
-                style={{
-                  borderColor: PORTAL_DARK.border,
-                  color: PORTAL_DARK.muted,
-                  borderRadius: 8,
-                }}
+                className="ci-chip"
                 title={
                   waitTimesBehind(briefing.waitTimes)
                     ? "The last hour is running meaningfully behind today — open for the numbers"
@@ -1736,22 +1793,12 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               <button
                 type="button"
                 onClick={() => briefing.setOpenPanel("log")}
-                className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5 inline-flex items-center gap-1.5"
-                style={{
-                  borderColor: PORTAL_DARK.border,
-                  color: PORTAL_DARK.muted,
-                  borderRadius: 8,
-                }}
+                className="ci-chip"
               >
                 Briefing log
                 {/* The count is the reason to open it. */}
                 {(briefing.board?.briefings.length ?? 0) > 0 && (
-                  <span
-                    className="px-1.5 rounded-full text-[10px] font-bold"
-                    style={{ backgroundColor: PORTAL_DARK.muted2, color: PORTAL_DARK.muted }}
-                  >
-                    {briefing.board?.briefings.length}
-                  </span>
+                  <span className="ci-chip-count">{briefing.board?.briefings.length}</span>
                 )}
               </button>
             </>
@@ -1762,17 +1809,11 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               setShowScanHistory(true);
               void loadScanHistory();
             }}
-            className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
-            style={{ borderColor: PORTAL_DARK.border, color: PORTAL_DARK.muted, borderRadius: 8 }}
+            className="ci-chip"
           >
             Scan history
           </button>
-          <button
-            type="button"
-            onClick={runSelfTest}
-            className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5 whitespace-nowrap"
-            style={{ borderColor: PORTAL_DARK.border, color: PORTAL_DARK.muted, borderRadius: 8 }}
-          >
+          <button type="button" onClick={runSelfTest} className="ci-chip">
             Self-Test
           </button>
           {/* THE OTHER BOARD, one click away (owner 2026-09-07). The pit board
@@ -1785,8 +1826,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             href={PORTAL_PIT_BOARD_TV_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5 whitespace-nowrap"
-            style={{ borderColor: ACCENT_BORDER, color: ACCENT_TEXT, borderRadius: 8 }}
+            className="ci-chip ci-chip-move"
           >
             Pit Board TV ↗
           </a>
@@ -1794,8 +1834,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             type="button"
             aria-label="Settings"
             onClick={() => setShowSettings(!showSettings)}
-            className="p-2 rounded-lg border hover:bg-white/5"
-            style={{ borderColor: PORTAL_DARK.border, color: PORTAL_DARK.muted, borderRadius: 8 }}
+            className="ci-chip ci-chip-icon"
           >
             <svg
               className="w-4 h-4"
@@ -1833,13 +1872,13 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
       {!boardMode && stripSessions.length > 0 && (
         <div
           className="flex gap-3 px-6 py-3 border-b overflow-x-auto"
-          style={{ borderColor: PORTAL_DARK.border }}
+          style={{ borderColor: TV_DARK.border }}
         >
           {locScope && (
             <div className="flex items-center shrink-0 pr-1">
               <p
                 className="text-[10px] font-bold uppercase tracking-wider"
-                style={{ color: PORTAL_DARK.muted }}
+                style={{ color: TV_DARK.muted }}
                 title="This station's ?loc= bookmark scopes the counts strip — scanning is unaffected. Drop the ?loc= to see every venue."
               >
                 {locScope.label}
@@ -1868,12 +1907,12 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                       squeezed onto the track/level row, which is already three
                       facts wide on a strip that scrolls horizontally. */}
                   {s.host && (
-                    <p className="text-[10px] font-semibold" style={{ color: PORTAL_DARK.muted }}>
+                    <p className="text-[10px] font-semibold" style={{ color: TV_DARK.muted }}>
                       {s.host}
                     </p>
                   )}
                   {s.scheduledStart && (
-                    <p className="text-[10px]" style={{ color: PORTAL_DARK.muted }}>
+                    <p className="text-[10px]" style={{ color: TV_DARK.muted }}>
                       {new Date(s.scheduledStart).toLocaleTimeString("en-US", {
                         hour: "numeric",
                         minute: "2-digit",
@@ -1890,7 +1929,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                       from the last good read is dimmed rather than hidden. */}
                   <p
                     className="font-black text-xl leading-none"
-                    style={{ color: s.stale ? PORTAL_DARK.muted : PORTAL_DARK.fg }}
+                    style={{ color: s.stale ? TV_DARK.muted : TV_DARK.fg }}
                     title={
                       s.stale ? "Last known count — the latest read did not come back" : undefined
                     }
@@ -1900,13 +1939,13 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                     ) : (
                       <>
                         {s.checkedIn}
-                        <span className="text-sm font-normal" style={{ color: PORTAL_DARK.muted }}>
+                        <span className="text-sm font-normal" style={{ color: TV_DARK.muted }}>
                           /{s.total}
                         </span>
                       </>
                     )}
                   </p>
-                  <p className="text-[10px] uppercase" style={{ color: PORTAL_DARK.muted }}>
+                  <p className="text-[10px] uppercase" style={{ color: TV_DARK.muted }}>
                     {s.total === null ? "no roster read" : s.stale ? "last known" : "checked in"}
                   </p>
                 </div>
@@ -1920,9 +1959,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
       {showSettings && (
         <div
           className="px-6 py-4 border-b"
-          style={{ borderColor: PORTAL_DARK.border, backgroundColor: PORTAL_DARK.card }}
+          style={{ borderColor: TV_DARK.border, backgroundColor: TV_DARK.card }}
         >
-          <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+          <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
             Baud Rate
           </p>
           <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
@@ -1944,8 +1983,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                         borderRadius: 8,
                       }
                     : {
-                        borderColor: PORTAL_DARK.inputBorder,
-                        color: PORTAL_DARK.muted,
+                        borderColor: TV_DARK.inputBorder,
+                        color: TV_DARK.muted,
                         borderRadius: 8,
                       }
                 }
@@ -1954,7 +1993,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               </button>
             ))}
           </div>
-          <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+          <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
             Disconnect and reconnect after changing baud rate.
           </p>
 
@@ -1965,8 +2004,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             member no way to tell whether the speakers are muted, the volume is
             down, or the setting simply did not take.
           */}
-          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
-            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: TV_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
               Scan sound
             </p>
             <div className="flex gap-2 items-center" style={{ flexWrap: "wrap" }}>
@@ -1978,9 +2017,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 className="px-3 py-1.5 text-xs border hover:bg-white/5"
                 style={{
                   borderRadius: 8,
-                  borderColor: sound.enabled ? GREEN : PORTAL_DARK.inputBorder,
+                  borderColor: sound.enabled ? GREEN : TV_DARK.inputBorder,
                   backgroundColor: sound.enabled ? `${GREEN}22` : "transparent",
-                  color: sound.enabled ? GREEN : PORTAL_DARK.muted,
+                  color: sound.enabled ? GREEN : TV_DARK.muted,
                 }}
               >
                 {sound.enabled ? "On" : "Off"}
@@ -1991,8 +2030,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 className="px-3 py-1.5 text-xs border hover:bg-white/5"
                 style={{
                   borderRadius: 8,
-                  borderColor: PORTAL_DARK.inputBorder,
-                  color: PORTAL_DARK.muted,
+                  borderColor: TV_DARK.inputBorder,
+                  color: TV_DARK.muted,
                 }}
               >
                 Hear checked in
@@ -2003,14 +2042,14 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 className="px-3 py-1.5 text-xs border hover:bg-white/5"
                 style={{
                   borderRadius: 8,
-                  borderColor: PORTAL_DARK.inputBorder,
-                  color: PORTAL_DARK.muted,
+                  borderColor: TV_DARK.inputBorder,
+                  color: TV_DARK.muted,
                 }}
               >
                 Hear not checked in
               </button>
             </div>
-            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
               A tone on every scan: one for checked in, another for anything else — including a
               racer whose heat has not been called. This station only.
             </p>
@@ -2024,8 +2063,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             seconds apart, then silence — a sound that nags forever is a sound
             that gets muted, and then neither alarm works again.
           */}
-          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
-            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: TV_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
               Deadline alarm
             </p>
             <div className="flex gap-2 items-center" style={{ flexWrap: "wrap" }}>
@@ -2037,9 +2076,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 className="px-3 py-1.5 text-xs border hover:bg-white/5"
                 style={{
                   borderRadius: 8,
-                  borderColor: alarm.enabled ? GREEN : PORTAL_DARK.inputBorder,
+                  borderColor: alarm.enabled ? GREEN : TV_DARK.inputBorder,
                   backgroundColor: alarm.enabled ? `${GREEN}22` : "transparent",
-                  color: alarm.enabled ? GREEN : PORTAL_DARK.muted,
+                  color: alarm.enabled ? GREEN : TV_DARK.muted,
                 }}
               >
                 {alarm.enabled ? "On" : "Off"}
@@ -2050,14 +2089,14 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 className="px-3 py-1.5 text-xs border hover:bg-white/5"
                 style={{
                   borderRadius: 8,
-                  borderColor: PORTAL_DARK.inputBorder,
-                  color: PORTAL_DARK.muted,
+                  borderColor: TV_DARK.inputBorder,
+                  color: TV_DARK.muted,
                 }}
               >
                 Hear it
               </button>
             </div>
-            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
               Sounds three times over the last 30 seconds when a session is about to be called late,
               or when a called group&apos;s briefing window is closing. This station only.
             </p>
@@ -2069,8 +2108,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               board left open does the triggering, so a registered phone buzzes
               whether or not it is the device looking at the board.
             */}
-            <div className="mt-3 pt-3 border-t" style={{ borderColor: PORTAL_DARK.border }}>
-              <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+            <div className="mt-3 pt-3 border-t" style={{ borderColor: TV_DARK.border }}>
+              <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
                 Alert this device
               </p>
               {briefing.board?.push?.configured ? (
@@ -2088,9 +2127,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                       className="px-3 py-1.5 text-xs border hover:bg-white/5"
                       style={{
                         borderRadius: 8,
-                        borderColor: alarm.pushRegistered ? GREEN : PORTAL_DARK.inputBorder,
+                        borderColor: alarm.pushRegistered ? GREEN : TV_DARK.inputBorder,
                         backgroundColor: alarm.pushRegistered ? `${GREEN}22` : "transparent",
-                        color: alarm.pushRegistered ? GREEN : PORTAL_DARK.muted,
+                        color: alarm.pushRegistered ? GREEN : TV_DARK.muted,
                         opacity: alarm.pushBusy ? 0.5 : 1,
                       }}
                     >
@@ -2100,13 +2139,13 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                           ? "This device is alerted"
                           : "Alert this device"}
                     </button>
-                    <span className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+                    <span className="text-xs" style={{ color: TV_DARK.muted }}>
                       {briefing.board.push.devices === 1
                         ? "1 device registered"
                         : `${briefing.board.push.devices ?? 0} devices registered`}
                     </span>
                   </div>
-                  <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+                  <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
                     Sends a notification to this phone or PC even when the board is not on screen.
                     Open this page on a phone and press it there to add that phone.
                   </p>
@@ -2124,8 +2163,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                     its own copy, and the point of testing is to see the words
                     that will actually arrive.
                   */}
-                  <div className="mt-3 pt-3 border-t" style={{ borderColor: PORTAL_DARK.border }}>
-                    <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+                  <div className="mt-3 pt-3 border-t" style={{ borderColor: TV_DARK.border }}>
+                    <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
                       Test an alert on every registered device
                     </p>
                     <div className="flex gap-2" style={{ flexWrap: "wrap" }}>
@@ -2144,8 +2183,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                           className="px-3 py-1.5 text-xs border hover:bg-white/5"
                           style={{
                             borderRadius: 8,
-                            borderColor: PORTAL_DARK.inputBorder,
-                            color: PORTAL_DARK.fg,
+                            borderColor: TV_DARK.inputBorder,
+                            color: TV_DARK.fg,
                             opacity:
                               briefing.board && (briefing.board.push?.devices ?? 0) > 0 ? 1 : 0.4,
                           }}
@@ -2154,7 +2193,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                         </button>
                       ))}
                     </div>
-                    <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+                    <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
                       {(briefing.board?.push?.devices ?? 0) === 0
                         ? "No devices registered yet — press “Alert this device” above first."
                         : "Goes to every registered device, not just this one. The notification says TEST."}
@@ -2165,7 +2204,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 /* Honest about the blocker rather than offering a button that
                    cannot work: with no VAPID keys there is no identity to push
                    under. */
-                <p className="text-xs" style={{ color: AMBER }}>
+                <p className="text-xs" style={{ color: AMBER_INK }}>
                   Not set up — VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not set on this
                   deployment. The sound above still works.
                 </p>
@@ -2181,8 +2220,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             wall says 8 puts the guest's clock and the staff's out of step.
             "Track screens" hands it back to the signage configs.
           */}
-          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
-            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: TV_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
               Check-in window
             </p>
             <div className="flex gap-2 items-center" style={{ flexWrap: "wrap" }}>
@@ -2196,9 +2235,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                     className="px-3 py-1.5 text-xs border hover:bg-white/5"
                     style={{
                       borderRadius: 8,
-                      borderColor: on ? PORTAL_BLUE : PORTAL_DARK.inputBorder,
+                      borderColor: on ? PORTAL_BLUE : TV_DARK.inputBorder,
                       backgroundColor: on ? `${PORTAL_BLUE}33` : "transparent",
-                      color: on ? PORTAL_BLUE_SOFT : PORTAL_DARK.muted,
+                      color: on ? PORTAL_BLUE_SOFT : TV_DARK.muted,
                     }}
                   >
                     {mins} min
@@ -2211,14 +2250,14 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 className="px-3 py-1.5 text-xs border hover:bg-white/5"
                 style={{
                   borderRadius: 8,
-                  borderColor: PORTAL_DARK.inputBorder,
-                  color: PORTAL_DARK.muted,
+                  borderColor: TV_DARK.inputBorder,
+                  color: TV_DARK.muted,
                 }}
               >
                 Track screens
               </button>
             </div>
-            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
               {checkinWindowNow
                 ? `Racers have ${checkinWindowNow} minutes from the call to reach the desk. Every board and TV follows this within one poll.`
                 : "Waiting for the board to report the current window."}
@@ -2231,8 +2270,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             lobby-TV event. That distinction is enforced on the server, not here,
             and it is the whole reason this is safe to hand to a desk mid-shift.
           */}
-          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
-            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: TV_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
               Manual entry
             </p>
             <div className="flex gap-2 mb-2" style={{ flexWrap: "wrap" }}>
@@ -2248,11 +2287,11 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 className="flex-1 px-3 py-2 text-sm placeholder-white/30 focus:outline-none focus:border-blue-400"
                 style={{
                   minWidth: 240,
-                  backgroundColor: PORTAL_DARK.inputBg,
-                  border: `1px solid ${PORTAL_DARK.inputBorder}`,
-                  color: PORTAL_DARK.fg,
+                  backgroundColor: TV_DARK.inputBg,
+                  border: `1px solid ${TV_DARK.inputBorder}`,
+                  color: TV_DARK.fg,
                   borderRadius: 8,
-                  fontFamily: ADMIN_MONO,
+                  fontFamily: TV_MONO,
                 }}
               />
               <button
@@ -2275,8 +2314,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 disabled={!manualInput.trim()}
                 className="px-4 py-2 font-bold text-sm border"
                 style={{
-                  borderColor: AMBER,
-                  color: AMBER,
+                  borderColor: withAlphaAmber(0.55),
+                  color: AMBER_INK,
                   backgroundColor: "transparent",
                   borderRadius: 8,
                   opacity: manualInput.trim() ? 1 : 0.5,
@@ -2289,15 +2328,15 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               <p
                 className="text-xs mt-1"
                 style={{
-                  color: PORTAL_DARK.fg,
-                  fontFamily: ADMIN_MONO,
+                  color: TV_DARK.fg,
+                  fontFamily: TV_MONO,
                   wordBreak: "break-word",
                 }}
               >
                 {manualLine}
               </p>
             )}
-            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
               Look up reports what would happen and writes nothing. Check in for real is identical
               to scanning the badge.
             </p>
@@ -2316,8 +2355,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             switch that looks device-local but is not is how one desk silently
             changes another's night.
           */}
-          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
-            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: TV_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
               Auto-move to holding
             </p>
             <button
@@ -2329,15 +2368,15 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               className="px-3 py-1.5 text-xs border hover:bg-white/5"
               style={{
                 borderRadius: 8,
-                borderColor: autoHoldingOn ? GREEN : PORTAL_DARK.inputBorder,
+                borderColor: autoHoldingOn ? GREEN : TV_DARK.inputBorder,
                 backgroundColor: autoHoldingOn ? `${GREEN}22` : "transparent",
-                color: autoHoldingOn ? GREEN : PORTAL_DARK.muted,
+                color: autoHoldingOn ? GREEN : TV_DARK.muted,
                 opacity: briefing.board ? 1 : 0.5,
               }}
             >
               {autoHoldingOn ? "On" : "Off"}
             </button>
-            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
               {autoHoldingOn
                 ? "When a room goes quiet on camera after the briefing, its group moves to holding on its own. Staff can still press Send to holding at any time."
                 : "Groups only move to holding when staff press Send to holding."}{" "}
@@ -2366,8 +2405,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             a venue that would rather the rule decided. Either way the desk and
             the room tablets read this one value, so they cannot disagree.
           */}
-          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
-            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: TV_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
               Allow sending with no time for the film
             </p>
             <button
@@ -2379,15 +2418,15 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               className="px-3 py-1.5 text-xs border hover:bg-white/5"
               style={{
                 borderRadius: 8,
-                borderColor: sendOverrideOn ? GREEN : PORTAL_DARK.inputBorder,
+                borderColor: sendOverrideOn ? GREEN : TV_DARK.inputBorder,
                 backgroundColor: sendOverrideOn ? `${GREEN}22` : "transparent",
-                color: sendOverrideOn ? GREEN : PORTAL_DARK.muted,
+                color: sendOverrideOn ? GREEN : TV_DARK.muted,
                 opacity: briefing.board ? 1 : 0.5,
               }}
             >
               {sendOverrideOn ? "Allowed" : "Blocked"}
             </button>
-            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
               {sendOverrideOn
                 ? "Once the film can no longer finish before the race in front ends, Send still works but asks first, naming the race, its clock and the film that will not fit. The room tablets ask the same question."
                 : "Once the film can no longer finish before the race in front ends, Send goes dead until the returning group's post-race call has played. The room tablets refuse the pull too."}{" "}
@@ -2395,8 +2434,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             </p>
           </div>
 
-          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
-            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: TV_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
               Welcome-back greeting by motion
             </p>
             <button
@@ -2408,9 +2447,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               className="px-3 py-1.5 text-xs border hover:bg-white/5"
               style={{
                 borderRadius: 8,
-                borderColor: greetingByMotionOn ? GREEN : PORTAL_DARK.inputBorder,
+                borderColor: greetingByMotionOn ? GREEN : TV_DARK.inputBorder,
                 backgroundColor: greetingByMotionOn ? `${GREEN}22` : "transparent",
-                color: greetingByMotionOn ? GREEN : PORTAL_DARK.muted,
+                color: greetingByMotionOn ? GREEN : TV_DARK.muted,
                 opacity: briefing.board ? 1 : 0.5,
               }}
             >
@@ -2419,7 +2458,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             {/* The copy quotes the CONFIGURED delay, not a literal — the number
                 below is settable, and a sentence that kept saying "45" would be
                 wrong the moment somebody changed it. */}
-            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
               {greetingByMotionOn
                 ? `The room TV plays the welcome-back message once its camera sees the group actually walk in — typically 15–30 seconds after the first person enters. If the camera can't answer, it falls back to the ${fallbackSeconds}-second timer.`
                 : `The room TV plays the welcome-back message ${fallbackSeconds} seconds after the post-race call, whether anyone is in the room or not.`}{" "}
@@ -2477,7 +2516,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 disabled={!briefing.board}
                 onPick={(lingerAfterMs) => briefing.setGreetingTiming({ lingerAfterMs })}
               />
-              <p className="text-xs" style={{ color: PORTAL_DARK.muted }}>
+              <p className="text-xs" style={{ color: TV_DARK.muted }}>
                 The reminder needs its own clip uploaded on the Lobby TVs page, and only plays while
                 the greeting is following the camera. However these are set, the greeting always
                 stops 2 minutes after the post-race call.
@@ -2492,8 +2531,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             night, this one only annotates footage. The likeliest reason to
             reach for this is volume, so the copy names it.
           */}
-          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
-            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: TV_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
               Race camera bookmarks
             </p>
             <button
@@ -2505,15 +2544,15 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               className="px-3 py-1.5 text-xs border hover:bg-white/5"
               style={{
                 borderRadius: 8,
-                borderColor: raceBookmarksOn ? GREEN : PORTAL_DARK.inputBorder,
+                borderColor: raceBookmarksOn ? GREEN : TV_DARK.inputBorder,
                 backgroundColor: raceBookmarksOn ? `${GREEN}22` : "transparent",
-                color: raceBookmarksOn ? GREEN : PORTAL_DARK.muted,
+                color: raceBookmarksOn ? GREEN : TV_DARK.muted,
                 opacity: briefing.board ? 1 : 0.5,
               }}
             >
               {raceBookmarksOn ? "On" : "Off"}
             </button>
-            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
               {raceBookmarksOn
                 ? "Session start, pause, resume and end are marked in Nx on every camera for that track, so footage can be found by session instead of by scrubbing."
                 : "Nothing new is written to the track cameras. Bookmarks already written stay."}{" "}
@@ -2534,8 +2573,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             resolutions, because the reason to reach for this at 9pm is that the
             cameras have gone slow.
           */}
-          <div className="mt-4 pt-4 border-t" style={{ borderColor: PORTAL_DARK.border }}>
-            <p className="block text-xs mb-2" style={{ color: PORTAL_DARK.muted }}>
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: TV_DARK.border }}>
+            <p className="block text-xs mb-2" style={{ color: TV_DARK.muted }}>
               Room camera previews
             </p>
             <div className="flex gap-2">
@@ -2556,9 +2595,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                     className="px-3 py-1.5 text-xs border hover:bg-white/5"
                     style={{
                       borderRadius: 8,
-                      borderColor: on ? GREEN : PORTAL_DARK.inputBorder,
+                      borderColor: on ? GREEN : TV_DARK.inputBorder,
                       backgroundColor: on ? `${GREEN}22` : "transparent",
-                      color: on ? GREEN : PORTAL_DARK.muted,
+                      color: on ? GREEN : TV_DARK.muted,
                       opacity: briefing.board ? 1 : 0.5,
                     }}
                   >
@@ -2567,7 +2606,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 );
               })}
             </div>
-            <p className="text-xs mt-2" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-xs mt-2" style={{ color: TV_DARK.muted }}>
               {cameraPreviewMode === "live"
                 ? "The room tiles play moving video, and the full-screen viewer plays it sharp. Each open tile is one transcode on the camera server — drop to Stills if the cameras start lagging."
                 : "The room tiles refresh a picture a second through our own proxy, and the camera server does no extra work. You still see the room; you just will not see it move."}{" "}
@@ -2587,7 +2626,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
         {!serialSupported ? (
           <div className="text-center">
             <p className="text-red-400 text-lg font-bold">Web Serial API Not Available</p>
-            <p className="text-sm mt-2" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-sm mt-2" style={{ color: TV_DARK.muted }}>
               Use Microsoft Edge or Google Chrome on desktop.
             </p>
           </div>
@@ -2601,7 +2640,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             >
               Connect Scanner
             </button>
-            <p className="text-sm mt-4" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-sm mt-4" style={{ color: TV_DARK.muted }}>
               Click to select your serial QR scanner
             </p>
           </div>
@@ -2611,21 +2650,21 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mx-auto"
               style={{ borderColor: PORTAL_BLUE, borderTopColor: "transparent" }}
             />
-            <p className="text-sm mt-4" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-sm mt-4" style={{ color: TV_DARK.muted }}>
               Connecting...
             </p>
           </div>
         ) : connectionState === "error" ? (
           <div className="text-center max-w-md">
             <p className="text-red-400 text-lg font-bold">Connection Error</p>
-            <p className="text-sm mt-2" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-sm mt-2" style={{ color: TV_DARK.muted }}>
               {connectionError}
             </p>
             <button
               type="button"
               onClick={requestPort}
               className="mt-4 px-6 py-2.5 text-sm font-medium transition-colors hover:bg-white/15"
-              style={{ backgroundColor: PORTAL_DARK.card, color: PORTAL_DARK.fg, borderRadius: 8 }}
+              style={{ backgroundColor: TV_DARK.card, color: TV_DARK.fg, borderRadius: 8 }}
             >
               Try Again
             </button>
@@ -2637,20 +2676,22 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               className="flex items-center justify-center gap-2 mb-6"
               style={{ flexWrap: "wrap" }}
             >
-              <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-emerald-400 text-sm font-medium">Connected — {portName}</span>
+              <div className="w-3 h-3 rounded-full animate-pulse" style={{ background: GREEN }} />
+              <span className="text-sm font-medium" style={{ color: GREEN }}>
+                Connected — {portName}
+              </span>
               <button
                 type="button"
                 onClick={disconnect}
                 className="text-xs underline ml-2"
-                style={{ color: PORTAL_DARK.muted }}
+                style={{ color: TV_DARK.muted }}
               >
                 Disconnect
               </button>
             </div>
             <p
               className="font-bold uppercase tracking-widest"
-              style={{ fontSize: "clamp(24px, 5vw, 40px)", color: PORTAL_DARK.muted }}
+              style={{ fontSize: "clamp(24px, 5vw, 40px)", color: TV_DARK.muted }}
             >
               Waiting for scan...
             </p>
@@ -2693,7 +2734,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
       {testMode && (
         <div
           className="border-t px-6 py-4"
-          style={{ borderColor: PORTAL_DARK.border, backgroundColor: PORTAL_DARK.card }}
+          style={{ borderColor: TV_DARK.border, backgroundColor: TV_DARK.card }}
         >
           <div className="flex items-center justify-between mb-3">
             <p className="text-amber-400 text-xs font-bold uppercase tracking-wider">Test Mode</p>
@@ -2712,9 +2753,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               className="flex-1 px-3 py-2 text-sm placeholder-white/30 focus:outline-none focus:border-blue-400"
               style={{
                 minWidth: 180,
-                backgroundColor: PORTAL_DARK.inputBg,
-                border: `1px solid ${PORTAL_DARK.inputBorder}`,
-                color: PORTAL_DARK.fg,
+                backgroundColor: TV_DARK.inputBg,
+                border: `1px solid ${TV_DARK.inputBorder}`,
+                color: TV_DARK.fg,
                 borderRadius: 8,
               }}
             />
@@ -2810,7 +2851,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 type="button"
                 onClick={() => setShowDebug(!showDebug)}
                 className="text-xs underline"
-                style={{ color: PORTAL_DARK.muted }}
+                style={{ color: TV_DARK.muted }}
               >
                 {showDebug ? "Hide" : "Show"} Debug JSON
               </button>
@@ -2818,10 +2859,10 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 <pre
                   className="mt-2 p-3 text-xs overflow-auto max-h-48"
                   style={{
-                    backgroundColor: PORTAL_DARK.inputBg,
-                    color: PORTAL_DARK.muted,
+                    backgroundColor: TV_DARK.inputBg,
+                    color: TV_DARK.muted,
                     borderRadius: 8,
-                    fontFamily: ADMIN_MONO,
+                    fontFamily: TV_MONO,
                   }}
                 >
                   {debugJson}
@@ -2848,14 +2889,14 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             className="p-6 w-full"
             style={{
               maxWidth: 880,
-              backgroundColor: PORTAL_DARK.card,
-              border: `1px solid ${PORTAL_DARK.border}`,
+              backgroundColor: TV_DARK.card,
+              border: `1px solid ${TV_DARK.border}`,
               borderRadius: 8,
               fontFamily: ADMIN_SANS,
             }}
           >
             <div className="flex items-center justify-between mb-4" style={{ gap: 12 }}>
-              <h2 className="font-bold text-lg" style={{ color: PORTAL_DARK.fg }}>
+              <h2 className="font-bold text-lg" style={{ color: TV_DARK.fg }}>
                 Scan history
               </h2>
               <div className="flex items-center gap-2">
@@ -2867,8 +2908,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                     onClick={() => setShowLookups(!showLookups)}
                     className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
                     style={{
-                      borderColor: showLookups ? PORTAL_BLUE : PORTAL_DARK.border,
-                      color: showLookups ? PORTAL_BLUE_SOFT : PORTAL_DARK.muted,
+                      borderColor: showLookups ? PORTAL_BLUE : TV_DARK.border,
+                      color: showLookups ? PORTAL_BLUE_SOFT : TV_DARK.muted,
                       borderRadius: 8,
                     }}
                   >
@@ -2880,8 +2921,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                   onClick={() => void loadScanHistory()}
                   className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
                   style={{
-                    borderColor: PORTAL_DARK.border,
-                    color: PORTAL_DARK.muted,
+                    borderColor: TV_DARK.border,
+                    color: TV_DARK.muted,
                     borderRadius: 8,
                   }}
                 >
@@ -2892,8 +2933,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                   onClick={() => setShowScanHistory(false)}
                   className="px-3 py-1.5 rounded-lg border text-xs hover:bg-white/5"
                   style={{
-                    borderColor: PORTAL_DARK.border,
-                    color: PORTAL_DARK.muted,
+                    borderColor: TV_DARK.border,
+                    color: TV_DARK.muted,
                     borderRadius: 8,
                   }}
                 >
@@ -2908,7 +2949,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             {scanStats && (
               <div
                 className="flex mb-4"
-                style={{ flexWrap: "wrap", gap: 16, fontFamily: ADMIN_MONO, fontSize: 12 }}
+                style={{ flexWrap: "wrap", gap: 16, fontFamily: TV_MONO, fontSize: 12 }}
               >
                 {(
                   [
@@ -2918,9 +2959,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                     ["slowest", fmtScanMs(scanStats.slowestMs)],
                   ] as const
                 ).map(([label, value]) => (
-                  <span key={label} style={{ color: PORTAL_DARK.muted }}>
-                    {label}{" "}
-                    <strong style={{ color: PORTAL_DARK.fg, fontWeight: 700 }}>{value}</strong>
+                  <span key={label} style={{ color: TV_DARK.muted }}>
+                    {label} <strong style={{ color: TV_DARK.fg, fontWeight: 700 }}>{value}</strong>
                   </span>
                 ))}
                 {/* Merged by display label, so the two e-ticket shapes read as
@@ -2933,19 +2973,19 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                     return acc;
                   }, {}),
                 ).map(([label, n]) => (
-                  <span key={label} style={{ color: PORTAL_DARK.muted }}>
-                    {label} <strong style={{ color: PORTAL_DARK.fg }}>{n}</strong>
+                  <span key={label} style={{ color: TV_DARK.muted }}>
+                    {label} <strong style={{ color: TV_DARK.fg }}>{n}</strong>
                   </span>
                 ))}
               </div>
             )}
 
             {scanHistory === null ? (
-              <p className="text-sm" style={{ color: PORTAL_DARK.muted }}>
+              <p className="text-sm" style={{ color: TV_DARK.muted }}>
                 Loading…
               </p>
             ) : visibleScans.length === 0 ? (
-              <p className="text-sm" style={{ color: PORTAL_DARK.muted }}>
+              <p className="text-sm" style={{ color: TV_DARK.muted }}>
                 {hiddenLookupCount > 0
                   ? `No real scans yet — only ${hiddenLookupCount} gear look-up${
                       hiddenLookupCount === 1 ? "" : "s"
@@ -2954,11 +2994,9 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               </p>
             ) : (
               <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
-                <table
-                  style={{ width: "100%", borderCollapse: "collapse", fontFamily: ADMIN_MONO }}
-                >
+                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: TV_MONO }}>
                   <thead>
-                    <tr style={{ color: PORTAL_DARK.muted, fontSize: 11, textAlign: "left" }}>
+                    <tr style={{ color: TV_DARK.muted, fontSize: 11, textAlign: "left" }}>
                       <th style={{ padding: "6px 8px", fontWeight: 500 }}>Time</th>
                       <th style={{ padding: "6px 8px", fontWeight: 500 }}>Scanned</th>
                       <th style={{ padding: "6px 8px", fontWeight: 500 }}>Result</th>
@@ -2977,7 +3015,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                       <tr
                         key={`${e.atMs}-${i}`}
                         style={{
-                          borderTop: `1px solid ${PORTAL_DARK.border}`,
+                          borderTop: `1px solid ${TV_DARK.border}`,
                           fontSize: 12,
                           opacity: e.dryRun ? 0.55 : 1,
                         }}
@@ -2985,7 +3023,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                         <td
                           style={{
                             padding: "6px 8px",
-                            color: PORTAL_DARK.muted,
+                            color: TV_DARK.muted,
                             whiteSpace: "nowrap",
                           }}
                         >
@@ -2996,11 +3034,11 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                             timeZone: "America/New_York",
                           })}
                         </td>
-                        <td style={{ padding: "6px 8px", color: PORTAL_DARK.fg }}>
+                        <td style={{ padding: "6px 8px", color: TV_DARK.fg }}>
                           <span title={scanKindLabel(e.kind).title} style={{ cursor: "help" }}>
                             {scanKindLabel(e.kind).label}
                           </span>
-                          {e.dryRun && <span style={{ color: PORTAL_DARK.muted }}> · look up</span>}
+                          {e.dryRun && <span style={{ color: TV_DARK.muted }}> · look up</span>}
                         </td>
                         <td
                           style={{
@@ -3011,7 +3049,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                         >
                           <span style={{ whiteSpace: "nowrap" }}>
                             {e.outcome}
-                            {e.headsock && <span style={{ color: AMBER }}> · headsock</span>}
+                            {e.headsock && <span style={{ color: AMBER_INK }}> · headsock</span>}
                           </span>
                           {/* WHY it failed, on its own line. The word "failed"
                               alone is the least useful thing this panel could
@@ -3020,7 +3058,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                             <span
                               style={{
                                 display: "block",
-                                color: PORTAL_DARK.muted,
+                                color: TV_DARK.muted,
                                 fontWeight: 400,
                                 fontSize: 11,
                                 maxWidth: 260,
@@ -3037,7 +3075,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                             textAlign: "right",
                             whiteSpace: "nowrap",
                             fontVariantNumeric: "tabular-nums",
-                            color: e.totalMs >= 3000 ? RED : e.totalMs >= 1200 ? AMBER : GREEN,
+                            color: e.totalMs >= 3000 ? RED : e.totalMs >= 1200 ? AMBER_INK : GREEN,
                           }}
                           title={
                             e.ms
@@ -3050,10 +3088,10 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                         >
                           {fmtScanMs(e.totalMs)}
                         </td>
-                        <td style={{ padding: "6px 8px", color: PORTAL_DARK.muted }}>
+                        <td style={{ padding: "6px 8px", color: TV_DARK.muted }}>
                           {e.track ? `${e.track}${e.heatNumber ? ` #${e.heatNumber}` : ""}` : "—"}
                         </td>
-                        <td style={{ padding: "6px 8px", color: PORTAL_DARK.muted }}>
+                        <td style={{ padding: "6px 8px", color: TV_DARK.muted }}>
                           {e.firstName || "—"}
                         </td>
                       </tr>
@@ -3062,7 +3100,7 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
                 </table>
               </div>
             )}
-            <p className="text-xs mt-3" style={{ color: PORTAL_DARK.muted }}>
+            <p className="text-xs mt-3" style={{ color: TV_DARK.muted }}>
               Newest first, last 120 scans. Hover a duration to see where the time went. Gear
               look-ups are hidden by default and never counted in the averages — they wrote nothing.
             </p>
@@ -3078,21 +3116,19 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
           <div
             className="p-6 max-w-md w-full"
             style={{
-              backgroundColor: PORTAL_DARK.card,
-              border: `1px solid ${PORTAL_DARK.border}`,
+              backgroundColor: TV_DARK.card,
+              border: `1px solid ${TV_DARK.border}`,
               borderRadius: 8,
               fontFamily: ADMIN_SANS,
             }}
           >
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-bold text-lg" style={{ color: PORTAL_DARK.fg }}>
+              <h2 className="font-bold text-lg" style={{ color: TV_DARK.fg }}>
                 Self-Test Results
               </h2>
               <span
                 className={`px-2 py-1 rounded text-xs font-bold ${
-                  selfTestResult.allPassed
-                    ? "bg-emerald-500/20 text-emerald-400"
-                    : "bg-red-500/20 text-red-400"
+                  selfTestResult.allPassed ? "bg-white/10" : "bg-red-500/20 text-red-400"
                 }`}
               >
                 {selfTestResult.allPassed ? "ALL PASS" : "FAILURES"}
@@ -3101,21 +3137,16 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
             <div className="space-y-2">
               {selfTestResult.tests.map((t) => (
                 <div key={t.name} className="flex items-start gap-2 text-sm">
-                  <span className={t.pass ? "text-emerald-400" : "text-red-400"}>
-                    {t.pass ? "✓" : "✗"}
-                  </span>
+                  <span style={{ color: t.pass ? GREEN : RED }}>{t.pass ? "✓" : "✗"}</span>
                   <div className="flex-1 min-w-0">
-                    <span
-                      className="text-xs"
-                      style={{ color: PORTAL_DARK.fg, fontFamily: ADMIN_MONO }}
-                    >
+                    <span className="text-xs" style={{ color: TV_DARK.fg, fontFamily: TV_MONO }}>
                       {t.name}
                     </span>
-                    <span className="text-xs ml-2" style={{ color: PORTAL_DARK.muted }}>
+                    <span className="text-xs ml-2" style={{ color: TV_DARK.muted }}>
                       {t.ms}ms
                     </span>
                     {t.detail && (
-                      <p className="text-xs mt-0.5 truncate" style={{ color: PORTAL_DARK.muted }}>
+                      <p className="text-xs mt-0.5 truncate" style={{ color: TV_DARK.muted }}>
                         {t.detail}
                       </p>
                     )}
@@ -3128,8 +3159,8 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
               onClick={() => setShowSelfTest(false)}
               className="mt-4 w-full py-2 text-sm hover:bg-white/15"
               style={{
-                backgroundColor: PORTAL_DARK.inputBg,
-                color: PORTAL_DARK.fg,
+                backgroundColor: TV_DARK.inputBg,
+                color: TV_DARK.fg,
                 borderRadius: 8,
               }}
             >

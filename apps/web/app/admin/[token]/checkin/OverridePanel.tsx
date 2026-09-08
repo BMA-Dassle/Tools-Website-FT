@@ -25,15 +25,21 @@
  * enforced in here — a rule the modal enforces is a rule a second tab can break.
  */
 import type { useTrackStatus } from "@/hooks/useTrackStatus";
-import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
+import { TV_DARK } from "~/components/features/admin-skin/theme";
 import type { BriefingRoom } from "~/features/signage/briefing/types";
 import type { BriefingControl } from "./useBriefingControl";
 
-const INK = "#e8eef7";
+/* THE BOARD'S CONSTANTS, KEPT IN STEP BY HAND. Same four values as
+   RaceControlPanels' — this modal is drawn over that board and a second
+   amber a hex away from its would read as a rendering fault. Repainted to the
+   pit board TV's palette 2026-09-07 alongside the board itself. */
+const INK = TV_DARK.ink2;
 const GREEN = "#4ade80";
-const AMBER = "#f0b341";
-/** Overdue/held — same value the board uses, and never ROOM_COLOR.red. */
-const DANGER = "#ff4d4f";
+/** The alarm TONE. Amber as INK is #fcd34d; nothing in here writes in amber. */
+const AMBER = "#f59e0b";
+/** Overdue/held. The same -400 as the Red Room's heading now: a room's own
+ *  CONTENT is drawn in the -300, so the two can share this. */
+const DANGER = "#f87171";
 
 /**
  * One colour per lane stage, so the three move buttons are told apart at a
@@ -188,7 +194,7 @@ export default function OverridePanel({
               style={{
                 minWidth: 150,
                 fontSize: 14,
-                color: status?.currentRaces?.[t] ? INK : PORTAL_DARK.muted,
+                color: status?.currentRaces?.[t] ? INK : TV_DARK.muted,
               }}
             >
               {status?.currentRaces?.[t]?.heatNumber != null
@@ -202,7 +208,7 @@ export default function OverridePanel({
                 disabled={control.pending === `override:${t}:called`}
                 onClick={() => control.overrideSlot({ track: t, slot: "called", session: null })}
                 title={`Clear the called heat on ${t}`}
-                style={btnStyle(PORTAL_DARK.border, PORTAL_DARK.fg)}
+                style={btnStyle(TV_DARK.border, TV_DARK.fg)}
               >
                 Clear
               </button>
@@ -217,7 +223,7 @@ export default function OverridePanel({
               style={{
                 minWidth: 150,
                 fontSize: 14,
-                color: r.state?.sessionId ? INK : PORTAL_DARK.muted,
+                color: r.state?.sessionId ? INK : TV_DARK.muted,
               }}
             >
               {r.state?.heatNumber != null ? `Session ${r.state.heatNumber}` : "empty"}
@@ -231,7 +237,7 @@ export default function OverridePanel({
                   control.overrideSlot({ track: r.room, slot: "room", session: null, room: r.room })
                 }
                 title={`Clear the ${r.room} briefing room`}
-                style={btnStyle(PORTAL_DARK.border, PORTAL_DARK.fg)}
+                style={btnStyle(TV_DARK.border, TV_DARK.fg)}
               >
                 Clear
               </button>
@@ -252,7 +258,7 @@ export default function OverridePanel({
                   style={{
                     minWidth: 150,
                     fontSize: 14,
-                    color: occ ? INK : PORTAL_DARK.muted,
+                    color: occ ? INK : TV_DARK.muted,
                   }}
                 >
                   {occ ? `Session ${occ.heatNumber ?? "?"}` : "empty"}
@@ -264,7 +270,7 @@ export default function OverridePanel({
                     disabled={control.pending === `override:${t}:${slot}`}
                     onClick={() => control.overrideSlot({ track: t, slot, session: null })}
                     title={`Take session ${occ.heatNumber ?? ""} out of ${t} ${slot}`}
-                    style={btnStyle(PORTAL_DARK.border, PORTAL_DARK.fg)}
+                    style={btnStyle(TV_DARK.border, TV_DARK.fg)}
                   >
                     Clear
                   </button>
@@ -278,7 +284,7 @@ export default function OverridePanel({
       <div style={{ display: "grid", gap: 6 }}>
         <Label>Sessions the desk can see</Label>
         {rows.length === 0 && (
-          <p style={{ fontSize: 12, color: PORTAL_DARK.muted, margin: 0 }}>
+          <p style={{ fontSize: 12, color: TV_DARK.muted, margin: 0 }}>
             Nothing called, briefed or in a lane right now.
           </p>
         )}
@@ -290,7 +296,7 @@ export default function OverridePanel({
             >
               Session {r.heatNumber ?? "?"}
             </span>
-            <span style={{ minWidth: 180, fontSize: 11, color: PORTAL_DARK.muted }}>{r.where}</span>
+            <span style={{ minWidth: 180, fontSize: 11, color: TV_DARK.muted }}>{r.where}</span>
             {/* TAKE IT OFF THE BOARD ENTIRELY (owner 2026-08-14: "should have
                 ability to delete session from system so it can be called
                 again"). A session is on this list ONLY because it occupies a
@@ -318,7 +324,7 @@ export default function OverridePanel({
                 }
               }}
               title={`Take session ${r.heatNumber ?? ""} out of every stage it is in (${r.where})`}
-              style={btnStyle(PORTAL_DARK.border, PORTAL_DARK.fg)}
+              style={btnStyle(TV_DARK.border, TV_DARK.fg)}
             >
               Remove
             </button>
@@ -401,7 +407,7 @@ export default function OverridePanel({
         ))}
       </div>
 
-      <p style={{ fontSize: 11, color: PORTAL_DARK.muted, margin: 0 }}>
+      <p style={{ fontSize: 11, color: TV_DARK.muted, margin: 0 }}>
         A slot holds one session. If a move is refused, clear that slot first — the refusal names
         who is in it.
       </p>
@@ -417,7 +423,7 @@ function Label({ children }: { children: React.ReactNode }) {
         fontWeight: 800,
         letterSpacing: "0.12em",
         textTransform: "uppercase",
-        color: PORTAL_DARK.muted,
+        color: TV_DARK.muted,
       }}
     >
       {children}
@@ -431,7 +437,7 @@ const slotLabelStyle: React.CSSProperties = {
   fontWeight: 800,
   letterSpacing: "0.06em",
   textTransform: "uppercase",
-  color: PORTAL_DARK.muted,
+  color: TV_DARK.muted,
 };
 
 function rowStyle(filled: boolean): React.CSSProperties {
@@ -442,7 +448,7 @@ function rowStyle(filled: boolean): React.CSSProperties {
     flexWrap: "wrap",
     padding: "7px 10px",
     borderRadius: 6,
-    border: `1px solid ${PORTAL_DARK.border}`,
+    border: `1px solid ${TV_DARK.border}`,
     background: filled ? withAlpha(GREEN, 0.06) : "transparent",
   };
 }
@@ -450,7 +456,8 @@ function rowStyle(filled: boolean): React.CSSProperties {
 function btnStyle(borderColor: string, color: string): React.CSSProperties {
   return {
     padding: "5px 11px",
-    borderRadius: 6,
+    // A pill, like every other pressable thing on this board (2026-09-07).
+    borderRadius: 999,
     fontSize: 11,
     borderColor,
     background: "transparent",
