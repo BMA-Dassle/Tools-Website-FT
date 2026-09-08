@@ -95,7 +95,7 @@ import {
 import { holdingAvailability } from "~/features/signage/pit/holding-availability";
 import { useRaceClockForTrack } from "~/features/racing/use-race-clocks";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
-import { useBriefingControl } from "../checkin/useBriefingControl";
+import { useBriefingControl, type BriefingActionResult } from "../checkin/useBriefingControl";
 import { adminToolUrl } from "~/lib/helpers/admin-url";
 
 const ROOM_COLOR: Record<BriefingRoom, string> = { red: "#ff5a52", blue: "#4a9bff" };
@@ -964,6 +964,133 @@ function StaffPrompt({
   );
 }
 
+/**
+ * "THIS GROUP IS PEDRO'S — CHANGE IT TO YOURS?" (owner 2026-09-07: "if assigned
+ * and we try to assign again shouldn't we just ask in a modal: change
+ * assignment?".)
+ *
+ * ── WHAT IT IS FOR ──────────────────────────────────────────────────────────
+ *
+ * Hosting is claimed with NX — first press wins — which is right, and until now
+ * was also silent. A staff member pressing Start on a group a colleague had
+ * pulled in got the identical confirmation whether their claim landed or was
+ * refused, and the pit board then named the other person for the rest of the
+ * night. Track staff described it as a group "every so often taking the last
+ * person's assignment".
+ *
+ * So the rule does not change: the press still defers. What changes is that the
+ * press now SAYS SO, and offers the one thing that was missing — a deliberate
+ * hand-over, which is a different action and looks like one.
+ *
+ * ── WHEN IT MAY APPEAR ──────────────────────────────────────────────────────
+ *
+ * Only on `hostConflict`, which the SERVER decides (features/staff/
+ * host-attribution.ts) and which is false unless the press claimed, somebody
+ * else holds the group, and the two are different PEOPLE — compared on 7shifts
+ * user id, never on a first name, because two Alexes on a Saturday is not
+ * hypothetical. An unclaimed group is claimed silently, as before. "Play it
+ * again" claims nothing and can never raise this.
+ *
+ * DISMISS IS THE SAFE ANSWER and it is on the left: Keep leaves the night
+ * exactly as first-press-wins left it. The other button names the person it
+ * would move the group to, so nobody can take a group by pressing something
+ * generic.
+ */
+function HostConflictPrompt({
+  hostFirstName,
+  actingFirstName,
+  onKeep,
+  onChange,
+}: {
+  /** Who holds the group. */
+  hostFirstName: string;
+  /** Who just pressed — resolved by the server from their punch ID, never
+   *  asserted by this screen. */
+  actingFirstName: string;
+  onKeep: () => void;
+  onChange: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Escape keeps the standing host — the same posture as StaffPrompt, where
+      // the quiet exit is always the one that changes nothing.
+      if (e.key === "Escape") onKeep();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onKeep]);
+
+  return (
+    <div
+      className="brc-lb"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`This group is ${hostFirstName}'s. Change it to ${actingFirstName}?`}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 80,
+        // Same veil as StaffPrompt: the heat number behind this is what tells
+        // whoever is standing here which group the question is about.
+        background: "rgba(4,7,13,0.86)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 380,
+          display: "flex",
+          flexDirection: "column",
+          gap: 18,
+          padding: 26,
+          borderRadius: 20,
+          background: PORTAL_DARK.card,
+          border: `1px solid ${PORTAL_DARK.border}`,
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <p
+            style={{
+              fontSize: 11,
+              fontWeight: 800,
+              letterSpacing: "0.12em",
+              color: PORTAL_DARK.muted,
+            }}
+          >
+            ALREADY ASSIGNED
+          </p>
+          <p style={{ fontSize: 24, fontWeight: 800, marginTop: 4 }}>
+            This group is {hostFirstName}&apos;s
+          </p>
+          <p style={{ fontSize: 15, fontWeight: 600, marginTop: 10, color: PORTAL_DARK.muted }}>
+            You pressed as {actingFirstName}. Change the group to {actingFirstName}?
+          </p>
+        </div>
+
+        {/* THE CHANGE IS THE PRIMARY BUTTON, because a staff member who has read
+            this far has already discovered the group is not theirs — but it is
+            listed SECOND so the thumb travelling down the card reaches Keep
+            first. Both name a person; neither says merely "Yes". */}
+        <button type="button" className="brc-btn brc-btn-ghost" onClick={onKeep}>
+          Keep {hostFirstName}
+        </button>
+        <button
+          type="button"
+          className="brc-btn"
+          style={{ background: GREEN, borderColor: GREEN, color: "#062012" }}
+          onClick={onChange}
+        >
+          Change to {actingFirstName}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── the screen ───────────────────────────────────────────────────────── */
 
 export default function BriefingRoomClient({
@@ -1033,7 +1160,18 @@ export default function BriefingRoomClient({
    */
   const [challenge, setChallenge] = useState<{
     label: string;
-    run: () => void;
+    run: () => Promise<BriefingActionResult | null>;
+    /**
+     * WHICH GROUP THE PRESS IS ABOUT, captured when the button was pressed.
+     *
+     * Needed because the hand-over the conflict modal offers is keyed on a
+     * SESSION, not a room — a Mega group is in both rooms, and a group can be
+     * handed over after they have left for the seats. Taken from the closure's
+     * own arguments rather than re-derived when the modal opens, for the same
+     * reason `run` is held rather than rebuilt: by then the room may have moved
+     * on to the next heat.
+     */
+    sessionId: string | null;
     /* NO `code` FIELD ANY MORE (2026-09-03). It carried which heat number
        unlocked the action, which mattered because the pull is about a group who
        are NOT in the room yet — its code was the incoming heat, not the room's.
@@ -1042,7 +1180,21 @@ export default function BriefingRoomClient({
   } | null>(null);
   // Plain, not useCallback: the React Compiler memoizes it correctly on its own,
   // and a hand-written [] dep list here is one it refuses to preserve.
-  const ask = (label: string, run: () => void) => setChallenge({ label, run });
+  const ask = (
+    label: string,
+    run: () => Promise<BriefingActionResult | null>,
+    sessionId: string | null,
+  ) => setChallenge({ label, run, sessionId });
+
+  /**
+   * THE HAND-OVER QUESTION, waiting on an answer. One at a time, like the code
+   * prompt, and for the same reason: one person is holding this tablet.
+   */
+  const [conflict, setConflict] = useState<{
+    sessionId: string;
+    hostFirstName: string;
+    actingFirstName: string;
+  } | null>(null);
 
   /**
    * WHICH TRACK THIS ROOM IS WATCHING FOR ITS NEXT GROUP.
@@ -1085,10 +1237,12 @@ export default function BriefingRoomClient({
    * fix pushed at 7pm reaches these tablets some time after closing.
    *
    * So the only things that hold a reload are things a PERSON is in the middle
-   * of: an action in flight, and the code prompt (reloading under a half-typed
-   * code would look like the tablet rejecting them). Both clear in seconds.
+   * of: an action in flight, the code prompt (reloading under a half-typed code
+   * would look like the tablet rejecting them), and the hand-over question —
+   * which must not be answered by the screen blinking, because the default it
+   * would land on is the wrong name staying on the wall. All clear in seconds.
    */
-  const safeToReload = !control.busy && !challenge;
+  const safeToReload = !control.busy && !challenge && !conflict;
   // PRIMITIVES in the dependency list, never the `build` object — useBuildUpdate
   // returns a fresh literal every render and this page re-renders at least once
   // a second (useNowMs), so depending on the object re-armed the 4s timer every
@@ -1110,9 +1264,9 @@ export default function BriefingRoomClient({
   const startCb = control.start;
   const sendToHoldingCb = control.sendToHolding;
   const onStart = useCallback(
-    (restart: boolean) => {
-      if (room) startCb(room, { restart });
-    },
+    // Returns the response so the press can discover it was attributed to
+    // somebody else — see the conflict modal.
+    (restart: boolean) => (room ? startCb(room, { restart }) : Promise.resolve(null)),
     [startCb, room],
   );
 
@@ -1474,8 +1628,8 @@ export default function BriefingRoomClient({
   });
 
   const sendCb = control.send;
-  const onPull = () => {
-    if (!incomingRace) return;
+  const onPull = (): Promise<BriefingActionResult | null> => {
+    if (!incomingRace) return Promise.resolve(null);
     /**
      * THE SAME BIG WARNING THE DESK SHOWS (owner 2026-08-24). The pull runs the
      * identical send, so it owes the identical question — and the person
@@ -1503,10 +1657,10 @@ ${film}
             `The track will wait on this room, and a returning group's post-race call cannot play over a film.`,
         )
       ) {
-        return;
+        return Promise.resolve(null);
       }
     }
-    sendCb({
+    return sendCb({
       room,
       // The track the HEAT belongs to, which on a Mega night is the shared
       // circuit rather than this room's name.
@@ -1855,7 +2009,9 @@ ${film}
                     }}
                     disabled={!pull.ok || control.busy}
                     aria-busy={pending === `send:${room}`}
-                    onClick={() => ask(`Pull to the ${room} room`, onPull)}
+                    onClick={() =>
+                      ask(`Pull to the ${room} room`, onPull, String(incomingRace.sessionId))
+                    }
                   >
                     {pending === `send:${room}` ? (
                       <span className="brc-spin" aria-hidden />
@@ -2028,7 +2184,7 @@ ${film}
                   style={{ background: GREEN, borderColor: GREEN, color: "#062012" }}
                   disabled={control.busy || holdMs > 0}
                   aria-busy={pending === startKey}
-                  onClick={() => ask("Start video", () => onStart(false))}
+                  onClick={() => ask("Start video", () => onStart(false), state.sessionId)}
                 >
                   {pending === startKey ? (
                     <span className="brc-spin" aria-hidden />
@@ -2043,7 +2199,9 @@ ${film}
                   className="brc-btn brc-btn-ghost"
                   disabled={control.busy}
                   aria-busy={pending === startKey}
-                  onClick={() => ask("Play the video again", () => onStart(true))}
+                  // Claims nothing and can never raise the conflict modal
+                  // (owner 2026-09-07) — the server refuses to attribute it.
+                  onClick={() => ask("Play the video again", () => onStart(true), state.sessionId)}
                 >
                   {pending === startKey ? (
                     <span className="brc-spin" aria-hidden />
@@ -2212,14 +2370,17 @@ ${film}
             aria-busy={pending === `holding:${room}`}
             onClick={() => {
               if (!state) return;
-              ask("Send to holding", () =>
-                sendToHoldingCb({
-                  room,
-                  track: state.track,
-                  sessionId: state.sessionId,
-                  heatNumber: state.heatNumber,
-                  raceType: state.raceType,
-                }),
+              ask(
+                "Send to holding",
+                () =>
+                  sendToHoldingCb({
+                    room,
+                    track: state.track,
+                    sessionId: state.sessionId,
+                    heatNumber: state.heatNumber,
+                    raceType: state.raceType,
+                  }),
+                state.sessionId,
               );
             }}
           >
@@ -2316,10 +2477,45 @@ ${film}
             control.setActingPunchId(punchId);
             // Closed BEFORE the action runs, so the screen is already back on the
             // room when the button's own spinner appears.
+            const { run, sessionId } = challenge;
             setChallenge(null);
-            challenge.run();
+            void (async () => {
+              const res = await run();
+              /**
+               * AND THEN, IF THE PRESS WAS FILED UNDER SOMEBODY ELSE, ask about
+               * it. `hostConflict` is the server's answer and the only trigger —
+               * it is already false when nobody holds the group, when the press
+               * was unattributed, when the presser IS the host, and on "Play it
+               * again". Re-deriving any of that here would be a second copy of a
+               * rule that has one home (features/staff/host-attribution.ts).
+               */
+              if (!res?.hostConflict || !res.host || !res.acting || !sessionId) return;
+              setConflict({
+                sessionId,
+                hostFirstName: res.host.firstName,
+                actingFirstName: res.acting.firstName,
+              });
+            })();
           }}
           onCancel={() => setChallenge(null)}
+        />
+      )}
+
+      {conflict && (
+        <HostConflictPrompt
+          hostFirstName={conflict.hostFirstName}
+          actingFirstName={conflict.actingFirstName}
+          onKeep={() => setConflict(null)}
+          onChange={() => {
+            const { sessionId, actingFirstName } = conflict;
+            // Closed first, same as the code prompt: the receipt and the board
+            // refresh land on the room, not behind a dialog.
+            setConflict(null);
+            // The punch ID from the press that raised this is still in the
+            // hook's ref, so the SERVER resolves who the group moves to — this
+            // screen names them only for the receipt.
+            void control.reassignHost(sessionId, actingFirstName);
+          }}
         />
       )}
     </main>

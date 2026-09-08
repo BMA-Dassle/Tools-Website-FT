@@ -1,5 +1,32 @@
 # Open Tasks
 
+## Host attribution: ask before taking a group (2026-09-07) — branch `fix/host-reassign-confirm` — BUILT, gates green
+
+Track staff: a group "every so often takes the last person's assignment". Three mechanisms, all
+now closed. Hosting stays NX/first-press-wins; what changes is that a press that deferred SAYS so,
+and there is a deliberate way to hand over (owner: "if assigned and we try to assign again
+shouldn't we just ask in a modal: change assignment?").
+
+- [x] `features/staff/session-host.ts` — `reassignSessionHost` (plain SET, fresh TTL) and
+      `releaseSessionHost` (DEL). Neither throws. 11 new tests, one that fails if either grows an NX.
+- [x] `features/staff/host-attribution.ts` — PURE. `host` / `acting` / `hostConflict`, compared on
+      7shifts user id never a first name, `claims:false` for a non-claiming press. 9 tests. The
+      client hook imports it, so the wire shape has one declaration (`SessionHost` moved here).
+- [x] `features/signage/briefing/host-release.ts` — PURE. A mis-pull gives the host back on Undo
+      or a replacing send, ONLY while the film never rolled (`waiting`/`idle`); Mega's two rooms
+      are the carve-out. 8 tests.
+- [x] `POST /api/admin/briefing` — send / start / send-holding echo attribution; new
+      `reassign-host` {sessionId, punchId} overwrites the key, rewrites EVERY assignment row of the
+      session, writes a `host-changed` event carrying both names, logs an audit line. It is the one
+      action that 400s an unresolvable presser.
+- [x] "Play it again" claims nothing and can never raise the modal (owner 2026-09-07 refinement).
+- [x] Briefing-room tablet: `HostConflictPrompt` in StaffPrompt's style — "This group is Ada's" /
+      "Keep Ada" / "Change to Grace" — and the host on every action receipt ("· Ada's group").
+- [x] 9 route tests walk the reported night end to end against the real route + service +
+      session-host with an in-memory Redis.
+- [ ] **Never seen on a live tablet.** First busy night, watch that the modal fires on Start and
+      Send to holding and NOT on Play it again, and that an undone mis-pull frees the name.
+
 ## Track Ops race tags + free crew (2026-09-07) — branch `feat/crew-race-tags` — BUILT, gates green
 
 Increment 3 of the pit board work (rev 12 of the mockup). Two questions the boards could not

@@ -33,6 +33,7 @@ import type {
   BriefingRoomState,
   BriefingTier,
 } from "~/features/signage/briefing/types";
+import type { HostAttribution } from "~/features/staff/host-attribution";
 import type { GroupOut } from "~/features/signage/briefing/room-return";
 import type { BriefingRecord } from "~/features/signage/briefing/briefing-log";
 import type { LiveResolution, CameraPreviewMode } from "~/features/signage/nx/camera-preview";
@@ -160,6 +161,28 @@ export interface TimingFeedStatus {
  */
 export type CameraTarget = BriefingRoom | "holding-red" | "holding-blue";
 
+/**
+ * WHAT A BRIEFING ACTION ANSWERS WITH — the parsed body of one POST.
+ *
+ * `post` used to swallow this and return void, which was fine while the only
+ * thing a caller could learn was "it worked". It is not fine now: the server
+ * tells a press whether it was attributed to somebody else, and the tablet has
+ * to be able to ask about it. Every field is optional because one endpoint
+ * serves fifteen actions and none of them returns all of it.
+ *
+ * `HostAttribution` is imported rather than mirrored — its module is PURE (no
+ * Redis, no `server-only`), which is exactly the split that lets a client file
+ * name a server shape. Same reasoning as `CrewBoard` above.
+ */
+export interface BriefingActionResult extends Partial<HostAttribution> {
+  ok?: boolean;
+  error?: string;
+  /** False when the room will open on helmet sizes because no film is uploaded. */
+  hasVideo?: boolean;
+  tier?: string;
+  photoSaved?: boolean;
+}
+
 export interface BriefingControl {
   board: BoardStatus | null;
   note: string | null;
@@ -220,16 +243,31 @@ export interface BriefingControl {
    */
   openPanel: BoardPanel | null;
   setOpenPanel: (panel: BoardPanel | null) => void;
+  /**
+   * THE THREE CLAIMING ACTIONS RETURN THEIR RESPONSE, the rest still return
+   * void. A caller that ignores it loses nothing; a caller that reads it can see
+   * `hostConflict` and ask whether to take the group over. Null only when the
+   * tablet could not reach us at all — a refusal comes back as a body with
+   * `error`, which is a different thing and must not read as success.
+   */
   send: (args: {
     room: BriefingRoom;
     track: string;
     sessionId: string;
     heatNumber: number | null;
     raceType: string | null;
-  }) => void;
-  /** Phase two: roll the film. Also used for "play it again". */
-  start: (room: BriefingRoom, opts?: { restart?: boolean }) => void;
+  }) => Promise<BriefingActionResult | null>;
+  /** Phase two: roll the film. Also used for "play it again" — which claims
+   *  nothing, so its response never carries a conflict (owner 2026-09-07). */
+  start: (room: BriefingRoom, opts?: { restart?: boolean }) => Promise<BriefingActionResult | null>;
   clearRoom: (room: BriefingRoom) => void;
+  /**
+   * HAND THE GROUP OVER — the modal's yes. `toFirstName` is only for the
+   * receipt; the SERVER decides who the group goes to, from the punch ID riding
+   * along with every press, exactly as it decides every other attribution here.
+   * A tablet can no more assert a new host than it can assert the old one.
+   */
+  reassignHost: (sessionId: string, toFirstName: string) => Promise<BriefingActionResult | null>;
   /**
    * Phase three (owner 2026-08-13): the briefed group leaves the room for the
    * pit seats. Frees the room (a race can only return to an empty one) and
@@ -242,7 +280,7 @@ export interface BriefingControl {
     sessionId: string;
     heatNumber: number | null;
     raceType: string | null;
-  }) => void;
+  }) => Promise<BriefingActionResult | null>;
   /** "Race returned" — the finished race's karts are fully back in the lane.
    *  The ONLY thing that releases the pit board's hold. */
   markPitted: (track: string) => void;
@@ -444,7 +482,20 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   );
 
   const post = useCallback(
-    async (body: Record<string, unknown>, successNote: string, key?: string) => {
+    async (
+      body: Record<string, unknown>,
+      successNote: string,
+      key?: string,
+      /**
+       * Append the host to the receipt when the server names one.
+       *
+       * ON BY DEFAULT, because a press that says nothing about attribution is
+       * how a group came to carry the wrong name all night in the first place —
+       * the receipt is the one moment the presser is looking at the screen. Off
+       * for the hand-over, whose own note already names the person it moved to.
+       */
+      opts?: { nameHost?: boolean },
+    ): Promise<BriefingActionResult | null> => {
       setBusy(true);
       setPending(key ?? null);
       setNote(null);
@@ -457,15 +508,13 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
           // which posts exactly the body it always did.
           body: JSON.stringify({ ...body, punchId: actingPunchId.current ?? undefined }),
         });
-        const json = (await res.json()) as {
-          error?: string;
-          hasVideo?: boolean;
-          tier?: string;
-          photoSaved?: boolean;
-        };
+        const json = (await res.json()) as BriefingActionResult;
         if (!res.ok) {
           setNote(`✕ ${json.error ?? `Failed (${res.status})`}`);
-          return;
+          // RETURNED, NOT SWALLOWED — but with no `hostConflict` on it, because
+          // the server only attributes an action that actually happened. A
+          // refused press must never open a "change the assignment?" question.
+          return json;
         }
         // Say when a send will NOT show a film, rather than leaving staff to
         // wonder why the room went straight to helmet sizes.
@@ -475,14 +524,23 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
         // for. The log strip below carries the durable version with its
         // timestamp; this is the receipt at the moment of the press.
         const photo = json.photoSaved ? " — briefing photo + timestamp saved for insurance." : "";
+        // WHOSE GROUP IT IS, on the receipt for the press. Staff pressing Start
+        // on a group a colleague pulled in used to get an identical "✓ started"
+        // whether or not their claim had landed.
+        const whose =
+          (opts?.nameHost ?? true) && json.host?.firstName
+            ? ` · ${json.host.firstName}'s group`
+            : "";
         setNote(
           json.hasVideo === false
-            ? `✓ ${successNote} — but no ${json.tier} video is uploaded, so the room opens on helmet sizes.${photo}`
-            : `✓ ${successNote}${photo}`,
+            ? `✓ ${successNote}${whose} — but no ${json.tier} video is uploaded, so the room opens on helmet sizes.${photo}`
+            : `✓ ${successNote}${whose}${photo}`,
         );
         await loadBoard();
+        return json;
       } catch (err) {
         setNote(`✕ Could not reach the server${err instanceof Error ? ` — ${err.message}` : ""}`);
+        return null;
       } finally {
         setBusy(false);
         setPending(null);
@@ -492,8 +550,8 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   );
 
   const send = useCallback<BriefingControl["send"]>(
-    (args) => {
-      void post(
+    (args) =>
+      post(
         {
           action: "send",
           room: args.room,
@@ -506,19 +564,32 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
         },
         `Session ${args.heatNumber ?? ""} sent to the ${args.room} room`,
         `send:${args.room}`,
-      );
-    },
+      ),
     [post],
   );
 
   const start = useCallback<BriefingControl["start"]>(
-    (room, opts) => {
-      void post(
+    (room, opts) =>
+      post(
         { action: opts?.restart ? "restart" : "start", room },
         opts?.restart ? `${room} briefing restarted` : `${room} briefing started`,
         opts?.restart ? `restart:${room}` : `start:${room}`,
-      );
-    },
+      ),
+    [post],
+  );
+
+  /**
+   * THE HAND-OVER — the modal's yes. Its own note names the new host, so `post`
+   * is told not to append the usual receipt suffix on top of it.
+   */
+  const reassignHost = useCallback<BriefingControl["reassignHost"]>(
+    (sessionId, toFirstName) =>
+      post(
+        { action: "reassign-host", sessionId },
+        `Group is now ${toFirstName}'s`,
+        `reassign-host:${sessionId}`,
+        { nameHost: false },
+      ),
     [post],
   );
 
@@ -530,8 +601,8 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   );
 
   const sendToHolding = useCallback<BriefingControl["sendToHolding"]>(
-    (args) => {
-      void post(
+    (args) =>
+      post(
         {
           action: "send-holding",
           room: args.room,
@@ -542,8 +613,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
         },
         `Session ${args.heatNumber ?? ""} sent to holding — the ${args.room} room is open`,
         `holding:${args.room}`,
-      );
-    },
+      ),
     [post],
   );
 
@@ -791,6 +861,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     start,
     clearRoom,
     sendToHolding,
+    reassignHost,
     markPitted,
     setAutoHolding,
     setCheckinWindow,
