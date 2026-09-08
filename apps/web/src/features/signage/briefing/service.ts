@@ -33,8 +33,10 @@ import {
   backfillAssignmentStaff,
   listBriefingAssignments,
   recordBriefingAssignment,
+  setAssignmentStaff,
   type BriefingAssignment,
 } from "./assignments-db";
+import { releasesHostOnExit } from "./host-release";
 import { briefingTimelineAt } from "./phase";
 import { listBriefingEvents, recordBriefingEvent } from "./events-db";
 import { foldBriefingLog, type BriefingRecord } from "./briefing-log";
@@ -48,7 +50,14 @@ import { GREETING_TIMING_DEFAULTS, type GreetingTiming } from "./return-greeting
 import { raceBookmarksEnabled } from "./race-bookmarks-setting.server";
 import { cameraPreviewMode, type CameraPreviewMode } from "./camera-preview-setting.server";
 import { readTimingFeedStatus, type TimingFeedStatus } from "~/features/racing/timing-feed.server";
-import { assignSessionHost, readSessionHosts } from "~/features/staff/session-host";
+import {
+  assignSessionHost,
+  reassignSessionHost,
+  readSessionHost,
+  readSessionHosts,
+  releaseSessionHost,
+  type SessionHost,
+} from "~/features/staff/session-host";
 import type { StaffIdentity } from "~/features/staff/punch-index";
 import { readRaceFinishedMarker } from "./race-finish.server";
 import { GROUP_OUT_WINDOW_MS, type GroupOut } from "./room-return";
@@ -78,6 +87,29 @@ import {
  *  configuration point for it would be pure ceremony. */
 const VENUE = "FT";
 
+/**
+ * A GROUP THAT NEVER SAW THE FILM GIVES ITS HOST BACK; A BRIEFED GROUP KEEPS
+ * THEM — the reading half. THE RULE ITSELF IS PURE and lives, with its history
+ * and its Mega carve-out, in `host-release.ts`. Both presses that undo a
+ * mis-pull come through here: Undo (clearRoom) and a replacing send.
+ */
+async function releaseHostIfNeverBriefed(
+  leaving: BriefingRoomState | null | undefined,
+  fromRoom: BriefingRoom,
+): Promise<void> {
+  if (!leaving?.sessionId) return;
+
+  const rooms = await readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null }));
+  const release = releasesHostOnExit({
+    sessionId: leaving.sessionId,
+    phase: briefingTimelineAt(leaving, Date.now()).phase,
+    otherRoomSessionIds: BRIEFING_ROOMS.filter((r) => r !== fromRoom).map(
+      (r) => rooms[r]?.sessionId,
+    ),
+  });
+  if (release) await releaseSessionHost(leaving.sessionId);
+}
+
 export interface SendBriefingArgs {
   room: BriefingRoom;
   track: "blue" | "red" | "mega";
@@ -105,6 +137,16 @@ export type SendBriefingResult =
        *  helmet board instead. The caller surfaces this so staff are not left
        *  wondering why a video did not play. */
       hasVideo: boolean;
+      /**
+       * WHO HOLDS THE GROUP NOW THIS SEND HAS LANDED — which is NOT necessarily
+       * the person who pressed. The claim is NX, so a colleague who pulled them
+       * first keeps them, and until this was returned the presser was never told:
+       * their press looked identical whether it had been attributed or ignored.
+       * The route turns this plus the presser into `hostConflict`.
+       *
+       * Null when nobody has ever identified themselves for this session.
+       */
+      host: SessionHost | null;
     }
   | { ok: false; error: string };
 
@@ -217,10 +259,19 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
 
   // THE DISPLAY COPY, after the row — same Neon-before-Redis rule as everything
   // else here. First press wins, so a re-send into the same room by somebody
-  // else does not take the group off whoever pulled them in.
-  if (args.staff) await assignSessionHost(args.sessionId, args.staff);
+  // else does not take the group off whoever pulled them in — and the result now
+  // says WHO that is, so a presser whose claim deferred is told rather than left
+  // to find out from the wall.
+  const host = args.staff
+    ? await assignSessionHost(args.sessionId, args.staff)
+    : await readSessionHost(args.sessionId);
 
   if (displaced && displaced.sessionId && displaced.sessionId !== args.sessionId) {
+    // A REPLACING SEND IS ONE OF THE TWO WAYS A MIS-PULL GETS UNDONE — the other
+    // is Undo (clearRoom). If the displaced group never saw the film, whoever
+    // pulled them here was wrong about them and gives the group back. See
+    // releaseHostIfNeverBriefed for the rule and why the film is the line.
+    await releaseHostIfNeverBriefed(displaced, args.room);
     await recordBriefingEvent({
       venue: VENUE,
       businessDay,
@@ -276,7 +327,7 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
   // sent to a room they have finished checking in.
   await markSessionBriefed(args.sessionId, args.room);
 
-  return { ok: true, tier, hasVideo: !!video?.url };
+  return { ok: true, tier, hasVideo: !!video?.url, host };
 }
 
 /**
@@ -295,7 +346,16 @@ export async function startBriefing(
   room: BriefingRoom,
   /** Who pressed it. Claims the group when the send did not — see below. */
   staff?: StaffIdentity | null,
-): Promise<{ ok: boolean; error?: string; hasVideo?: boolean; photoSaved?: boolean }> {
+): Promise<{
+  ok: boolean;
+  error?: string;
+  hasVideo?: boolean;
+  photoSaved?: boolean;
+  /** Who holds the group after this press — see SendBriefingResult.host. This is
+   *  the press the reported bug landed on: pressing Start on a group somebody
+   *  else pulled in used to be silently unattributed. */
+  host?: SessionHost | null;
+}> {
   const current = await readBriefingRoom(VENUE, room);
   if (!current) {
     return { ok: false, error: "nothing is assigned to that room — send a session first" };
@@ -311,12 +371,18 @@ export async function startBriefing(
    * Still first-press-wins (assignSessionHost is NX), so pressing Play it again
    * cannot hand the group to a passing manager.
    */
+  let host: SessionHost | null = null;
   if (staff && current.sessionId) {
-    const host = await assignSessionHost(current.sessionId, staff);
+    host = await assignSessionHost(current.sessionId, staff);
     // AND ONTO THE DURABLE ROW, which was written at the pull — before anybody
     // had identified themselves. Whoever actually holds the group after the NX
     // is the name the record gets, so the row and the boards cannot disagree.
     await backfillAssignmentStaff(current.sessionId, host.userId, host.firstName).catch(() => {});
+  } else if (current.sessionId) {
+    // No press identity (the desk board, or 7shifts unreachable) — nothing is
+    // claimed, but the answer to "whose group is this" still travels back, so
+    // the receipt can name them.
+    host = await readSessionHost(current.sessionId);
   }
 
   const assets = await loadSignageAssetsSafe();
@@ -430,7 +496,7 @@ export async function startBriefing(
     });
   }
 
-  return { ok: true, hasVideo: !!video?.url, photoSaved };
+  return { ok: true, hasVideo: !!video?.url, photoSaved, host };
 }
 
 /**
@@ -460,6 +526,13 @@ export async function clearRoom(room: BriefingRoom): Promise<{ ok: true }> {
     });
   }
 
+  /**
+   * UNDO GIVES THE HOST BACK when the film never rolled — the other half of the
+   * mis-pull fix (the first is a replacing send). Run BEFORE the room is
+   * cleared, because the rule reads the room's own phase to decide.
+   */
+  await releaseHostIfNeverBriefed(current, room);
+
   await clearBriefingRoom(VENUE, room);
 
   // Put the heat back on the check-in board — but ONLY if no other room is still
@@ -475,6 +548,116 @@ export async function clearRoom(room: BriefingRoom): Promise<{ ok: true }> {
     if (!stillHeldElsewhere) await clearSessionBriefed(current.sessionId);
   }
   return { ok: true };
+}
+
+/**
+ * HAND A GROUP OVER — the answer to "if assigned and we try to assign again
+ * shouldn't we just ask in a modal: change assignment?" (owner 2026-09-07).
+ *
+ * Everything else in this feature claims with NX and defers to the first press,
+ * which is right for a stray press and wrong for the two cases staff actually
+ * hit: a colleague pulled the group in and walked off, or the pull went to the
+ * wrong room and someone else ran them. Before this the only outcome was a wall
+ * naming the wrong person for the rest of the night, with nothing on any screen
+ * admitting it had happened.
+ *
+ * SO IT IS ONE EXPLICIT ACTION, and it can only be reached by answering a
+ * question that names both people. The route refuses it without a resolvable
+ * presser — a hand-over with nobody to hand to is not a correction, it is a
+ * deletion, and `releaseHostIfNeverBriefed` is the only thing allowed to do that.
+ *
+ * ORDER IS THE HOUSE ORDER: read the outgoing name, write Neon, then Redis, then
+ * the log. The assignment row is the record; the key is the fast copy.
+ */
+export async function handOverSessionHost(args: {
+  sessionId: string;
+  staff: StaffIdentity;
+}): Promise<{ ok: true; host: SessionHost; previous: SessionHost | null }> {
+  const previous = await readSessionHost(args.sessionId);
+
+  /**
+   * EVERY ROW OF THE SESSION, overwriting whatever stands — a Mega night has two
+   * (one per room) and they must not end up naming different people. This is the
+   * one write that does not defer to the first claim; see setAssignmentStaff.
+   */
+  const rows = await setAssignmentStaff(
+    args.sessionId,
+    args.staff.userId,
+    args.staff.firstName,
+  ).catch((err) => {
+    // Loud, and NOT fatal. The row is the record, but refusing the hand-over
+    // over a Neon blip would leave the wrong name on the wall — which is the
+    // failure this whole action exists to end.
+    console.error("[briefing-host] assignment rows not updated", err);
+    return [] as BriefingAssignment[];
+  });
+
+  const host = await reassignSessionHost(args.sessionId, args.staff);
+
+  /**
+   * THE AUDIT ROW. Filed against the room the group is in right now, falling
+   * back to their most recent assignment — a hand-over often happens moments
+   * after the group has left for the seats.
+   *
+   * ONE ROW FOR A MEGA GROUP'S TWO ROOMS, deliberately: this is one decision
+   * about one group, and two rows would read as two hand-overs.
+   *
+   * NO ROW AT ALL when the session has neither a room nor an assignment. That is
+   * a session nothing was ever recorded about, so there is nothing to file this
+   * against; the Redis key and the server log below still carry it.
+   */
+  const rooms = await readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null }));
+  const liveRoom = BRIEFING_ROOMS.find((r) => rooms[r]?.sessionId === args.sessionId) ?? null;
+  const live = liveRoom ? rooms[liveRoom] : null;
+  const newest = rows.length
+    ? rows.reduce((a, b) => (Date.parse(b.sentAt) > Date.parse(a.sentAt) ? b : a))
+    : null;
+  const context = live
+    ? {
+        room: liveRoom as BriefingRoom,
+        track: live.track,
+        heatNumber: live.heatNumber,
+        raceType: live.raceType,
+        tier: live.tier ?? null,
+      }
+    : newest
+      ? {
+          room: newest.room,
+          track: newest.track,
+          heatNumber: newest.heatNumber,
+          raceType: newest.raceType,
+          tier: newest.tier,
+        }
+      : null;
+
+  if (context) {
+    await recordBriefingEvent({
+      venue: VENUE,
+      businessDay: businessDayYmdET(),
+      room: context.room,
+      track: context.track,
+      sessionId: args.sessionId,
+      heatNumber: context.heatNumber,
+      raceType: context.raceType,
+      tier: context.tier,
+      action: "host-changed",
+      // Both names, old first — the assignment column keeps only the current
+      // one, so this row is the only place the change is legible later.
+      reason: `${previous?.firstName ?? "nobody"} → ${host.firstName}`,
+    }).catch((err) => {
+      console.error("[briefing-host] host-changed row failed", err);
+    });
+  }
+
+  // THE AUDIT LINE. A hand-over rewrites a record that has no history of its
+  // own, so it says so in the logs whether or not Neon took the row.
+  console.log(
+    `[briefing-host] session ${args.sessionId} handed over: ` +
+      `${previous?.firstName ?? "nobody"} (${previous?.userId ?? "-"}) → ` +
+      `${host.firstName} (${host.userId}) · ${rows.length} assignment row(s)`,
+  );
+
+  return { ok: true, host, previous };
 }
 
 /* ── the control board's view ─────────────────────────────────────────── */

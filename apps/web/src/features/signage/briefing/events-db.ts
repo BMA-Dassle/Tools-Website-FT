@@ -114,6 +114,21 @@ async function ensureSchema(): Promise<void> {
 /** `override` is a STAFF CORRECTION, not a step in the flow — a distinct action
  *  rather than a flag on the others, so the log can be read for "what did we
  *  have to fix tonight" without inferring it from a reason column. */
+/**
+ * `host-changed` (2026-09-07) is a HAND-OVER: somebody pressed against a group
+ * another staff member holds, was asked "change the assignment?", and said yes.
+ *
+ * A ROW OF ITS OWN, not a silent UPDATE, because the assignment row it rewrites
+ * has no history — `briefing_assignments.staff_first_name` only ever holds the
+ * current answer. Track staff reported groups "taking the last person's
+ * assignment", and the only way to ever settle such a report is a log that says
+ * who held the group, who took it, and when. Its `reason` carries both names.
+ *
+ * NOT AN OCCUPANCY EVENT. briefing-log.ts folds `sent` / `started` / `ended`
+ * into a room's timeline and ignores anything it does not recognise, which is
+ * the correct treatment here: a hand-over changes who is named on a briefing,
+ * never when it happened or how long the room was busy.
+ */
 export type BriefingEventAction =
   | "sent"
   | "started"
@@ -123,7 +138,8 @@ export type BriefingEventAction =
   | "pitted"
   | "audio-pre"
   | "audio-post"
-  | "override";
+  | "override"
+  | "host-changed";
 
 /** Why a room was released. `film-complete` is never STORED — it is what
  *  briefing-log.ts infers when no explicit end was ever recorded. `holding`
@@ -147,6 +163,21 @@ export type BriefingEventAction =
  * alike; anything reading it as evidence must be able to tell them apart.
  */
 export type BriefingEndReason = "cleared" | "replaced" | "holding" | "override" | "auto-holding";
+
+/**
+ * What a `host-changed` row says: the two names, old first.
+ *
+ * A TEMPLATE LITERAL TYPE rather than a plain `string`, so widening the `reason`
+ * argument below to accept it does not quietly widen it to accept ANYTHING —
+ * `BriefingEndReason | string` collapses to `string`, and the end reasons above
+ * would stop being checked at every call site that writes one. This keeps both
+ * halves honest: an `ended` row can still only carry one of five words.
+ */
+export type BriefingHandoverReason = `${string} → ${string}`;
+
+/** Either kind of reason. The column is one TEXT field; the union is what stops
+ *  the two vocabularies leaking into each other. */
+export type BriefingEventReason = BriefingEndReason | BriefingHandoverReason;
 
 export interface BriefingEvent {
   id: string;
@@ -224,7 +255,7 @@ export interface RecordBriefingEventArgs {
   videoUrl?: string | null;
   videoMs?: number | null;
   photoUrl?: string | null;
-  reason?: BriefingEndReason | null;
+  reason?: BriefingEventReason | null;
   /** Wait-time anchors — only ever passed on a `sent` row. */
   calledAtMs?: number | null;
   checkinFirstAtMs?: number | null;

@@ -27,20 +27,22 @@ import "server-only";
 import redis from "@/lib/redis";
 import type { StaffIdentity } from "./punch-index";
 
+/**
+ * DECLARED IN THE PURE MODULE, re-exported here.
+ *
+ * The check-in board's client hook has to name this shape to read a response,
+ * and this file is `server-only`. One declaration in `host-attribution.ts`
+ * rather than a mirrored copy, so the wire shape and the stored shape cannot
+ * drift — importers keep reading it from here, where it has always lived.
+ */
+import type { SessionHost } from "./host-attribution";
+export type { SessionHost };
+
 /** A race day plus slack for a late night. Matches camera-assign's window. */
 const TTL_SECONDS = 24 * 60 * 60;
 
 function hostKey(sessionId: string): string {
   return `staff:session-host:${sessionId}`;
-}
-
-export interface SessionHost {
-  /** 7shifts user id — the join key for anything durable. */
-  userId: number;
-  /** The only thing a screen shows. */
-  firstName: string;
-  /** ISO. When they claimed the group. */
-  assignedAt: string;
 }
 
 /**

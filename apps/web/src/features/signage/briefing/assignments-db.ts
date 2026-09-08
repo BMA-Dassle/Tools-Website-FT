@@ -172,6 +172,42 @@ export async function backfillAssignmentStaff(
   `;
 }
 
+/**
+ * REWRITE WHO RAN A GROUP — the hand-over's durable half.
+ *
+ * THE ONE WRITE HERE WITHOUT `staff_user_id IS NULL`, and it is deliberate.
+ * `backfillAssignmentStaff` above defers to the first claim on purpose; this is
+ * the path a person explicitly confirmed in a modal ("change the group to
+ * Grace?"), so it must overwrite or it is not a hand-over at all. Everything
+ * else that touches this column still defers.
+ *
+ * EVERY ROW OF THE SESSION, because a Mega night puts one group in both rooms
+ * and a hand-over that fixed only one of them would leave the two rows naming
+ * different people for the same briefing.
+ *
+ * RETURNS WHAT IT CHANGED so the caller can log the hand-over against the right
+ * room and heat without a second SELECT — and so an empty array can be told
+ * apart from a write that landed, which is how the caller knows whether a
+ * durable record exists at all.
+ */
+export async function setAssignmentStaff(
+  sessionId: string,
+  staffUserId: number,
+  staffFirstName: string,
+): Promise<BriefingAssignment[]> {
+  if (!isDbConfigured() || !sessionId) return [];
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    UPDATE briefing_assignments
+    SET staff_user_id = ${staffUserId}, staff_first_name = ${staffFirstName}
+    WHERE session_id = ${sessionId}
+    RETURNING id, venue, business_day, room, track, session_id, heat_number, race_type, tier,
+              mode, sent_at, staff_user_id, staff_first_name
+  `) as Array<Record<string, unknown>>;
+  return rows.map(toRow);
+}
+
 /** Everything sent today, newest first — the control board's history strip. */
 export async function listBriefingAssignments(
   venue: string,

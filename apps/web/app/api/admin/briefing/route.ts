@@ -4,6 +4,7 @@ import { del } from "@vercel/blob";
 import {
   briefingBoardStatus,
   clearRoom,
+  handOverSessionHost,
   sendBriefing,
   startBriefing,
 } from "~/features/signage/briefing/service";
@@ -20,7 +21,12 @@ import {
 import { readBriefingRoom } from "~/features/signage/briefing/state.server";
 import { backfillAssignmentStaff } from "~/features/signage/briefing/assignments-db";
 import { verifyPunchId } from "~/features/staff/service";
-import { assignSessionHost } from "~/features/staff/session-host";
+import {
+  assignSessionHost,
+  readSessionHost,
+  type SessionHost,
+} from "~/features/staff/session-host";
+import { hostAttribution } from "~/features/staff/host-attribution";
 import type { StaffIdentity } from "~/features/staff/punch-index";
 import { setAutoHoldingEnabled } from "~/features/signage/briefing/auto-holding.server";
 import {
@@ -587,6 +593,41 @@ export async function POST(req: NextRequest) {
       ? await verifyPunchId(body.punchId).then((r) => (r.ok ? r.staff : null))
       : null;
 
+  /**
+   * CHANGE WHO THE GROUP BELONGS TO — the modal's yes (owner 2026-09-07: "if
+   * assigned and we try to assign again shouldn't we just ask in a modal: change
+   * assignment?").
+   *
+   * ABOVE THE ROOM PARSE because a hand-over is about a SESSION, not a room: the
+   * group may already have left for the seats, and on a Mega night they are in
+   * both rooms at once. The service updates every assignment row they have.
+   *
+   * A RESOLVABLE PRESSER IS MANDATORY — the only action here that says so. Every
+   * other press falls open when 7shifts cannot name somebody, because a briefing
+   * must never wait on an HR API and the cost is a missing name. This press IS a
+   * name: without one there is nothing to change the assignment to, and running
+   * it anyway would blank the host instead of moving it. So 400, and the tablet
+   * keeps the standing attribution.
+   */
+  if (action === "reassign-host") {
+    // STRINGIFIED AT THE BOUNDARY, never Number()'d — same rule as "send".
+    const sessionId =
+      typeof body.sessionId === "string"
+        ? body.sessionId
+        : typeof body.sessionId === "number"
+          ? String(body.sessionId)
+          : "";
+    if (!sessionId) return NextResponse.json({ error: "sessionId required" }, { status: 400 });
+    if (!acting) {
+      return NextResponse.json(
+        { error: "we could not tell who you are — try your employee ID again" },
+        { status: 400 },
+      );
+    }
+    const { host } = await handOverSessionHost({ sessionId, staff: acting });
+    return NextResponse.json({ ok: true, ...hostAttribution(host, acting) });
+  }
+
   const room = parseBriefingRoom(body.room);
   if (!room) return NextResponse.json({ error: "room must be red or blue" }, { status: 400 });
 
@@ -635,10 +676,15 @@ export async function POST(req: NextRequest) {
      *
      * Still NX inside, so it defers to whoever pulled them into the room.
      */
+    let host: SessionHost | null = null;
     if (acting && result.ok) {
-      const host = await assignSessionHost(sessionId, acting);
+      host = await assignSessionHost(sessionId, acting);
       // Same back-fill as startBriefing: the row predates the claim.
       await backfillAssignmentStaff(sessionId, host.userId, host.firstName).catch(() => {});
+    } else if (result.ok) {
+      // Nothing claimed (no presser, or 7shifts could not name them) — but the
+      // receipt still says whose group left the room.
+      host = await readSessionHost(sessionId);
     }
     // A refusal is not a server fault — it is the guard doing its job — but it
     // must not read as success, or the page will say "sent to holding" for a
@@ -646,14 +692,33 @@ export async function POST(req: NextRequest) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 409 });
     }
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, ...hostAttribution(host, acting) });
   }
 
   // Phase two of a send, and also "play it again" — the same operation either
   // way, so one action rather than two that could drift (see startBriefing).
   if (action === "start" || action === "restart") {
-    const result = await startBriefing(room, acting);
-    return NextResponse.json(result, { status: result.ok ? 200 : 409 });
+    /**
+     * "PLAY IT AGAIN" DOES NOT CLAIM THE GROUP (owner 2026-09-07: restart "must
+     * NEVER claim a host and never show the modal").
+     *
+     * It is the exact press the NX was invented to defend against — a manager
+     * reaching over to restart a film for latecomers — and the person walking
+     * that group to the karts has not changed because somebody pressed it. So no
+     * claimant goes in, no back-fill happens, and no Keep / Change question is
+     * put. The names still come back for the receipt.
+     *
+     * DECIDED BY THE BUTTON, unlike the LOG's restart-ness a few lines into
+     * startBriefing, which is decided by the room. The divergence is deliberate:
+     * the log records what happened to the room, and this records what the
+     * person meant by pressing.
+     */
+    const claims = action !== "restart";
+    const result = await startBriefing(room, claims ? acting : null);
+    return NextResponse.json(
+      result.ok ? { ...result, ...hostAttribution(result.host, acting, { claims }) } : result,
+      { status: result.ok ? 200 : 409 },
+    );
   }
 
   if (action === "send") {
@@ -688,7 +753,10 @@ export async function POST(req: NextRequest) {
     });
     // 409 for the one-group-one-room refusal, matching start/restart above —
     // both boards render the message as an action note rather than a failure.
-    return NextResponse.json(result, { status: result.ok ? 200 : 409 });
+    return NextResponse.json(
+      result.ok ? { ...result, ...hostAttribution(result.host, acting) } : result,
+      { status: result.ok ? 200 : 409 },
+    );
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });

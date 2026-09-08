@@ -16,3 +16,12 @@ export {
   type PunchIndex,
   type StaffIdentity,
 } from "./punch-index";
+
+/** The attribution fold and its shapes — PURE, so a client hook may import them
+ *  to read `hostConflict` off a response. See host-attribution.ts. */
+export {
+  hostAttribution,
+  type ActingStaff,
+  type HostAttribution,
+  type SessionHost,
+} from "./host-attribution";
