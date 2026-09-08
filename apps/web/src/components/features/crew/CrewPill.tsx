@@ -55,7 +55,10 @@ export type CrewPillDensity = "desk" | "wall" | "compact";
  * is 58% of a small panel — fewer words at type one step down, never small type.
  */
 const PILL_FONT: Record<CrewPillDensity, string> = {
-  desk: "12px",
+  /** One step up from 12px (2026-09-07): the desk strip now sits under a header
+   *  whose own chips are 12.5px, and a pill smaller than the buttons above it
+   *  read as a caption rather than as the roster. */
+  desk: "13px",
   /**
    * THREE ACROSS A WALL PANEL (owner 2026-09-07). A step below the row detail
    * beside it rather than level with it: seven people took four lines at the
@@ -91,14 +94,21 @@ const STATE_OPACITY: Record<CrewState, number | undefined> = {
 };
 
 /**
- * The checkered flag. Inline because it is nine paths used in exactly one
+ * The checkered flag. Inline because it is three paths used in exactly one
  * component — a sprite or an icon-pack import would cost more than it saves.
  *
- * Sized in `em` so it tracks whatever density the pill is at, and the squares
- * are punched with the pill's own ground rather than a literal, so the flag
- * reads on the desk and on a wall without a second copy.
+ * Sized in `em` so it tracks whatever density the pill is at.
+ *
+ * THE LIGHT SQUARES ARE TRANSPARENCY, NOT PAINT (2026-09-07). They used to be
+ * filled with the pill's own ground colour, which worked only while that
+ * ground was an opaque navy: the moment `CREW_PILL_BG` became a white wash
+ * (see ~/lib/constants/crew) an 8-percent fill over the flag's ink stopped
+ * being a hole and the flag went solid. Drawing the field at 35 percent and
+ * the dark squares at full instead makes the checker come from the ink alone,
+ * so it reads on any ground — the desk's flat gray-950, a tinted track panel,
+ * or a briefing wall.
  */
-export function FlagIcon({ hole = CREW_PILL_BG }: { hole?: string }) {
+export function FlagIcon() {
   return (
     <svg
       width="1.05em"
@@ -109,9 +119,9 @@ export function FlagIcon({ hole = CREW_PILL_BG }: { hole?: string }) {
       style={{ flexShrink: 0 }}
     >
       <path fill="currentColor" d="M2 1h1v14H2z" />
-      <path fill="currentColor" d="M3 1h10v7H3z" />
+      <path fill="currentColor" opacity="0.35" d="M3 1h10v7H3z" />
       <path
-        fill={hole}
+        fill="currentColor"
         d="M3 1h2.5v1.75H3zM8 1h2.5v1.75H8zM5.5 2.75H8v1.75H5.5zM10.5 2.75H13v1.75h-2.5zM3 4.5h2.5v1.75H3zM8 4.5h2.5v1.75H8zM5.5 6.25H8V8H5.5zM10.5 6.25H13V8h-2.5z"
       />
     </svg>
@@ -146,7 +156,10 @@ export function CrewPill({ entry, density }: { entry: CrewEntry; density: CrewPi
         padding: "0.33em 0.66em 0.33em 0.56em",
         borderRadius: 999,
         fontSize: PILL_FONT[density],
-        fontWeight: 600,
+        // 700, matching the TV's own chips: at 8 percent white the ground gives
+        // the name almost no contrast of its own, and the weight is what puts
+        // it back (2026-09-07).
+        fontWeight: 700,
         lineHeight: 1.25,
         whiteSpace: "nowrap",
         backgroundColor: CREW_PILL_BG,
@@ -193,9 +206,10 @@ export function CrewPill({ entry, density }: { entry: CrewEntry; density: CrewPi
             fontSize: "0.9em",
             letterSpacing: "0.02em",
             padding: "0.08em 0.5em",
-            borderRadius: "0.36em",
+            borderRadius: 999,
             color: tag.ink,
             background: tag.bg,
+            border: `1px solid ${tag.border}`,
           }}
         >
           {raceTagLabel(entry.race)}

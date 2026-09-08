@@ -29,10 +29,19 @@ export const CREW_BREAK_ORANGE = "#fb923c";
 /** On the roster, no punch today. The pit board's "out" dot. */
 export const CREW_OUT_GREY = "#4b5563";
 
-/** The pill itself — one ground and one border for the desk and the walls
- *  alike, so the same person looks like the same person on both. */
-export const CREW_PILL_BG = "#121c33";
-export const CREW_PILL_BORDER = "#263252";
+/**
+ * The pill itself — one ground and one border for the desk and the walls
+ * alike, so the same person looks like the same person on both.
+ *
+ * WHITE ALPHA, NOT A NAVY (2026-09-07). It used to be an opaque #121c33, which
+ * was the check-in board's own card colour when the pill was born there. Over
+ * the pit board TV's tinted track panels an opaque navy chip reads as a hole
+ * punched in the panel; a white wash at 8 percent takes whatever is behind it
+ * and stays one pill on all three surfaces. It is the TV's own `.pb-flag`
+ * ground.
+ */
+export const CREW_PILL_BG = "rgba(255,255,255,.08)";
+export const CREW_PILL_BORDER = "rgba(255,255,255,.14)";
 export const CREW_PILL_INK = "#cbd5e1";
 /** The count, which is the number the pill exists to carry. */
 export const CREW_PILL_COUNT_INK = "#e5e7eb";
@@ -48,11 +57,22 @@ export const CREW_OUT_OPACITY = 0.4;
 export const CREW_TOP_BORDER = "rgba(96,165,250,.45)";
 export const CREW_TOP_INK = "#93c5fd";
 
-/** The race tag, per track: the letter's ink and the chip behind it. */
-export const TRACK_TAG: Record<"blue" | "red" | "mega", { ink: string; bg: string }> = {
-  blue: { ink: "#93c5fd", bg: "rgba(59,130,246,.18)" },
-  red: { ink: "#fca5a5", bg: "rgba(239,68,68,.18)" },
-  mega: { ink: "#d8b4fe", bg: "rgba(168,85,247,.18)" },
+/**
+ * The race tag, per track: the letter's ink, the chip behind it, and its edge.
+ *
+ * THE EDGE IS NEW (2026-09-07) and it is what makes the tag a chip rather than
+ * a highlight. An 18-percent fill with no border sitting inside a pill that
+ * itself has one reads as a smudge on the pill; the TV draws every chip the
+ * same way — a tint, an edge at twice the tint, and a full round — and the tag
+ * is a chip on a pill, not a coloured word.
+ */
+export const TRACK_TAG: Record<
+  "blue" | "red" | "mega",
+  { ink: string; bg: string; border: string }
+> = {
+  blue: { ink: "#93c5fd", bg: "rgba(59,130,246,.18)", border: "rgba(59,130,246,.35)" },
+  red: { ink: "#fca5a5", bg: "rgba(239,68,68,.18)", border: "rgba(239,68,68,.35)" },
+  mega: { ink: "#d8b4fe", bg: "rgba(168,85,247,.18)", border: "rgba(168,85,247,.35)" },
 };
 
 /**

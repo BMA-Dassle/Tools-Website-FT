@@ -70,7 +70,11 @@ export function raceTagLabel(race: { track: TrackKey; heatNumber: number | null 
 }
 
 /** The tag's colours, from the one palette. */
-export function raceTagColors(race: { track: TrackKey }): { ink: string; bg: string } {
+export function raceTagColors(race: { track: TrackKey }): {
+  ink: string;
+  bg: string;
+  border: string;
+} {
   return TRACK_TAG[race.track];
 }
 
