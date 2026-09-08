@@ -8,6 +8,10 @@ import { Poppins } from "next/font/google";
  */
 export const adminPoppins = Poppins({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  // 800 is the pit board TV's eyebrow weight (see TV_DARK in ./theme). Without
+  // the face loaded the browser synthesises it from 700 and the tracked-out
+  // caps come back smeared, which is exactly the label the check-in board reads
+  // most often.
+  weight: ["400", "500", "600", "700", "800"],
   variable: "--font-v2",
 });

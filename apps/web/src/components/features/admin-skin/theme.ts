@@ -81,3 +81,111 @@ export const PORTAL_SKIN_CSS = `
     background: #ffffff;
   }
 `;
+
+/**
+ * THE PIT BOARD TV'S PALETTE — a SECOND dark skin, beside PORTAL_DARK, not a
+ * replacement for it (owner 2026-09-07: "green light on making changes to check
+ * in board color GUI scheme").
+ *
+ * WHY A SECOND BLOCK. The check-in board and the pit board TV are read in the
+ * same room, minutes apart, by the same people: the desk calls a heat, the wall
+ * announces it. They were painted in two different languages — the desk in the
+ * portal's navy gradient with solid buttons and 3px room edges, the wall in flat
+ * gray-950 with tinted track panels and pill chips — and a marshal crossing
+ * between them had to re-learn which red meant "the Red room" twice a night.
+ * These are the wall's values, so the desk can speak the wall's language.
+ *
+ * IT IS ADDITIVE ON PURPOSE. Seventeen other admin surfaces are on PORTAL_DARK
+ * and none of them sit beside a television; changing PORTAL_DARK to fix the
+ * check-in board would repaint the whole estate to fix one screen.
+ *
+ * Source of truth: Tools-Team-Member-Portal `src/pages/tv/PitBoardTVPage.tsx`
+ * plus its `.dark` tokens — the `.pb-*` class names in the comments below are
+ * that file's.
+ */
+/**
+ * The TV's mono face — every clock, every count, every live number.
+ *
+ * Shorter than ADMIN_MONO on purpose: `ui-monospace` first lets the platform
+ * pick its own UI mono (SF Mono, Cascadia, Roboto Mono) rather than naming one
+ * vendor's face and falling through a five-deep stack when it is absent, which
+ * is how the desk and the wall ended up rendering the same clock in two
+ * different widths.
+ */
+export const TV_MONO = 'ui-monospace, Consolas, "Cascadia Mono", monospace';
+
+export const TV_DARK = {
+  /** The root ground. FLAT, not a gradient: two tinted track panels over a
+   *  diagonal navy wash put a different blue behind each room. `bg-gray-950`. */
+  body: "#030712",
+  /** The header band — `bg-background/80` over the ground. */
+  band: "rgba(14,23,41,.8)",
+  /** Unchanged from PORTAL_DARK: the TV's `--border` is the same hairline,
+   *  hsl(218 25% 26%). The one token the two skins already agreed on. */
+  border: PORTAL_DARK.border,
+  /** The hairline inside a box (`.pb-line`'s edge) — quieter than `border`. */
+  hairSoft: "rgba(255,255,255,.05)",
+  /** The hairline around a stage row (`.pb-row`). */
+  hairRow: "#1e293b",
+  /** A box's ground. A SLOT, not a raised card: the TV never lifts a surface
+   *  off the page, it recesses it. `.pb-line`. */
+  card: "rgba(2,6,23,.5)",
+  /** One stage row's ground. `.pb-row`. */
+  row: "rgba(15,23,42,.5)",
+  /** Body ink. */
+  fg: "#f8fafc",
+  /** Numerals, clocks and second-rank ink — the TV writes a live number one
+   *  step below white so the white is left for names. `.pb-flag`. */
+  ink2: "#e5e7eb",
+  /** Labels and eyebrows. `.pb-rng`. */
+  muted: "#94a3b8",
+  /**
+   * Sublines — one step quieter than `muted`.
+   *
+   * NOTE THE COLLISION: `PORTAL_DARK.muted2` is a navy BAND colour (#223452),
+   * a background. Here it is ink, as it is on the TV. Nothing may be moved
+   * between the two skins by name alone.
+   */
+  muted2: "#64748b",
+  /** The chip vocabulary — one ground and one border behind every header pill,
+   *  with the tone carried by the ink rather than by a fill. `.pb-flag`. */
+  chipBg: "rgba(255,255,255,.08)",
+  chipBorder: "rgba(255,255,255,.14)",
+  /** The count inside a chip. */
+  chipCountBg: "rgba(255,255,255,.10)",
+  /** The one control that LEAVES the page. `.pb-move`. */
+  moveInk: "#7dd3fc",
+  moveBg: "rgba(14,165,233,.12)",
+  moveBorder: "rgba(14,165,233,.45)",
+  /** Text fields in the settings sheet keep the portal's field colours — the
+   *  TV has no inputs to copy, and a form is not what this restyle is about. */
+  inputBg: PORTAL_DARK.inputBg,
+  inputBorder: PORTAL_DARK.inputBorder,
+} as const;
+
+/**
+ * TRACK IDENTITY, THE TV'S WAY — a whole tinted panel per room, and two inks.
+ *
+ * `head` is the room's name and its furniture (tailwind's -400); `name` is a
+ * person or a session inside that room (-300), which must read as content
+ * rather than as more of the room's chrome. `bg`/`border` are the panel itself:
+ * a 10 percent track tint at a 30 percent edge, so the two tracks separate
+ * from across the desk without either becoming a coloured box.
+ *
+ * The tint base is the -500 (red-500 / blue-500), NOT the -400 identity — a
+ * tint mixed from the heading colour reads as a faded heading.
+ */
+export const TV_ROOM = {
+  red: {
+    head: "#f87171",
+    name: "#fca5a5",
+    bg: "rgba(239,68,68,.10)",
+    border: "rgba(239,68,68,.30)",
+  },
+  blue: {
+    head: "#60a5fa",
+    name: "#93c5fd",
+    bg: "rgba(59,130,246,.10)",
+    border: "rgba(59,130,246,.30)",
+  },
+} as const;
