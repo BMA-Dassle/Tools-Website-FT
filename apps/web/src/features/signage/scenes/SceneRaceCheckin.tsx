@@ -41,20 +41,26 @@ const BIRTHDAY_PINK = "#EC4899";
 const PAD_X = 96;
 const PAD_Y = 54;
 
-/** How long a checked-in name stays on the rail, and how many fit. Sized for a
- *  full heat arriving together — the common case, not the exception. */
-const SCAN_RAIL_WINDOW_MS = 90_000;
-const SCAN_RAIL_LIMIT = 6;
+/**
+ * THE RAIL KEEPS EVERYONE FOR THE WHOLE SESSION (owner 2026-09-07: "make the
+ * check in people persistent … we currently let them drop off to save space").
+ *
+ * Names used to age off after 90 seconds and the rail held six. That saved room
+ * on the wall, but a racer who checked in first watched their name vanish while
+ * the rest of their group was still arriving. Now a name stays until the session
+ * lets go of it — the briefing send, or the next heat being called (the scan
+ * floor below) — and when a heat is big the PILLS GET SMALLER instead of anybody
+ * dropping off. The window only exists to stop yesterday replaying after an idle
+ * day; the limit is a safety cap well above any heat.
+ */
+const SCAN_RAIL_WINDOW_MS = 3 * 3600_000;
+const SCAN_RAIL_LIMIT = 40;
 
 /**
- * Quiet for this long and the screen goes to STANDBY: the rail clears and the
- * session gets the whole wall.
- *
- * A burst of scans is one arriving group; the gap after it means we are between
- * heats, or the heat has been called and we are waiting on people. In that gap
- * the last few names are clutter — what somebody walking up needs is the
- * session and the time, as large as possible. So the screen alternates between
- * BUSY (names landing) and STANDBY (clean), rather than holding a stale list.
+ * Quiet for this long and the board settles: the flash has fired, the freshest
+ * chip has stopped breathing, and the "have your e-ticket ready" line and the
+ * records QR come back. THE NAMES STAY — this is no longer a clear, only the
+ * end of the "someone just landed" treatment.
  */
 const STANDBY_AFTER_MS = 30_000;
 
@@ -184,7 +190,8 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   const vip = feed?.raceCheckin?.vipOnHeat ? feed.raceCheckin : null;
 
   // Racers arrive in bursts, so the rail carries SEVERAL at once rather than
-  // interrupting the screen once per person.
+  // interrupting the screen once per person — and keeps them (see
+  // SCAN_RAIL_WINDOW_MS): the floor, not the window, is what ends a name.
   const scans = recentScans(
     nowMs,
     feed?.kioskEvents ?? [],
@@ -199,16 +206,18 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   const justCalled =
     Number.isFinite(calledAgoMs) && calledAgoMs >= 0 && calledAgoMs < JUST_CALLED_MS;
 
-  // Quiet for a while ⇒ standby: clear the rail and give the session the wall.
-  //
   // ON MEGA THE SESSION BOARD CARRIES NO NAMES AT ALL (owner 2026-08-11: "take
   // the check in people off the session screen for mega"). The pair splits the
   // job — the feed board lists everyone, so names here would be a smaller
   // duplicate of the wall next to it. The flash goes with the rail: no rail,
   // nothing for the flash to announce.
   const railSuppressed = track === "mega" && config.megaRole === "session";
-  const busy =
-    !announcing && !railSuppressed && scans.length > 0 && nowMs - scans[0].atMs < STANDBY_AFTER_MS;
+  // The rail is up for as long as the session has anybody on it. The send takes
+  // it down (the floor goes to +∞, and the announcement has the wall anyway).
+  const showRail = !announcing && !railSuppressed && scans.length > 0;
+  // Somebody has JUST landed: the flash fires, their chip breathes, and the
+  // quiet-time furniture (e-ticket line, records QR) stays out of the way.
+  const busy = showRail && nowMs - scans[0].atMs < STANDBY_AFTER_MS;
 
   // MEGA SPLIT (owner 2026-08-11). On a Mega day both boards read the same
   // single session, so a pair showing identical content wastes a screen. A
@@ -403,62 +412,82 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
           </div>
         </header>
 
-        {announcing ? (
-          <ProceedToBriefing
-            room={briefedRoom}
-            accent={accent}
-            // The heat named by the SAME feed record the send is keyed on, not by
-            // the client's session poll: the poll can already have rolled to the
-            // next heat, and labelling this instruction with the following
-            // session would send the wrong group to a briefing room.
-            heatNumber={feed?.raceCheckin?.heatNumber ?? null}
-            raceType={feed?.raceCheckin?.raceType ?? null}
-          />
-        ) : race ? (
-          <CheckingIn
-            race={race}
-            accent={accent}
-            justCalled={justCalled}
-            nowMs={nowMs}
-            windowMins={config.showCheckinCountdown ? config.checkinWindowMins : null}
-            standby={!busy}
-            // On Mega the count lives on the FEED board's header (owner) — the
-            // session board carries no check-in state at all.
-            checkedIn={railSuppressed ? null : (feed?.raceCheckin?.checkedIn ?? null)}
-            total={railSuppressed ? null : (feed?.raceCheckin?.total ?? null)}
-          />
-        ) : (
-          <Idle
-            accent={accent}
-            // GATED, not merely available: the wall may name a time only when no
-            // guest can still book into an empty slot in front of it. See
-            // features/racing/session-call.ts. Null ⇒ the wall says exactly what
-            // it said before this existed.
-            nextCall={
-              status?.nextCheckIn?.[track]?.wallSafe ? (status.nextCheckIn[track] ?? null) : null
-            }
-          />
-        )}
+        {/* THE SESSION ROW. Everything below the header that is not the rail.
+            `minHeight: 0` is what lets the row give up height to the rail — a
+            flex child otherwise refuses to shrink under its content, and the
+            rail (which used to be an absolute overlay pinned to the bottom edge)
+            then sat on top of the countdown and the "be checked in by" line.
+            That overlap was the bug (owner 2026-09-07: "check in by was covering
+            names"). Now the rail is IN FLOW at the bottom of the column and this
+            row centres the session in whatever is left. */}
+        <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "stretch", gap: 40 }}>
+          {announcing ? (
+            <ProceedToBriefing
+              room={briefedRoom}
+              accent={accent}
+              // The heat named by the SAME feed record the send is keyed on, not by
+              // the client's session poll: the poll can already have rolled to the
+              // next heat, and labelling this instruction with the following
+              // session would send the wrong group to a briefing room.
+              heatNumber={feed?.raceCheckin?.heatNumber ?? null}
+              raceType={feed?.raceCheckin?.raceType ?? null}
+            />
+          ) : race ? (
+            <CheckingIn
+              race={race}
+              accent={accent}
+              justCalled={justCalled}
+              nowMs={nowMs}
+              windowMins={config.showCheckinCountdown ? config.checkinWindowMins : null}
+              standby={!busy}
+              // On Mega the count lives on the FEED board's header (owner) — the
+              // session board carries no check-in state at all.
+              checkedIn={railSuppressed ? null : (feed?.raceCheckin?.checkedIn ?? null)}
+              total={railSuppressed ? null : (feed?.raceCheckin?.total ?? null)}
+            />
+          ) : (
+            <Idle
+              accent={accent}
+              // GATED, not merely available: the wall may name a time only when no
+              // guest can still book into an empty slot in front of it. See
+              // features/racing/session-call.ts. Null ⇒ the wall says exactly what
+              // it said before this existed.
+              nextCall={
+                status?.nextCheckIn?.[track]?.wallSafe ? (status.nextCheckIn[track] ?? null) : null
+              }
+            />
+          )}
+
+          {/* Records QR, bottom-right OF THE SESSION ROW, only when the board is
+              calm. It is an invitation to linger, so it must never compete with
+              a scan landing, a wrong-race notice, or a heat being called — those
+              are all someone needing to act right now. It lives in this row
+              rather than the screen corner so the rail below can never run
+              into it. */}
+          {config.showRecordsQr && !busy && !wrongRace && !justCalled && (
+            <div style={{ alignSelf: "flex-end", flexShrink: 0 }}>
+              <RecordsQr url={recordsUrl} accent={accent} />
+            </div>
+          )}
+        </div>
 
         {/* A scan should be felt, not just listed. The newest one flashes the
             whole screen once — keyed to the event id so it fires exactly once
             per person and cannot re-trigger on a re-render. */}
         {busy && !wrongRace && <ScanFlash key={scans[0].id} accent={accent} />}
-        {wrongRace && <WrongRaceNotice event={wrongRace} />}
-        {busy && !wrongRace && (
-          <ScanRail scans={scans} accent={accent} raised={!!vip} nowMs={nowMs} />
-        )}
 
-        {/* Records QR, bottom-right, only when the board is calm. It is an
-            invitation to linger, so it must never compete with a scan landing,
-            a wrong-race notice, or a heat being called — those are all someone
-            needing to act right now. */}
-        {config.showRecordsQr && !busy && !wrongRace && !justCalled && (
-          <div style={{ position: "absolute", right: 0, bottom: vip ? 110 : 0 }}>
-            <RecordsQr url={recordsUrl} accent={accent} />
+        {/* THE BOTTOM STACK, in flow: a wrong-race notice ABOVE the rail rather
+            than instead of it (the rail no longer clears, so hiding it for the
+            notice would blink a whole heat's names out and back), then the rail,
+            then the VIP banner under both. Nothing here is absolutely positioned,
+            so nothing here can cover the session or each other. */}
+        {(wrongRace || showRail || vip) && (
+          <div style={{ flexShrink: 0, display: "grid", gap: 16, paddingTop: 20 }}>
+            {wrongRace && <WrongRaceNotice event={wrongRace} />}
+            {showRail && <ScanRail scans={scans} accent={accent} nowMs={nowMs} />}
+            {vip && <VipInfieldBanner names={vip.vipFirstNames} />}
           </div>
         )}
-        {vip && <VipInfieldBanner names={vip.vipFirstNames} />}
       </div>
     </div>
   );
@@ -1174,36 +1203,68 @@ function ScanFlash({ accent }: { accent: string }) {
 /* ── the live rail ────────────────────────────────────────────────────── */
 
 /**
- * Who just checked in — several at once.
+ * Pill type by how many are on the rail.
+ *
+ * The rail has a fixed strip of a 1920px canvas (1728px inside the margins) and
+ * the session above it needs the rest of the wall, so the rail may take TWO ROWS
+ * and no more. Rather than dropping the oldest names to stay inside that, the
+ * pills shrink as the heat grows (owner 2026-09-07: "the pills just get smaller
+ * if we get too many"). Hand-set steps, not a formula: each is checked against
+ * the width with six-letter names, the realistic average on a first-name wall.
+ *
+ *   ≤ 6  → 46px, ~7 per row — one row, the size the rail has always been
+ *   ≤ 10 → 40px, ~8 per row — a full Blue or Red heat, two rows
+ *   ≤ 16 → 34px, ~10 per row
+ *   ≤ 24 → 28px, ~12 per row
+ *   more → 24px, ~14 per row — nothing books this big; the cap is a safety net
+ *
+ * The freshest chip is one step up from its row so the person who just scanned
+ * still gets their moment, and the pad scales with the type so a small pill is a
+ * small pill, not a big empty one.
+ */
+export function railType(count: number): {
+  font: number;
+  fresh: number;
+  padX: number;
+  padY: number;
+} {
+  if (count <= 6) return { font: 46, fresh: 64, padX: 26, padY: 12 };
+  if (count <= 10) return { font: 40, fresh: 54, padX: 22, padY: 10 };
+  if (count <= 16) return { font: 34, fresh: 46, padX: 18, padY: 9 };
+  if (count <= 24) return { font: 28, fresh: 38, padX: 16, padY: 8 };
+  return { font: 24, fresh: 32, padX: 14, padY: 7 };
+}
+
+/**
+ * Who has checked in for this session — all of them.
  *
  * Racers scan in bursts: a party of eight is through the desk in twenty
  * seconds. One full-screen welcome per person would queue over a minute of
  * takeovers and hide the session, so names land HERE, side by side, newest
  * first, while the session information stays on screen the whole time. Each
- * chip animates in on its own so an arriving racer still sees their moment.
+ * chip animates in on its own so an arriving racer still sees their moment —
+ * and then STAYS until the session lets go of it, shrinking with the crowd
+ * rather than ageing off (see SCAN_RAIL_WINDOW_MS and railType).
+ *
+ * In flow, not an overlay: the parent column gives this its height and centres
+ * the session in what is left, so the two can never land on top of each other.
  */
-function ScanRail({
+export function ScanRail({
   scans,
   accent,
-  raised,
   nowMs,
 }: {
   scans: { id: string; firstName?: string; atMs: number; birthday?: boolean }[];
   accent: string;
-  raised: boolean;
   nowMs: number;
 }) {
+  const type = railType(scans.length);
   return (
     <div
       style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        // Sits above the VIP banner when both are up.
-        bottom: raised ? 96 : 0,
         display: "flex",
         alignItems: "center",
-        gap: 18,
+        gap: `${Math.round(type.padY * 1.2)}px ${Math.round(type.padX * 0.7)}px`,
         flexWrap: "wrap",
       }}
     >
@@ -1222,9 +1283,11 @@ function ScanRail({
             key={s.id}
             className={`tv-display tv-rise${s.birthday ? " tv-bday-glow" : fresh ? " tv-breathe" : ""}`}
             style={{
-              fontSize: fresh ? 64 : 46,
+              fontSize: fresh ? type.fresh : type.font,
               color: "#fff",
-              padding: fresh ? "14px 34px" : "12px 26px",
+              padding: fresh
+                ? `${type.padY + 2}px ${type.padX + 8}px`
+                : `${type.padY}px ${type.padX}px`,
               borderRadius: 999,
               border: s.birthday
                 ? `2px solid ${BIRTHDAY_PINK}`
@@ -1264,10 +1327,6 @@ function WrongRaceNotice({ event }: { event: { firstName?: string; theirRaceLabe
   return (
     <div
       style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        bottom: 0,
         padding: "26px 34px",
         background: "rgba(30,18,0,0.92)",
         borderTop: `4px solid ${amber}`,
@@ -1313,10 +1372,6 @@ function VipInfieldBanner({ names }: { names: string[] }) {
   return (
     <div
       style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        bottom: 0,
         padding: "22px 32px",
         display: "flex",
         alignItems: "center",
