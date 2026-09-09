@@ -115,6 +115,7 @@ import {
   type AlertLevel,
 } from "~/features/signage/briefing/desk-alerts";
 import { startHoldRemainingMs, startHoldSeconds } from "~/features/signage/briefing/start-hold";
+import { HostChip } from "~/features/signage/components/HostChip";
 import { useCameraStill } from "~/features/signage/useCameraStill";
 import {
   MOTION_RESOLUTION,
@@ -3122,14 +3123,24 @@ function OutOfRoomPanel({
                           {holding.raceType}
                         </span>
                       )}
-                      {/* WHO HAS THIS GROUP (owner 2026-09-03). Beside the level,
-                          dimmer than it — the desk reads the session number
-                          first. */}
-                      {holding.host && (
-                        <span style={{ fontSize: 12, color: TV_DARK.muted, opacity: 0.75 }}>
-                          {holding.host}
-                        </span>
-                      )}
+                      {/* WHO HAS THIS GROUP — the pit board TV's own amber chip,
+                          on this board too (owner 2026-09-09).
+
+                          It was a dim span at the race type's own size and
+                          colour sitting immediately after it, so a row read
+                          "Session 61 Intermediate Denys" and the person looked
+                          like the third word of the level. The TV solved this on
+                          2026-09-07 and the desk kept the old shape; one chip in
+                          the same slot on every row is the fix, and the two
+                          boards must not describe a night differently.
+
+                          THE PLACEHOLDER IS ON, as it is on the wall: a group
+                          nobody has claimed says "no host yet" rather than
+                          leaving a hole the eye has to interpret. Unclaimed is
+                          ordinary here — the desk's own Start has no punch-ID
+                          prompt, so a session sent from this board genuinely has
+                          nobody on it until someone takes it. */}
+                      <HostChip name={holding.host} fontSize={11} />
                       <RoomPill room={pillRoom(holding)} />
                     </div>
                     {/* NO PROSE ON AN OCCUPIED ROW. "Hold them — karts are still
@@ -3182,14 +3193,8 @@ function OutOfRoomPanel({
                       {karts.raceType && (
                         <span style={{ fontSize: 12, color: TV_DARK.muted }}>{karts.raceType}</span>
                       )}
-                      {/* WHO HAS THIS GROUP (owner 2026-09-03). Beside the level,
-                          dimmer than it — the desk reads the session number
-                          first. */}
-                      {karts.host && (
-                        <span style={{ fontSize: 12, color: TV_DARK.muted, opacity: 0.75 }}>
-                          {karts.host}
-                        </span>
-                      )}
+                      {/* WHO HAS THIS GROUP — see the Holding row. */}
+                      <HostChip name={karts.host} fontSize={11} />
                       <RoomPill room={pillRoom(karts)} />
                     </div>
                   </>
@@ -3223,6 +3228,15 @@ function OutOfRoomPanel({
                       >
                         Session {outHeat}
                       </span>
+                      {/* ON TRACK GETS ONE TOO — see the Holding row. This was
+                          the one lane stage with no name on it, which is the
+                          same "a property of certain rows" problem the chip
+                          exists to end. It comes from `outGroup`, not `racing`:
+                          the green-flag verdict can name a group the lane has
+                          not promoted yet, so the host has to come from
+                          whichever slot that session is still sitting in — the
+                          same reason the room pill beside it does. */}
+                      <HostChip name={outGroup?.host} fontSize={11} />
                       <RoomPill room={pillRoom(outGroup)} />
                     </div>
                   </>
@@ -3266,14 +3280,8 @@ function OutOfRoomPanel({
                       {pitIn.raceType && (
                         <span style={{ fontSize: 12, color: TV_DARK.muted }}>{pitIn.raceType}</span>
                       )}
-                      {/* WHO HAS THIS GROUP (owner 2026-09-03). Beside the level,
-                          dimmer than it — the desk reads the session number
-                          first. */}
-                      {pitIn.host && (
-                        <span style={{ fontSize: 12, color: TV_DARK.muted, opacity: 0.75 }}>
-                          {pitIn.host}
-                        </span>
-                      )}
+                      {/* WHO HAS THIS GROUP — see the Holding row. */}
+                      <HostChip name={pitIn.host} fontSize={11} />
                       <RoomPill room={pillRoom(pitIn)} />
                     </div>
                   </>
@@ -3421,10 +3429,11 @@ function InRoom({
                 {state?.raceType && (
                   <span style={{ fontSize: 12, color: TV_DARK.muted }}>{state.raceType}</span>
                 )}
-                {/* WHO IS RUNNING THE ROOM (owner 2026-09-03). */}
-                {host && (
-                  <span style={{ fontSize: 12, color: TV_DARK.muted, opacity: 0.75 }}>{host}</span>
-                )}
+                {/* WHO IS RUNNING THE ROOM — see the Holding row. The briefing
+                    row is the one the TV called out by name: it never had a
+                    name at all, which is what made the marshal look like a
+                    property of the lane rather than a fact about every group. */}
+                <HostChip name={host} fontSize={11} />
                 {state?.tier && (
                   <span style={{ fontSize: 11, color: TV_DARK.muted }}>· {state.tier} film</span>
                 )}
