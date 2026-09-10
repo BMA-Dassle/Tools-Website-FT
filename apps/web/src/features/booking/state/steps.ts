@@ -179,6 +179,31 @@ function hiddenForNfl(step: StepDef): StepDef {
   };
 }
 
+/**
+ * Like `hiddenForNfl`, but only for the URL entry — used by the step that a
+ * kiosk guest picks NFL ON.
+ *
+ * There are two ways into NFL mode now. `/book/nfl` seeds `isNfl` at item
+ * creation, and the guest must never see the experience picker: the package is
+ * already decided and a card would be a second, worse way in. The kiosk enters
+ * the other way round — the guest is standing ON the experience picker and taps
+ * the NFL card, which is what sets `isNfl` (owner 2026-09-09: "experience
+ * section is meant for stuff like this where it triggers the time"). Hiding
+ * that step on `isNfl` would delete the screen underneath them mid-tap.
+ *
+ * So the experience step keys on `nflFromUrl`, which ONLY BookingFlow's entry
+ * seeding sets. Date and time stay on plain `hiddenForNfl` for both entries —
+ * a game is a date and a time however you got here.
+ */
+function hiddenForNflUrlEntry(step: StepDef): StepDef {
+  return {
+    ...step,
+    isVisible: (item, session) =>
+      !(item.kind === "bowling" && (item as { nflFromUrl?: boolean }).nflFromUrl) &&
+      step.isVisible(item, session),
+  };
+}
+
 function hiddenForWorldCup(step: StepDef): StepDef {
   return {
     ...step,
@@ -335,7 +360,9 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
       hiddenInCombo(hiddenForNfl(hiddenForWorldCup(v3Only(BowlingDateStep as StepDef)))),
     ),
     hiddenForPlayNow(
-      hiddenInCombo(hiddenForNfl(hiddenForWorldCup(v3Only(BowlingExperienceStep as StepDef)))),
+      hiddenInCombo(
+        hiddenForNflUrlEntry(hiddenForWorldCup(v3Only(BowlingExperienceStep as StepDef))),
+      ),
     ),
     hiddenForPlayNow(
       hiddenInCombo(hiddenForNfl(hiddenForWorldCup(v3Only(BowlingTimeStep as StepDef)))),

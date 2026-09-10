@@ -43,12 +43,25 @@ describe("NFL step gating", () => {
     for (const id of V3_IDS) expect(ids).toContain(id);
   });
 
-  it("an NFL item replaces the ENTIRE v3 front — date, experience AND time", () => {
+  it("the URL entry replaces the ENTIRE v3 front — date, experience AND time", () => {
     // The regression: previously only `bowling-time` was hidden, so the guest
     // answered Date and Experience before reaching a picker that overrode both.
-    const ids = visibleIds(bowlingItem({ isNfl: true }));
+    const ids = visibleIds(bowlingItem({ isNfl: true, nflFromUrl: true }));
     expect(ids).toContain(NFL_ID);
     for (const id of V3_IDS) expect(ids).not.toContain(id);
+  });
+
+  it("the KIOSK entry keeps the experience step — it is what sets isNfl", () => {
+    // Owner 2026-09-09: "Include it on the kiosk under experiences ... the
+    // experience section is meant for stuff like this where it triggers the
+    // time." The guest is standing ON that step when they tap the NFL card, so
+    // hiding it on `isNfl` would delete the screen mid-tap. Date and time still
+    // go — a game is a date and a time however you arrived.
+    const ids = visibleIds(bowlingItem({ isNfl: true }));
+    expect(ids).toContain(NFL_ID);
+    expect(ids).toContain("bowling-experience");
+    expect(ids).not.toContain("bowling-date");
+    expect(ids).not.toContain("bowling-time");
   });
 
   it("an NFL item replaces the classic front too, when the kill switch is thrown", () => {
@@ -56,7 +69,7 @@ describe("NFL step gating", () => {
     // picker it stands on its own, so a flow-flag change can never strand an
     // NFL session with no way to pick a game.
     process.env.NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW = "false";
-    const ids = visibleIds(bowlingItem({ isNfl: true }));
+    const ids = visibleIds(bowlingItem({ isNfl: true, nflFromUrl: true }));
     expect(ids).toContain(NFL_ID);
     for (const id of CLASSIC_IDS) expect(ids).not.toContain(id);
     for (const id of V3_IDS) expect(ids).not.toContain(id);

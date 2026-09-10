@@ -622,6 +622,18 @@ export interface BowlingItem extends BookingItemBase, BowlingCommon {
    */
   isNfl?: boolean;
   /**
+   * Did NFL mode come from the `/book/nfl` URL entry, rather than from tapping
+   * the NFL card on the kiosk's experience picker?
+   *
+   * Only the URL entry hides the experience step — on the kiosk that step is
+   * where the guest selects NFL, so hiding it on `isNfl` would pull the screen
+   * out from under them. Everything else (date, time) hides for both entries.
+   * Optional so sessions persisted before this field hydrate undefined → falsy,
+   * which reads as "not the URL entry" and therefore shows the picker — the
+   * safe direction, since a visible extra step beats a dead end.
+   */
+  nflFromUrl?: boolean;
+  /**
    * ESPN event id of the picked NFL game.
    *
    * REQUIRED for an NFL Ticket booking, and not derivable from `bookedAt`:
@@ -1017,6 +1029,7 @@ export function newItem(activity: Activity): SessionItem {
         isWorldCup: false,
         worldCupMatchId: null,
         isNfl: false,
+        nflFromUrl: false,
         nflGameId: null,
         isDuckpin: false,
       };

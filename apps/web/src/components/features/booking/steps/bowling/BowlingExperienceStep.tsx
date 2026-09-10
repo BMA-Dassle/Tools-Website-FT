@@ -23,6 +23,8 @@ import type {
 } from "@/lib/bowling-db";
 import { KBF_VIP_LANE_UPCHARGE_PER_PERSON_CENTS } from "~/features/booking/service/kbf-pricing";
 import { QAMF_TO_CENTER_CODE } from "~/features/booking/service/bowling-hours";
+import { isNflSlug } from "~/features/nfl";
+import { useT } from "~/features/kiosk/i18n";
 import { isFastTraxDuckpinCenter, FASTTRAX_DUCKPIN_LEAD_MINUTES } from "@/lib/qamf-centers";
 import {
   isPerLaneExperience,
@@ -122,6 +124,9 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       ? (item as BowlingItem).playerCount
       : (item as KbfItem).bowlers.length + (item as KbfItem).paidAdults;
   const kiosk = !!session.context?.kiosk;
+  // Falls back to the default locale off-kiosk (no provider), so the web card
+  // keeps reading English exactly as it does today.
+  const t = useT();
   const variant = kiosk ? ("kiosk" as const) : ("web" as const);
 
   const expQuery = useBowlingExperiences(centerCode, kind === "kbf");
@@ -137,24 +142,34 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   // Day-of-week + kind filtering, minus the experiences that have their own
   // entry (classic parity).
   //
-  // World Cup and NFL Ticket are both reached by their own URL — ?experience=
-  // world-cup and ?experience=nfl — and their pickers replace this step
-  // outright. Their rows exist here only so the picker can resolve pricing,
-  // offer and items from the same table every other package uses; as CARDS
-  // they would be a second, worse way in, on a screen whose date the package
-  // does not actually let you choose.
+  // World Cup is reached by its own URL — ?experience=world-cup — and its
+  // picker replaces this step outright. Its rows exist here only so the picker
+  // can resolve pricing, offer and items from the same table every other
+  // package uses; as CARDS they would be a second, worse way in, on a screen
+  // whose date the package does not actually let you choose.
+  //
+  // NFL Ticket is the same on the WEB, for exactly that reason — the date is
+  // already chosen by BowlingDateStep, and a game is a date the guest does not
+  // get to override. On the KIOSK that objection does not hold: BowlingDateStep
+  // self-hides there (walk-up is same-day), so there is no chosen date for the
+  // card to contradict, and this step is the one place a kiosk guest picks a
+  // package. Owner 2026-09-09: "Include it on the kiosk under experiences,
+  // that's the only spot I want it on kiosk — experience section is meant for
+  // stuff like this where it triggers the time." Selecting it sets isNfl and
+  // nulls bookedAt/hour/minute like every other card, and NflGameStep stands in
+  // for the time step from there.
   const experiences = useMemo(() => {
     const raw = expQuery.data ?? [];
     const dow = item.date ? new Date(`${item.date}T12:00:00`).getDay() : new Date().getDay();
     return raw
       .filter((e) => !e.slug.startsWith("world-cup-"))
-      .filter((e) => !e.slug.startsWith("nfl-vip-"))
+      .filter((e) => kiosk || !e.slug.startsWith("nfl-vip-"))
       .filter((e) => (kind === "kbf" ? true : e.kind !== "kbf"))
       .filter(
         (e) =>
           !Array.isArray(e.daysOfWeek) || e.daysOfWeek.length === 0 || e.daysOfWeek.includes(dow),
       );
-  }, [expQuery.data, item.date, kind]);
+  }, [expQuery.data, item.date, kind, kiosk]);
 
   // First accurate slot for an offer, optionally requiring a specific option
   // id to be verified-available at that slot.
@@ -293,6 +308,14 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       dispatch({ type: "clearBowlingHold", itemId: item.id });
     }
 
+    // Picking the NFL card here IS the entry (kiosk only — the filter above
+    // keeps it off the web). `isNfl` makes NflGameStep visible and hides the
+    // time step, so the game supplies the date and the lane-open instant that
+    // this payload deliberately nulls. Every other card leaves the marker
+    // alone, and re-picking a plain package clears it so a guest who changes
+    // their mind is not left in NFL mode with no game.
+    const nflCard = isNflSlug(exp.slug);
+
     onChange({
       tier: exp.isVip ? "vip" : "regular",
       experienceId: exp.id,
@@ -307,6 +330,7 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       hour: null,
       minute: null,
       lineItems: [],
+      ...(item.kind === "bowling" ? { isNfl: nflCard, nflGameId: null } : {}),
     } as Partial<BowlingLikeItem>);
   }
 
@@ -385,11 +409,20 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
           ? `Next lane ${firstLabel}`
           : "Sold out this day";
 
+    // The NFL card is the one experience whose blurb is guest-facing kiosk copy
+    // WE put on the screen, so it has to exist in Spanish too (kiosk copy rule).
+    // Experience descriptions otherwise come straight from Neon in English; the
+    // catalog already carries this exact sentence in both languages as
+    // `nfl.subtitle`, so the card borrows it rather than adding a second copy
+    // that could drift. The LABEL stays English on purpose — "NFL Ticket on
+    // NeoVerse" is brand, and the locked glossary never translates it.
+    const cardExp = isNflSlug(exp.slug) ? { ...exp, description: t("nfl.subtitle") } : exp;
+
     return (
       <ExperienceCard
         key={exp.id}
         variant={variant}
-        exp={exp}
+        exp={cardExp}
         accent={accent}
         selected={selected}
         priceLabel={priceLabel}

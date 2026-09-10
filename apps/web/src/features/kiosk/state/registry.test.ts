@@ -45,3 +45,57 @@ describe("racesim step registries", () => {
     }
   });
 });
+
+/**
+ * NFL Ticket on the kiosk enters from the OPPOSITE end of the flow to the web.
+ *
+ * The web reaches it by URL (/book/nfl), so the game picker replaces the front
+ * of the wizard and is registered BEFORE the experience step. The kiosk reaches
+ * it by tapping the NFL card ON the experience step (owner 2026-09-09: "include
+ * it on the kiosk under experiences, that's the only spot I want it on kiosk —
+ * the experience section is meant for stuff like this where it triggers the
+ * time"). A picker left in the web's position would sit behind the guest: the
+ * flow only walks forward and the time step is hidden for NFL, so they would
+ * sail past the game pick to shoes and reserve with no gameId, which is exactly
+ * the 400 guardNflBooking raises.
+ */
+describe("kiosk NFL step order", () => {
+  const ids = () => KIOSK_STEP_REGISTRY.bowling.map((s) => s.id);
+
+  it("puts the game picker directly after the experience step", () => {
+    const order = ids();
+    const exp = order.indexOf("bowling-experience");
+    const game = order.indexOf("nfl-game");
+    expect(exp).toBeGreaterThanOrEqual(0);
+    expect(game).toBe(exp + 1);
+  });
+
+  it("keeps the picker AHEAD of the steps that finish the booking", () => {
+    // The per-bowler details step (which REPLACES bowling-shoes on the kiosk)
+    // and food still have to run after the game is chosen — the move must not
+    // have pushed the picker past them.
+    const order = ids();
+    const game = order.indexOf("nfl-game");
+    for (const later of ["kiosk-bowling-details", "bowling-food"]) {
+      const idx = order.indexOf(later);
+      if (idx >= 0) expect(game).toBeLessThan(idx);
+    }
+  });
+
+  it("does not drop or duplicate any step while reordering", () => {
+    const order = ids();
+    expect(new Set(order).size).toBe(order.length);
+    // Every web bowling step still has a home on the kiosk apart from the three
+    // the registry deliberately re-shapes: contact + players fold into the
+    // kiosk people step, and bowling-shoes is REPLACED by the per-bowler
+    // details step (the count is derived from the size picks, owner
+    // 2026-07-25). Moving a step must not have lost any of the rest.
+    const RESHAPED = new Set(["contact", "bowling-players", "bowling-shoes"]);
+    const web = STEP_REGISTRY.bowling.map((s) => s.id).filter((id) => !RESHAPED.has(id));
+    for (const id of web) expect(order).toContain(id);
+    // …and the replacements really are there, so this can never pass by simply
+    // shrinking the kiosk list.
+    expect(order).toContain("kiosk-bowling-people");
+    expect(order).toContain("kiosk-bowling-details");
+  });
+});

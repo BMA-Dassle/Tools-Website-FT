@@ -173,7 +173,17 @@ export function useBowlingOffers({
         // World-cup experiences are ONLY bookable via the match-picker entry
         // (?experience=world-cup) — never here, where any-hour booking would
         // book a lane outside a match window.
-        const all = raw.filter((e) => !e.slug.startsWith("world-cup-"));
+        //
+        // NFL Ticket is excluded for the same reason, and the omission was a
+        // live bug: this hook feeds the CLASSIC offer step on both web and
+        // kiosk, so the moment the nfl-vip-* rows went active the package
+        // appeared as an any-hour card with no game picker behind it, and every
+        // such booking died on guardNflBooking's "needs a game" 400. NFL's one
+        // kiosk home is the EXPERIENCE step (owner 2026-09-09), which sets
+        // isNfl and hands off to NflGameStep; it must not also be a card here.
+        const all = raw.filter(
+          (e) => !e.slug.startsWith("world-cup-") && !e.slug.startsWith("nfl-vip-"),
+        );
         setExperiences(kind === "kbf" ? all : all.filter((e) => e.kind !== "kbf"));
       } catch {
         setExperiences([]);

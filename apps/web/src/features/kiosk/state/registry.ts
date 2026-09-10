@@ -33,7 +33,14 @@ import { ContactStep } from "~/components/features/booking/steps/ContactStep";
 // (NFL Ticket game picker) and this branch's racesim flow + RaceSimItem.sessions[]
 // (v15→v16 here). A stored 15 or 16 could be EITHER shape, so both are stale:
 // readSession discards on `v !== KIOSK_SCHEMA_VERSION`, and 17 invalidates both.
-export const KIOSK_SCHEMA_VERSION = 17;
+//
+// v18: NFL Ticket became a card on the kiosk's experience step, which both adds
+// BowlingItem.nflFromUrl and MOVES nfl-game to sit after bowling-experience. A
+// session stored under 17 carries neither — its currentStepId was recorded
+// against the old order, so restoring it could drop a guest either side of the
+// game picker. Kiosk sessions are walk-up and short-lived, so discarding is
+// free; landing someone past the picker is the 400 this all exists to prevent.
+export const KIOSK_SCHEMA_VERSION = 18;
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */
@@ -46,9 +53,52 @@ function hiddenForWorldCup(step: StepDef): StepDef {
   };
 }
 
+/**
+ * Twin of the web registry's `hiddenForNfl`, which the kiosk's classic
+ * replacements never carried.
+ *
+ * The web wraps its classic Slots/Tier/Offer entries in BOTH guards; the kiosk
+ * swapped in its own variants wrapped only in `hiddenForWorldCup`, so an NFL
+ * item would have kept the time, tier and package screens the game picker is
+ * supposed to stand in for. Nothing reaches that state today — NFL is filtered
+ * out of useBowlingOffers, so the classic flow has no way to set isNfl — but
+ * the asymmetry is exactly how the World Cup guard came to be missing its NFL
+ * twin in three other places this week.
+ */
+function hiddenForNfl(step: StepDef): StepDef {
+  return {
+    ...step,
+    isVisible: (item, session) =>
+      !(item.kind === "bowling" && (item as { isNfl?: boolean }).isNfl) &&
+      step.isVisible(item, session),
+  };
+}
+
 /** Replace the entry whose id matches with `step` (keeps position). */
 function replaceStep(steps: StepDef[], id: string, step: StepDef): StepDef[] {
   return steps.map((s) => (s.id === id ? step : s));
+}
+
+/**
+ * Move `id` to sit directly after `afterId`, keeping every other step's order.
+ *
+ * Needed because the kiosk enters NFL from the OPPOSITE end of the flow to the
+ * web. On the web the game picker replaces the front of the wizard, so it is
+ * registered before the experience step. On the kiosk the guest picks NFL ON
+ * the experience step, so a picker registered before it sits BEHIND them: the
+ * flow only walks forward, the time step is hidden for NFL, and they would sail
+ * past the game pick straight to shoes and reserve with no gameId — the exact
+ * 400 this feature guards against.
+ *
+ * A no-op if either id is missing, so a registry change upstream degrades to
+ * the old order rather than throwing.
+ */
+function moveStepAfter(steps: StepDef[], id: string, afterId: string): StepDef[] {
+  const moving = steps.find((s) => s.id === id);
+  if (!moving || !steps.some((s) => s.id === afterId)) return steps;
+  const rest = steps.filter((s) => s.id !== id);
+  const at = rest.findIndex((s) => s.id === afterId);
+  return [...rest.slice(0, at + 1), moving, ...rest.slice(at + 1)];
 }
 
 /** Combo bowling items are configured programmatically — hide kiosk-added
@@ -191,7 +241,7 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     steps = replaceStep(
       steps,
       "bowling-slots",
-      hiddenInCombo(hiddenForWorldCup(classicOnly(KioskBowlingTimeStep as StepDef))),
+      hiddenInCombo(hiddenForNfl(hiddenForWorldCup(classicOnly(KioskBowlingTimeStep as StepDef)))),
     );
     // Classic vs VIP Suites — kiosk-native Podium reskin (writes only item.tier;
     // the offer step still does duration + slot + hold).
@@ -200,7 +250,9 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
       steps,
       "bowling-tier",
       hiddenInCombo(
-        hiddenForWorldCup(hiddenForDuckpin(classicOnly(KioskBowlingTierStep as StepDef))),
+        hiddenForNfl(
+          hiddenForWorldCup(hiddenForDuckpin(classicOnly(KioskBowlingTierStep as StepDef))),
+        ),
       ),
     );
     // Kiosk-native "Choose a Package" (Podium reskin of the classic offer
@@ -209,13 +261,19 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     steps = replaceStep(
       steps,
       "bowling-offer",
-      hiddenInCombo(hiddenForWorldCup(classicOnly(KioskBowlingOfferStep as StepDef))),
+      hiddenInCombo(hiddenForNfl(hiddenForWorldCup(classicOnly(KioskBowlingOfferStep as StepDef)))),
     );
     // REPLACE the shoe-quantity step (BowlingShoesStep) with the per-bowler
     // details step: the kiosk should never ask "how many shoes" AND then per-
     // player sizes — the rental count is DERIVED from who picks a rental size
     // (owner 2026-07-25). Details owns the shoe line items now.
     steps = replaceStep(steps, "bowling-shoes", hiddenInCombo(KioskBowlingDetailsStep as StepDef));
+    // NFL Ticket is a card on the EXPERIENCE step here, not a URL entry (owner
+    // 2026-09-09: "experience section is meant for stuff like this where it
+    // triggers the time"). Tapping it sets isNfl, which hides the time step, so
+    // the game picker has to come AFTER the experience step to be the thing
+    // that supplies the date and lane-open instant it left null.
+    steps = moveStepAfter(steps, "nfl-game", "bowling-experience");
     return [hiddenInCombo(KioskBowlingPeopleStep as StepDef), ...steps];
   })(),
   kbf: replaceStep(

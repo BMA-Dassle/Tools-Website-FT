@@ -314,6 +314,10 @@ export function BookingFlow({
         b.variant = "hourly";
         b.tier = "vip";
         b.isNfl = true;
+        // Marks the /book/nfl URL entry specifically, so the experience picker
+        // stays hidden here while remaining visible on the kiosk, where tapping
+        // the NFL card is itself what sets isNfl. See hiddenForNflUrlEntry.
+        b.nflFromUrl = true;
       }
       // FastTrax duckpin: the entry page maps duck-pin → activity "bowling" when
       // the flag is active. Mark the item so it resolves to QAMF 11542 (reducer),
