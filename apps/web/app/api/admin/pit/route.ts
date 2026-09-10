@@ -33,6 +33,13 @@ import { isAdminApiRequest } from "@/lib/admin-request-auth";
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/**
+ * A press can now HOLD for the other pit (cue-sync.ts: up to 5s waiting for
+ * the partner's press, then the play's own ~1–8s budget; a joiner waits up to
+ * 15s for the leader's outcome). Well inside this, and well above the
+ * platform default a held press would otherwise trip.
+ */
+export const maxDuration = 30;
 
 /**
  * Defense in depth behind the middleware gate — see lib/admin-request-auth.

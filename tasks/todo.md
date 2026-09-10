@@ -20,7 +20,18 @@ window that syncs a pre (or post) pressed on both tracks onto the "both" (mega) 
       drops its own socket-frame derivation and the `?qsys=0` skip.
 - [x] PitClient chip: "PA CACHE STALE · READING CORE" (amber, suspicion in the tooltip) outranks
       "PA LIVE" while the server is bypassing the cache.
-- [ ] Cue sync (`feat/pit-cue-sync`) — see the section's checklist once built.
+- [x] Cue sync (`feat/pit-cue-sync`, stacked on the fix branch) — `pit/cue-sync.ts` (PURE: 5s
+      window, partner blue↔red, `syncedZoneFor`; 7 tests) + `pit/cue-sync.server.ts` (Redis
+      lead/intent/result handshake per cue; 12 tests). audio.server.ts: `resolvePreSubject` /
+      `resolvePostSubject` extracted so the OTHER pit's arming is asked with the press's own rules;
+      a press whose partner is armed holds ≤5s (`syncWithPartner`), the leader plays ONCE on mega
+      for both (claims, stamps, Neon rows, lane moves for each), the joiner relays the leader's
+      receipt; a lone armed track plays instantly (no tax). Synced pre = normal `pre` (mega `big`
+      file missing on the Core, 2026-08-18); synced post = generic `post`. Route `maxDuration=30`;
+      client note "playing on both tracks — synced".
+- [ ] **Live**: split night, both groups seated — press Pre on red then blue inside 5s: ONE
+      announcement on both pits, both cards flip to played, both lanes move to karts. Then a lone
+      press: plays immediately.
 - [ ] **Live**: on deploy, watch the chip go amber then clear once Pandora's relay is restarted;
       confirm a press goes through with the cache still frozen.
 - [ ] **Pandora**: file the keepalive/pong-timeout fix for the upstream socket — the freeze will
