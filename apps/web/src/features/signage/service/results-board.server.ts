@@ -209,8 +209,9 @@ async function buildBoard(
    * in. Pandora's actualEnd and race_timings' ended_at are the venue's own
    * stamp — the race is fully over and its standings final. A marker-filled
    * end is the phase-one push, ~40s early, while karts are still completing
-   * their last lap — final enough to rank on, NOT final enough to unlock the
-   * fallback standings sources (see loadOrCaptureResults.stampedEndMs).
+   * their last lap — final enough to rank on, NOT final enough to capture
+   * standings from ANY source, wire included (see standingsFinal; it went to
+   * loadOrCaptureResults as `markerEndMs` and is trusted only once aged).
    */
   const stampedEnds = new Map<string, number>();
   for (const c of merged) {
@@ -257,6 +258,10 @@ async function buildBoard(
       sessionId: race.sessionId,
       heatNumber: race.heatNumber,
       stampedEndMs: stampedEnds.get(race.sessionId) ?? null,
+      // Marker-filled ends are the clock hitting zero; the capture waits on
+      // them. Until then this loop falls through to the previous race, so the
+      // wall keeps showing a complete result rather than a premature one.
+      markerEndMs: stampedEnds.has(race.sessionId) ? null : race.endedAtMs,
       heatName: race.heatName,
       wire: i === 0,
     }).catch(() => null);

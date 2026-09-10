@@ -662,11 +662,11 @@ async function playPreOn(
  * group they pressed for, their press gets that refusal and this track plays
  * solo. The partner's zone yields its stay-seated loop like any press.
  *
- * WHICH CLIP ON MEGA: the normal `pre`, never `big`, for the same reason
- * pre-clip.ts exempts Mega — the Core's mega `big` entry names a file that
- * is not on the drive and "plays" 204ms of nothing (2026-08-18). Two big
- * grids pressed together therefore hear the normal pre; the alternative is
- * two grids hearing nothing.
+ * WHICH CLIP: the bigger of the two grids decides. If either group is 8+,
+ * everyone hears the big-race warnings — the safety copy is for the
+ * stragglers on the bigger grid, and the smaller grid loses nothing by
+ * hearing it too. (Until 2026-09-10 the mega zone was pinned to the normal
+ * pre because its `big` file was missing on the Core — see pre-clip.ts.)
  */
 async function playPreSynced(
   track: TrackKey,
@@ -751,16 +751,18 @@ async function playPreSynced(
     );
   }
 
-  let clip: QsysClip;
-  if (zone === "mega") {
-    clip = preClipFor("mega", null);
-  } else {
-    // One zone means one group's cue already sounded; the other plays its own
-    // clip under its own grid-size rule, exactly as a solo press would.
-    const side = sides[zone === track ? 0 : 1];
-    const roster = await sessionRoster(side.subject.sessionId, Date.now()).catch(() => null);
-    clip = preClipFor(zone, roster?.length ?? null);
-  }
+  // The BIGGEST grid among the groups this play is for decides the clip: on
+  // mega both are counted, on a single zone only the group whose cue is still
+  // owed. An unreadable roster counts as zero — the announcement itself never
+  // waits on a Pandora blip (pre-clip.ts).
+  const sizes = await Promise.all(
+    sides.map(async (s, i) =>
+      claims[i].claimed
+        ? ((await sessionRoster(s.subject.sessionId, Date.now()).catch(() => null))?.length ?? 0)
+        : 0,
+    ),
+  );
+  const clip: QsysClip = preClipFor(zone, Math.max(...sizes));
   const play = await playQsysCue(zone, clip);
   const claimedKeys = claims.flatMap((c) => (c.claimed ? [c.key] : []));
   if (!play.ok) {

@@ -31,7 +31,7 @@ import {
   heatNameFromScores,
   type PandoraScoreRow,
 } from "./results-fallback";
-import type { ResultsDriver } from "./results-frame";
+import { standingsFinal, type ResultsDriver } from "./results-frame";
 import type { TrackKey } from "../track";
 
 /** Long enough to outlive any welcome-back window (they hold until the next
@@ -121,11 +121,19 @@ export async function loadOrCaptureResults(args: {
   sessionId: string;
   heatNumber: number | null;
   /** The venue's stamped ActualEnd, when the caller has one. Its presence is
-   *  what unlocks the fallback sources: during the pending-finish window karts
-   *  are still completing their final lap, and folding standings then would
-   *  freeze pre-final laps for 48h (review 2026-08-12). The wire capture needs
-   *  no such gate — its frame carries its own finished state. */
+   *  what says the laps are final: during the pending-finish window karts are
+   *  still completing their final lap, and recording standings then freezes
+   *  pre-final laps for 48h (review 2026-08-12; measured 2026-09-10 — 95% of
+   *  races were captured before the stamp and heat 28 posted the wrong
+   *  winner). Gates the WIRE capture as well as the fallback sources: the
+   *  frame's own finished state is the clock, not the laps — see
+   *  `standingsFinal`. */
   stampedEndMs?: number | null;
+  /** The phase-one finish marker's time (the clock hitting zero), when that is
+   *  all the caller has. Unlocks the wire capture only once it has aged past
+   *  UNSTAMPED_SETTLE_MS — the belt-and-braces for a stamp that never arrives
+   *  (bridge and Pandora both dark). Never unlocks the fallback sources. */
+  markerEndMs?: number | null;
   /** What the record should be called if a fallback source has to supply it
    *  and Pandora's rows don't name the session. */
   heatName?: string | null;
@@ -140,6 +148,20 @@ export async function loadOrCaptureResults(args: {
 
   const stored = await readRecordedResults(args.sessionId);
   if (stored) return stored;
+
+  // THE LAPS-FINAL GATE, ahead of everything. A capture taken while karts are
+  // still on their final lap is not "early", it is WRONG, and it is written
+  // once: the stored record above short-circuits every later attempt. So
+  // nothing is captured — by any source — until the venue's stamp says the
+  // laps are final, or the finish marker has aged long enough that they must
+  // be. Returning null here is free: the next push or TV poll tries again,
+  // and the results board falls back to the previous race meanwhile.
+  const final = standingsFinal({
+    stampedEndMs: args.stampedEndMs,
+    markerEndMs: args.markerEndMs,
+    nowMs: Date.now(),
+  });
+  if (!final) return null;
 
   const wantWire = args.wire !== false && args.heatNumber !== null;
   const wantFallback = resultsFallbackEnabled() && args.stampedEndMs != null;
@@ -162,11 +184,11 @@ export async function loadOrCaptureResults(args: {
 
   if (wantWire) {
     const frame = await captureTrackResults(args.track);
-    // Heat match AND finished (state >= 3): a frame captured during the
-    // pending-finish window still has karts completing their final lap, and a
-    // best lap set on that final lap is ordinary — recording early would put a
-    // qualifier under "didn't qualify" for 48h (review 2026-08-12). Recording
-    // nothing here is safe: the next push or TV poll simply tries again.
+    // Heat match AND not running (state >= 3). The state check is NOT the
+    // laps-final gate — S:4 arrives the instant the clock hits zero, with karts
+    // still lapping (measured 2026-09-10) — that gate is `standingsFinal`
+    // above. This only refuses a frame of a heat that has been restarted.
+    // Recording nothing here is safe: the next push or TV poll tries again.
     if (frame && frame.heatNumber === args.heatNumber && frame.state >= 3) {
       record = { heatName: frame.heatName, capturedAtMs: Date.now(), drivers: frame.drivers };
     }

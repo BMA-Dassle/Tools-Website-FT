@@ -29,6 +29,13 @@ window that syncs a pre (or post) pressed on both tracks onto the "both" (mega) 
       receipt; a lone armed track plays instantly (no tax). Synced pre = normal `pre` (mega `big`
       file missing on the Core, 2026-08-18); synced post = generic `post`. Route `maxDuration=30`;
       client note "playing on both tracks — synced".
+- [x] Mega big race restored (`feat/pit-mega-big-race`, owner 2026-09-10 "Fixed lets use that
+      feature now" after making the Core's mega `big` config and filename agree): the Mega exemption
+      in `pre-clip.ts` is gone — every track follows the 8+ rule; the synced pre picks the clip off
+      the BIGGER of the two grids. Core config still reads `Dual Track Big Race.mp3`, so the file was
+      renamed; the drive cannot be listed from here.
+- [ ] **Live**: first Mega big-race press — someone listening in the pit, and the play reply's
+      duration well above 200ms (the 2026-08-18 failure mode was a 204ms "finished").
 - [ ] **Live**: split night, both groups seated — press Pre on red then blue inside 5s: ONE
       announcement on both pits, both cards flip to played, both lanes move to karts. Then a lone
       press: plays immediately.

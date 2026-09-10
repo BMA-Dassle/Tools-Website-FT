@@ -35,9 +35,51 @@ export interface ResultsFrame {
   heatNumber: number | null;
   /** The frame's raw name with the [HEAT] marker humanised, for logs/UI. */
   heatName: string;
-  /** 1 running · 2 paused · >=3 finished — same reading live-session.tsx uses. */
+  /** 1 running · 2 paused · >=3 finished — same reading live-session.tsx uses.
+   *  FINISHED MEANS THE CLOCK, NOT THE LAPS: the socket flips to S:4 the
+   *  instant the race clock hits zero, while every kart is still driving its
+   *  final lap, and the driver rows keep changing for ~a lap afterwards
+   *  (measured live, Mega heat 28, 2026-09-10 — P1/P2 swapped 49s into S:4).
+   *  Whether the standings are final is decided by `standingsFinal`, never by
+   *  this field. */
   state: number;
   drivers: ResultsDriver[];
+}
+
+/**
+ * How long after the clock hits zero the standings are trusted WITHOUT the
+ * venue's stamp. The pending-finish window is one lap in the ordinary case
+ * (~45-90s) and 5 minutes at most (a kart that never comes round); owner
+ * 2026-09-10: "we know 2-3 minutes will be correct".
+ */
+export const UNSTAMPED_SETTLE_MS = 3 * 60_000;
+
+/**
+ * ARE THE LAPS FINAL? The one question every standings capture must answer
+ * before it records anything, because a record is written once and then
+ * served for 48 hours (and archived for good).
+ *
+ * The venue's stamped ActualEnd is the real signal: it lands when the last
+ * kart completes its final lap, ~one lap after the clock hits zero. The
+ * phase-one finish marker (the unstamped `RaceFinish` push, our receive time)
+ * is the clock hitting zero — final enough to know the race is over, NOT
+ * final enough to read the standings. Without a stamp, the marker has to age
+ * past `UNSTAMPED_SETTLE_MS` first.
+ *
+ * Before this gate existed (2026-08-15 → 2026-09-10) 95% of races were
+ * captured before the stamp, 7% of drivers were shown a slower best lap than
+ * they set, and heat 28 on 2026-09-10 posted the wrong winner.
+ */
+export function standingsFinal(args: {
+  stampedEndMs: number | null | undefined;
+  markerEndMs: number | null | undefined;
+  nowMs: number;
+}): boolean {
+  if (args.stampedEndMs != null && Number.isFinite(args.stampedEndMs)) return true;
+  if (args.markerEndMs != null && Number.isFinite(args.markerEndMs)) {
+    return args.nowMs - args.markerEndMs >= UNSTAMPED_SETTLE_MS;
+  }
+  return false;
 }
 
 /** "{}" (no race), unparseable, or driverless frames all return null — a
