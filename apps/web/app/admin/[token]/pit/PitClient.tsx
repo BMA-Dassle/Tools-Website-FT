@@ -497,17 +497,22 @@ export default function PitClient({ token, version }: { token: string; version: 
           error?: string;
           alreadyPlayed?: boolean;
           atMs?: number;
+          /** Both pits pressed inside the sync window — one announcement on
+           *  the "both" zone (cue-sync.ts). The second tablet gets the same
+           *  receipt as the first. */
+          synced?: boolean;
         };
         if (!res.ok) {
           setNote(`✕ ${json.error ?? `Failed (${res.status})`}`);
           return;
         }
+        const where = json.synced ? "both tracks — synced" : track;
         setNote(
           json.alreadyPlayed
             ? `✓ ${cue}-race already played this cycle${json.atMs ? ` at ${clockTimeMs(json.atMs)}` : ""}`
             : cue === "post"
-              ? `✓ Post-race playing on ${track} — seating reopens`
-              : `✓ Pre-race playing on ${track}`,
+              ? `✓ Post-race playing on ${where} — seating reopens`
+              : `✓ Pre-race playing on ${where}`,
         );
         await loadBoard();
       } catch (err) {

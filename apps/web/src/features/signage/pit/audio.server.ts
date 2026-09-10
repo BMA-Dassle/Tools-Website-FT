@@ -56,6 +56,21 @@ import {
   type QsysLiveState,
 } from "./qsys.server";
 import { readQsysTruth } from "./qsys-truth.server";
+import {
+  CUE_SYNC_RESULT_WAIT_MS,
+  CUE_SYNC_WINDOW_MS,
+  syncPartner,
+  syncedZoneFor,
+} from "./cue-sync";
+import {
+  announceSyncIntent,
+  claimSyncLead,
+  clearSyncIntents,
+  publishSyncResult,
+  releaseSyncLead,
+  waitForSyncIntent,
+  waitForSyncResult,
+} from "./cue-sync.server";
 
 // The stamp read side lives in audio-stamps.server.ts (lane.server needs it
 // too — post played = returned — and importing it from here would be a
@@ -177,15 +192,71 @@ export interface PlayCueResult {
    *  Not an error — the button was simply pressed twice. */
   alreadyPlayed?: boolean;
   sessionId?: string;
+  /** Both pits pressed inside the sync window and ONE announcement went out
+   *  on the mega zone for both groups (cue-sync.ts, owner 2026-09-10). */
+  synced?: boolean;
+  /** Which zone actually sounded — the track's own, or `mega` when synced. */
+  zone?: string;
+}
+
+/* ── the one-shot claim ────────────────────────────────────────────────── */
+
+type CueClaim =
+  | { claimed: true; key: string; atMs: number }
+  | { claimed: false; atMs: number | null };
+
+/**
+ * Claim the one-shot BEFORE the play request goes out — two tablets pressing
+ * together race for one claim, and only the winner talks to the PA. A loser
+ * reports the existing stamp so the press can say "already played at 7:36".
+ */
+async function claimCue(cue: PitCue, sessionId: string): Promise<CueClaim> {
+  const atMs = Date.now();
+  const key = cueKey(cue, sessionId);
+  const claimed = await redis
+    .set(key, JSON.stringify({ atMs, durationS: null }), "EX", STAMP_TTL_SECONDS, "NX")
+    .catch(() => null);
+  if (claimed === "OK") return { claimed: true, key, atMs };
+  const stamp = await readCueStamp(cue, sessionId);
+  return { claimed: false, atMs: stamp?.atMs ?? null };
+}
+
+/** A play that FAILED releases its claims, so the buttons re-arm and the
+ *  press can retry. A DEL that itself fails leaves a stamp the TTL clears. */
+async function releaseClaims(keys: string[]): Promise<void> {
+  await Promise.all(keys.map((k) => redis.del(k).catch(() => void 0)));
 }
 
 /**
- * Claim the one-shot, fire the PA, and settle the stamp.
- *
- * Claim-first so concurrent presses can't both reach the player; on a failed
- * play the claim is DELeted so the next press retries. On success the stamp
- * is rewritten with the clip duration the player reported — a plain
- * overwrite, safe because the claim is already ours.
+ * A play that SOUNDED rewrites its claims with the clip duration the player
+ * reported — a plain overwrite, safe because the claims are already ours —
+ * and records the measurement (see readClipLengths). Nothing to write when
+ * the player did not say.
+ */
+async function settleClaims(
+  keys: string[],
+  atMs: number,
+  durationS: number | null,
+  clip: QsysClip,
+): Promise<void> {
+  if (durationS == null) return;
+  await Promise.all([
+    ...keys.map((k) =>
+      redis
+        .set(k, JSON.stringify({ atMs, durationS }), "EX", STAMP_TTL_SECONDS)
+        .catch(() => void 0),
+    ),
+    redis
+      .set(clipLengthKey(clip), String(durationS), "EX", CLIP_LEN_TTL_SECONDS)
+      .catch(() => void 0),
+  ]);
+}
+
+/**
+ * Claim the one-shot, fire the PA on the track's own zone, and settle the
+ * stamp — the SOLO play. Claim-first so concurrent presses can't both reach
+ * the player; on a failed play the claim is released so the next press
+ * retries.
  *
  * `clip` is WHICH FILE sounds; `cue` is which one-shot it spends. They differ
  * only for the big-race pre (clip `big`, cue `pre`): whichever version plays,
@@ -203,53 +274,41 @@ async function claimAndPlay(
   | { outcome: "already"; atMs: number | null }
   | { outcome: "failed"; error: string }
 > {
-  const nowMs = Date.now();
-  const key = cueKey(cue, sessionId);
-  const claimed = await redis
-    .set(key, JSON.stringify({ atMs: nowMs, durationS: null }), "EX", STAMP_TTL_SECONDS, "NX")
-    .catch(() => null);
-  if (claimed !== "OK") {
-    const stamp = await readCueStamp(cue, sessionId);
-    return { outcome: "already", atMs: stamp?.atMs ?? null };
-  }
+  const claim = await claimCue(cue, sessionId);
+  if (!claim.claimed) return { outcome: "already", atMs: claim.atMs };
 
   const play = await playQsysCue(track, clip);
   if (!play.ok) {
-    // Release the claim — the cue never sounded, so the press must be
-    // repeatable. A DEL that itself fails leaves a stamp the TTL clears.
-    await redis.del(key).catch(() => void 0);
+    await releaseClaims([claim.key]);
     return { outcome: "failed", error: play.error ?? "the PA did not start the cue" };
   }
-
-  if (play.durationS != null) {
-    await redis
-      .set(key, JSON.stringify({ atMs: nowMs, durationS: play.durationS }), "EX", STAMP_TTL_SECONDS)
-      .catch(() => void 0);
-    // The measurement ride-along — see readClipLengths.
-    await redis
-      .set(clipLengthKey(clip), String(play.durationS), "EX", CLIP_LEN_TTL_SECONDS)
-      .catch(() => void 0);
-  }
-  return { outcome: "played", atMs: nowMs };
+  await settleClaims([claim.key], claim.atMs, play.durationS, clip);
+  return { outcome: "played", atMs: claim.atMs };
 }
 
+/* ── who each cue plays for ────────────────────────────────────────────── */
+
+/** The group a cue is for — the lane slot's identity fields, nothing more. */
+interface CueSubject {
+  sessionId: string;
+  heatNumber: number | null;
+  raceType: string | null;
+  room: BriefingRoom | null;
+  atMs: number;
+}
+
+type PreSubjectVerdict =
+  | { ok: true; subject: CueSubject; lateForRacing: boolean }
+  | { ok: false; error: string };
+
 /**
- * Play the PRE-RACE cue for whatever group is in the track's holding.
- *
- * The Neon row is the durable record and is written only on a fresh, PLAYED
- * claim — awaited and uncaught, same posture as every briefing event: a
- * staff action whose record cannot land should fail loudly, not proceed
- * unrecorded. The room on the row is the room the group was briefed in.
+ * WHO THE PRE-RACE CUE PLAYS FOR on a lane, and whether it may play at all.
+ * Pulled out of playPreRace (2026-09-10) so the sync path can ask the SAME
+ * question of the other track before deciding to wait for it — every rule
+ * here is playPreRace's own, moved not changed, and the incidents that bought
+ * each one stay beside it.
  */
-export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
-  const lane = await readPitLane(track);
-  /**
-   * THE STAGED GROUP, SEATS OR KARTS. Reading `holding` alone was right when the
-   * lane had two slots — but this press is now what MOVES a group out of holding
-   * and into the karts (see below), so a second press would have found empty
-   * seats and refused with "no group is in holding" about a group standing right
-   * there. Same `holding ?? karts` rule the rest of the lane uses.
-   */
+async function resolvePreSubject(lane: PitLaneFeed): Promise<PreSubjectVerdict> {
   /**
    * THE FURTHEST-ALONG GROUP, KARTS FIRST (owner 2026-08-16: "the pit
    * controller should be showing race that's in the rail").
@@ -264,10 +323,6 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
    * the urgent one. The two orderings only differ while the karts are occupied,
    * and in that window the seated group's cue cannot play anyway — the karts
    * are not free for them to walk into.
-   *
-   * The karts fallback that used to be second still works for its original
-   * purpose (a repeat press finding the group this very press just moved), it
-   * is simply now first.
    */
   const staged = lane.karts ?? lane.holding;
   /**
@@ -297,7 +352,7 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
    * for good. That is the owner's own rule about this cue — "it is not optional
    * and must be played".
    */
-  let subject: typeof staged | null = null;
+  let subject: CueSubject | null = null;
   let lateForRacing = false;
   if (lane.racing) {
     const played = await readCueStamp("pre", lane.racing.sessionId);
@@ -312,7 +367,15 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
       lateForRacing = true;
     }
   }
-  if (!subject) subject = staged ?? null;
+  if (!subject && staged) {
+    subject = {
+      sessionId: staged.sessionId,
+      heatNumber: staged.heatNumber,
+      raceType: staged.raceType,
+      room: staged.room,
+      atMs: staged.atMs,
+    };
+  }
   if (!subject) {
     return { ok: false, error: "no group is in holding — pre-race arms when a group is seated" };
   }
@@ -333,11 +396,232 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
     const verdict = kartsAvailability({ karts: lane.karts, sessionId: subject.sessionId });
     if (!verdict.ok) return { ok: false, error: verdict.error };
   }
-  // The ambient stay-seated loop yields to this press instantly; anything
-  // else sounding keeps its refusal.
-  const cleared = await yieldStaySeated(await paBusy(track));
-  if (!cleared.cleared) return { ok: false, error: cleared.error ?? "the PA is busy" };
+  return { ok: true, subject, lateForRacing };
+}
 
+type PostSubjectVerdict =
+  | { ok: true; returning: NonNullable<PitLaneFeed["pitIn"]>; gate: PostRaceGate }
+  | { ok: false; error: string };
+
+/**
+ * WHO THE POST-RACE CUE PLAYS FOR on a lane, and whether its room is clear.
+ *
+ * POST-RACE IS FOR THE GROUP IN THE PIT (2026-08-15). It used to read
+ * `racing` and then demand a finish stamp off it — two reads of one slot that
+ * had to mean two different things at two different times. That gate is what
+ * left blue 62 unplayable on a night the finish marker never landed: the
+ * group was demonstrably back, and the only control that could say so refused
+ * because nothing on the wire had agreed yet. The `pitIn` slot IS "a race has
+ * come in and owes its announcement", so occupying it is the whole arming
+ * condition. A group still genuinely on track is in `racing` and cannot be
+ * posted, which was the point of the old gate.
+ */
+async function resolvePostSubject(lane: PitLaneFeed): Promise<PostSubjectVerdict> {
+  const returning = lane.pitIn;
+  if (!returning) {
+    return {
+      ok: false,
+      error: "no race is back in the pit — post-race arms when a race comes in",
+    };
+  }
+  const gate = await postRaceGate(returning.sessionId);
+  return { ok: true, returning, gate };
+}
+
+/* ── what a played cue leaves behind ───────────────────────────────────── */
+
+/**
+ * The Neon row is the durable record and is written only on a fresh, PLAYED
+ * claim — awaited and uncaught, same posture as every briefing event: a
+ * staff action whose record cannot land should fail loudly, not proceed
+ * unrecorded. The room on the row is the room the group was briefed in.
+ */
+async function recordPre(track: TrackKey, subject: CueSubject): Promise<void> {
+  const room =
+    subject.room ?? (await sessionBriefed(subject.sessionId).catch(() => null))?.room ?? null;
+  if (!room) return;
+  await recordBriefingEvent({
+    venue: VENUE,
+    businessDay: businessDayYmdET(),
+    room,
+    track,
+    sessionId: subject.sessionId,
+    heatNumber: subject.heatNumber,
+    raceType: subject.raceType,
+    tier: null,
+    action: "audio-pre",
+  });
+}
+
+/**
+ * THIS PRESS IS THE "IN KARTS" TRIGGER (owner 2026-08-14: "pit board has a
+ * button called play pre. That is what triggers holding to move to karts").
+ *
+ * The pre-race announcement is what sends a seated group to their karts, so
+ * the moment it sounds is the moment the SEATS ARE FREE for the next group —
+ * and that is the whole reason the stage exists. Deriving it from this press
+ * rather than adding a second one is the same reasoning that put the lane's
+ * release on the post-race cue: a press that makes a noise is a press staff
+ * actually make, where a press that only updates a screen is one they forget
+ * (7 "send to holding" presses across 131 room occupancies, measured
+ * 2026-08-13).
+ *
+ * THE LANE MOVE RIDES EVERY SUCCESSFUL PRESS, A REPLAY INCLUDED (2026-09-01).
+ * It used to live only under the fresh-play exit — so the SECOND press of
+ * Play Pre, which is the one staff make when the board did not move the first
+ * time, could never move it either (the cue is a one-shot: every later press
+ * returns `already`). That is the trap markInKarts documents from the other
+ * side (red 19/20 on 2026-08-16): a group whose cue had sounded but whose slot
+ * had not moved was unrecoverable from any button. markInKarts is idempotent
+ * by design, so a replay costs a Redis read and changes nothing when there is
+ * nothing to change.
+ *
+ * AFTER the Neon row and after the PA, never before: the row is the durable
+ * record and the cue is the thing staff are waiting on, so neither waits on a
+ * lane write. markInKarts swallows its own failures.
+ *
+ * NOT for a late pre played to a group already racing — they left the karts
+ * long ago, and markInKarts would (rightly) refuse a session in `racing`.
+ */
+async function moveIntoKarts(
+  track: TrackKey,
+  subject: CueSubject,
+  lateForRacing: boolean,
+  atMs: number | null,
+): Promise<void> {
+  if (lateForRacing) return;
+  await markInKarts({
+    track,
+    sessionId: subject.sessionId,
+    heatNumber: subject.heatNumber,
+    raceType: subject.raceType,
+    room: subject.room,
+    // markInKarts reads an absent stamp as "now", which is the right reading
+    // for a claim that came back without one.
+    atMs: atMs ?? undefined,
+  }).catch(() => {});
+}
+
+/** The insurance row for a post that sounded — keeps the MARKER's room, as
+ *  it always has. */
+async function recordPost(
+  track: TrackKey,
+  returning: NonNullable<PitLaneFeed["pitIn"]>,
+  briefedRoom: BriefingRoom | null,
+): Promise<void> {
+  if (!briefedRoom) return;
+  await recordBriefingEvent({
+    venue: VENUE,
+    businessDay: businessDayYmdET(),
+    room: briefedRoom,
+    track,
+    sessionId: returning.sessionId,
+    heatNumber: returning.heatNumber,
+    raceType: null,
+    tier: null,
+    action: "audio-post",
+  });
+}
+
+/* ── two pits pressed together ─────────────────────────────────────────── */
+
+/**
+ * THE SYNC DECISION for a press that has already passed every arming check
+ * on its own track (cue-sync.ts has the rule and the owner's words).
+ *
+ *   solo     play on your own zone now — no partner, partner not armed, the
+ *            window closed with nobody, or Redis could not coordinate
+ *   lead     the partner pressed inside the window: play ONCE for both
+ *   relayed  the partner was already holding the window and has played for
+ *            both — here is what happened to YOUR cue
+ *
+ * `heldLead` on a solo verdict means this press held the window and nobody
+ * came; it publishes its solo outcome so a repeat press of the same button
+ * that arrived meanwhile can pick it up instead of waiting out its own clock.
+ */
+type SyncVerdict =
+  | { kind: "solo"; heldLead: boolean }
+  | { kind: "lead"; partner: TrackKey; partnerSessionId: string }
+  | { kind: "relayed"; result: PlayCueResult };
+
+/**
+ * Is the other pit armed for the same cue RIGHT NOW — a subject its own press
+ * would resolve, nothing sounded for it yet, and (for post) its room clear?
+ * The same resolvers the press itself uses, so "armed" here means "their
+ * press would go through", never a guess.
+ */
+async function partnerArmed(cue: PitCue, partner: TrackKey): Promise<boolean> {
+  const lane = await readPitLane(partner).catch(() => null);
+  if (!lane) return false;
+  if (cue === "pre") {
+    const r = await resolvePreSubject(lane);
+    if (!r.ok) return false;
+    return (await readCueStamp("pre", r.subject.sessionId)) == null;
+  }
+  const r = await resolvePostSubject(lane);
+  if (!r.ok || !r.gate.allowed) return false;
+  return (await readCueStamp("post", r.returning.sessionId)) == null;
+}
+
+async function syncWithPartner(
+  cue: PitCue,
+  track: TrackKey,
+  sessionId: string,
+): Promise<SyncVerdict> {
+  const partner = syncPartner(track);
+  if (!partner) return { kind: "solo", heldLead: false };
+  if (!(await partnerArmed(cue, partner))) return { kind: "solo", heldLead: false };
+
+  const lead = await claimSyncLead(cue, track);
+  if (lead.role === "unavailable") return { kind: "solo", heldLead: false };
+
+  if (lead.role === "lead") {
+    await announceSyncIntent(cue, track, sessionId);
+    const joined = await waitForSyncIntent(cue, partner, CUE_SYNC_WINDOW_MS);
+    if (joined) return { kind: "lead", partner, partnerSessionId: joined.sessionId };
+    // Nobody came. Hand the window back before playing solo, so the partner's
+    // next press is a fresh decision rather than a follower of a ghost.
+    await clearSyncIntents(cue, [track]);
+    await releaseSyncLead(cue);
+    return { kind: "solo", heldLead: true };
+  }
+
+  // Somebody holds the window. If it is the other pit, this press is exactly
+  // what they are waiting for — announce and let them play for both. If it is
+  // THIS track (the same button pressed twice while the first press holds),
+  // just wait for that press's outcome; it will be ours too.
+  if (lead.leader !== track) await announceSyncIntent(cue, track, sessionId);
+  const relayed = await waitForSyncResult(cue, track, sessionId, CUE_SYNC_RESULT_WAIT_MS);
+  if (relayed) return { kind: "relayed", result: relayed };
+  // The leader vanished (instance killed mid-window). Play for yourself.
+  return { kind: "solo", heldLead: false };
+}
+
+/** The leader's exit: tell both presses what happened, give the window back. */
+async function settleSync(
+  cue: PitCue,
+  mine: { track: TrackKey; sessionId: string; result: PlayCueResult },
+  partner: { track: TrackKey; sessionId: string; result: PlayCueResult } | null,
+): Promise<PlayCueResult> {
+  await Promise.all([
+    publishSyncResult(cue, mine.track, { ...mine.result, sessionId: mine.sessionId }),
+    partner
+      ? publishSyncResult(cue, partner.track, { ...partner.result, sessionId: partner.sessionId })
+      : Promise.resolve(),
+  ]);
+  await clearSyncIntents(cue, partner ? [mine.track, partner.track] : [mine.track]);
+  await releaseSyncLead(cue);
+  return mine.result;
+}
+
+/* ── the PRE-RACE cue ──────────────────────────────────────────────────── */
+
+/** The solo pre: this track's zone, this track's clip, this group's records. */
+async function playPreOn(
+  track: TrackKey,
+  resolved: { subject: CueSubject; lateForRacing: boolean },
+): Promise<PlayCueResult> {
+  const { subject, lateForRacing } = resolved;
   /**
    * WHICH PRE-RACE CLIP — the rule, the Mega exemption and the incident that
    * bought it all live in pre-clip.ts. Mega skips the roster read entirely:
@@ -352,99 +636,188 @@ export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
   const result = await claimAndPlay(track, "pre", subject.sessionId, clip);
   if (result.outcome === "failed") return { ok: false, error: result.error };
 
-  /**
-   * THE LANE MOVE RIDES EVERY SUCCESSFUL PRESS, A REPLAY INCLUDED (2026-09-01).
-   *
-   * Defined once and called from both exits. It used to live only on the path
-   * below, under the `already` return — so the SECOND press of Play Pre, which
-   * is the one staff make when the board did not move the first time, could
-   * never move it either. The cue is a one-shot: once a session has its stamp
-   * every later press returns `already` and stopped short of the lane write.
-   *
-   * That is the trap this file already documents from the other side (see
-   * markInKarts, red 19/20 on 2026-08-16): a group whose cue had sounded but
-   * whose slot had not moved was unrecoverable from any button, because the only
-   * button that moves them refuses to speak twice. Making the move idempotent
-   * rather than once-only is what gives staff a retry.
-   *
-   * markInKarts is idempotent by design — it returns ok on a session already in
-   * the slot — so calling it on a replay costs a Redis read and changes nothing
-   * when there is nothing to change.
-   *
-   * NOT for a late pre played to a group already racing: they left the karts
-   * long ago, and markInKarts would (rightly) refuse a session in `racing`.
-   */
-  const moveIntoKarts = async (): Promise<void> => {
-    if (lateForRacing) return;
-    await markInKarts({
-      track,
-      sessionId: subject.sessionId,
-      heatNumber: subject.heatNumber,
-      raceType: subject.raceType,
-      room: subject.room,
-      // Defined above the `already` narrowing, so this is `number | null` here
-      // where the old single call site saw a plain `number`. markInKarts reads
-      // an absent stamp as "now", which is the right reading for a claim that
-      // came back without one.
-      atMs: result.atMs ?? undefined,
-    }).catch(() => {});
-  };
-
   if (result.outcome === "already") {
-    await moveIntoKarts();
+    await moveIntoKarts(track, subject, lateForRacing, result.atMs);
     return {
       ok: true,
       alreadyPlayed: true,
       atMs: result.atMs ?? undefined,
       sessionId: subject.sessionId,
+      zone: track,
     };
   }
 
-  const room =
-    subject.room ?? (await sessionBriefed(subject.sessionId).catch(() => null))?.room ?? null;
-  if (room) {
-    await recordBriefingEvent({
-      venue: VENUE,
-      businessDay: businessDayYmdET(),
-      room,
-      track,
-      sessionId: subject.sessionId,
-      heatNumber: subject.heatNumber,
-      raceType: subject.raceType,
-      tier: null,
-      action: "audio-pre",
-    });
+  await recordPre(track, subject);
+  await moveIntoKarts(track, subject, lateForRacing, result.atMs);
+  return { ok: true, atMs: result.atMs, sessionId: subject.sessionId, zone: track };
+}
+
+/**
+ * THE SYNCED PRE: both pits pressed inside the window, so ONE announcement on
+ * the mega zone — both pits' speakers — and every record, stamp and lane
+ * move each group would have had from its own press.
+ *
+ * The partner's press is re-resolved off its lane HERE, at play time, with
+ * the same resolver its own press used: if the lane no longer names the
+ * group they pressed for, their press gets that refusal and this track plays
+ * solo. The partner's zone yields its stay-seated loop like any press.
+ *
+ * WHICH CLIP ON MEGA: the normal `pre`, never `big`, for the same reason
+ * pre-clip.ts exempts Mega — the Core's mega `big` entry names a file that
+ * is not on the drive and "plays" 204ms of nothing (2026-08-18). Two big
+ * grids pressed together therefore hear the normal pre; the alternative is
+ * two grids hearing nothing.
+ */
+async function playPreSynced(
+  track: TrackKey,
+  mine: { subject: CueSubject; lateForRacing: boolean },
+  partner: TrackKey,
+  partnerSessionId: string,
+): Promise<PlayCueResult> {
+  const pLane = await readPitLane(partner);
+  const pResolved = await resolvePreSubject(pLane);
+  const refusePartner = async (error: string): Promise<PlayCueResult> => {
+    const solo = await playPreOn(track, mine);
+    return settleSync(
+      "pre",
+      { track, sessionId: mine.subject.sessionId, result: solo },
+      { track: partner, sessionId: partnerSessionId, result: { ok: false, error } },
+    );
+  };
+  if (!pResolved.ok) return refusePartner(pResolved.error);
+  if (pResolved.subject.sessionId !== partnerSessionId) {
+    return refusePartner("the group in holding changed while syncing — press again");
+  }
+  // BOTH zones must be clear NOW, not just the partner's: the hold gave the
+  // stay-seated loop up to five seconds to start on either pit, and zones run
+  // independently — a loop left sounding on one pit would play on under the
+  // mega announcement. One fresh read, two verdicts (mega, if sounding, names
+  // itself in both; stopping it twice is harmless). A REAL clip on this track
+  // refuses both presses — the partner's press would have been refused for
+  // the same reason on its own.
+  const live = await readQsysTruth({ fresh: true });
+  const [mineCleared, pCleared] = await Promise.all([
+    yieldStaySeated(paBusyIn(track, live)),
+    yieldStaySeated(paBusyIn(partner, live)),
+  ]);
+  if (!mineCleared.cleared) {
+    const busy: PlayCueResult = { ok: false, error: mineCleared.error ?? "the PA is busy" };
+    return settleSync(
+      "pre",
+      { track, sessionId: mine.subject.sessionId, result: busy },
+      { track: partner, sessionId: partnerSessionId, result: busy },
+    );
+  }
+  if (!pCleared.cleared) return refusePartner(pCleared.error ?? "the PA is busy");
+
+  const sides = [
+    { track, subject: mine.subject, lateForRacing: mine.lateForRacing },
+    { track: partner, subject: pResolved.subject, lateForRacing: pResolved.lateForRacing },
+  ] as const;
+  const claims = await Promise.all(sides.map((s) => claimCue("pre", s.subject.sessionId)));
+  const claimedTracks = sides.filter((_, i) => claims[i].claimed).map((s) => s.track);
+  const zone = syncedZoneFor(claimedTracks);
+
+  const resultFor = (i: number, play: { atMs: number } | null): PlayCueResult => {
+    const claim = claims[i];
+    if (!claim.claimed) {
+      return {
+        ok: true,
+        alreadyPlayed: true,
+        atMs: claim.atMs ?? undefined,
+        sessionId: sides[i].subject.sessionId,
+        zone: sides[i].track,
+      };
+    }
+    return {
+      ok: true,
+      atMs: play?.atMs ?? claim.atMs,
+      sessionId: sides[i].subject.sessionId,
+      synced: zone === "mega",
+      zone: zone ?? sides[i].track,
+    };
+  };
+
+  if (!zone) {
+    // Both cues had already sounded — two replays. The lane moves still ride
+    // them (see moveIntoKarts), and neither press is an error.
+    await Promise.all(
+      sides.map((s, i) => moveIntoKarts(s.track, s.subject, s.lateForRacing, claims[i].atMs)),
+    );
+    return settleSync(
+      "pre",
+      { track, sessionId: mine.subject.sessionId, result: resultFor(0, null) },
+      { track: partner, sessionId: partnerSessionId, result: resultFor(1, null) },
+    );
   }
 
-  /**
-   * THIS PRESS IS THE "IN KARTS" TRIGGER (owner 2026-08-14: "pit board has a
-   * button called play pre. That is what triggers holding to move to karts").
-   *
-   * The pre-race announcement is what sends a seated group to their karts, so
-   * the moment it sounds is the moment the SEATS ARE FREE for the next group —
-   * and that is the whole reason the stage exists. Deriving it from this press
-   * rather than adding a second one is the same reasoning that put the lane's
-   * release on the post-race cue: a press that makes a noise is a press staff
-   * actually make, where a press that only updates a screen is one they forget
-   * (7 "send to holding" presses across 131 room occupancies, measured
-   * 2026-08-13).
-   *
-   * AFTER the Neon row and after the PA, never before: the row is the durable
-   * record and the cue is the thing staff are waiting on, so neither waits on a
-   * lane write. markInKarts swallows its own failures and is idempotent, so a
-   * Redis blip here costs a board update and never the announcement.
-   *
-   * NOT for a late pre played to a group already racing — they left the karts
-   * long ago, and markInKarts would (rightly) refuse a session in `racing`.
-   *
-   * The call itself is `moveIntoKarts` above, which the replayed-press exit also
-   * uses. The ORDERING described here is what keeps it at this point on the
-   * fresh path rather than beside its definition: the insurance row goes to Neon
-   * first, and only then does the lane move.
-   */
-  await moveIntoKarts();
+  let clip: QsysClip;
+  if (zone === "mega") {
+    clip = preClipFor("mega", null);
+  } else {
+    // One zone means one group's cue already sounded; the other plays its own
+    // clip under its own grid-size rule, exactly as a solo press would.
+    const side = sides[zone === track ? 0 : 1];
+    const roster = await sessionRoster(side.subject.sessionId, Date.now()).catch(() => null);
+    clip = preClipFor(zone, roster?.length ?? null);
+  }
+  const play = await playQsysCue(zone, clip);
+  const claimedKeys = claims.flatMap((c) => (c.claimed ? [c.key] : []));
+  if (!play.ok) {
+    await releaseClaims(claimedKeys);
+    const failed: PlayCueResult = {
+      ok: false,
+      error: play.error ?? "the PA did not start the cue",
+    };
+    return settleSync(
+      "pre",
+      { track, sessionId: mine.subject.sessionId, result: failed },
+      { track: partner, sessionId: partnerSessionId, result: failed },
+    );
+  }
+  const atMs = Math.min(...claims.flatMap((c) => (c.claimed ? [c.atMs] : [])));
+  await settleClaims(claimedKeys, atMs, play.durationS, clip);
+  console.log(`[pit] synced pre on ${zone} for ${claimedTracks.join("+")}`);
 
-  return { ok: true, atMs: result.atMs, sessionId: subject.sessionId };
+  for (const [i, s] of sides.entries()) {
+    const claim = claims[i];
+    if (claim.claimed) await recordPre(s.track, s.subject);
+    await moveIntoKarts(s.track, s.subject, s.lateForRacing, claim.claimed ? atMs : claim.atMs);
+  }
+  return settleSync(
+    "pre",
+    { track, sessionId: mine.subject.sessionId, result: resultFor(0, { atMs }) },
+    { track: partner, sessionId: partnerSessionId, result: resultFor(1, { atMs }) },
+  );
+}
+
+/**
+ * Play the PRE-RACE cue for whatever group is in the track's holding.
+ *
+ * Resolve who it is for (resolvePreSubject), make sure the zone is clear
+ * (the stay-seated loop yields), then either sync with the other pit's press
+ * or play on this track's own zone.
+ */
+export async function playPreRace(track: TrackKey): Promise<PlayCueResult> {
+  const lane = await readPitLane(track);
+  const resolved = await resolvePreSubject(lane);
+  if (!resolved.ok) return { ok: false, error: resolved.error };
+
+  // The ambient stay-seated loop yields to this press instantly; anything
+  // else sounding keeps its refusal.
+  const cleared = await yieldStaySeated(await paBusy(track));
+  if (!cleared.cleared) return { ok: false, error: cleared.error ?? "the PA is busy" };
+
+  const sync = await syncWithPartner("pre", track, resolved.subject.sessionId);
+  if (sync.kind === "relayed") return sync.result;
+  if (sync.kind === "lead") {
+    return playPreSynced(track, resolved, sync.partner, sync.partnerSessionId);
+  }
+  const result = await playPreOn(track, resolved);
+  if (sync.heldLead) {
+    await publishSyncResult("pre", track, { ...result, sessionId: resolved.subject.sessionId });
+  }
+  return result;
 }
 
 /* ── the stay-seated loop ─────────────────────────────────────────────── */
@@ -643,6 +1016,191 @@ export async function postRaceGate(sessionId: string): Promise<PostRaceGate> {
   return postRaceGateFrom(briefed?.room ?? null, rooms);
 }
 
+/* ── the POST-RACE cue ─────────────────────────────────────────────────── */
+
+/**
+ * The solo post: this track's zone, the room-phrase clip where it applies,
+ * and the lane release.
+ *
+ * THE ANNOUNCEMENT NAMES THE ROOM (owner 2026-08-16). The returning group's
+ * room rides the pitIn slot from the send; the briefed marker is the
+ * fallback for a slot written before the field existed or hand-placed from
+ * Override. Candidates are tried in order and the generic `post` is always
+ * last — a room clip the Core does not know yet fails its play, releases
+ * the claim, and the plain announcement still sounds on the same press.
+ * ONE one-shot whichever version plays: same clip/cue split as the
+ * big-race pre.
+ *
+ * MEGA ONLY (owner 2026-08-16: "this only happens on Mega"). The room is
+ * only ambiguous when two rooms serve one circuit; a split night's zone
+ * already carries its own post clip that knows its room, and it plays
+ * exactly as it always has — no extra attempt, no file dependency.
+ */
+async function playPostOn(
+  track: TrackKey,
+  returning: NonNullable<PitLaneFeed["pitIn"]>,
+): Promise<PlayCueResult> {
+  const briefedRoom = (await sessionBriefed(returning.sessionId).catch(() => null))?.room ?? null;
+  const room = returning.room ?? briefedRoom;
+  const roomForClip = track === "mega" ? room : null;
+  let result: Awaited<ReturnType<typeof claimAndPlay>> = {
+    outcome: "failed",
+    error: "the PA did not start the cue",
+  };
+  for (const clip of postClipCandidates(roomForClip)) {
+    result = await claimAndPlay(track, "post", returning.sessionId, clip);
+    if (result.outcome !== "failed") break;
+  }
+  if (result.outcome === "failed") return { ok: false, error: result.error };
+  if (result.outcome === "already") {
+    // Same cycle, pressed again — re-assert the release (see playPostRace for
+    // why this is safe): if a straggling finish marker re-raised the hold
+    // after the first press, this press is how staff clear it.
+    await markRacePitted(track);
+    return {
+      ok: true,
+      alreadyPlayed: true,
+      atMs: result.atMs ?? undefined,
+      sessionId: returning.sessionId,
+      zone: track,
+    };
+  }
+
+  await recordPost(track, returning, briefedRoom);
+  // The release. markRacePitted resolves the racing group itself and writes
+  // its own insurance row — one code path for this stamp, whoever presses.
+  await markRacePitted(track);
+  return { ok: true, atMs: result.atMs, sessionId: returning.sessionId, zone: track };
+}
+
+/**
+ * THE SYNCED POST: both pits pressed inside the window, so ONE announcement
+ * on the mega zone and both lanes released. The generic `post` plays — the
+ * room-phrase files are Mega-night clips (playPostOn), and on a split night
+ * each group returns to its own room, which is what the generic clip says.
+ * The partner is re-resolved and re-gated at play time, exactly as its own
+ * press would have been.
+ */
+async function playPostSynced(
+  track: TrackKey,
+  returning: NonNullable<PitLaneFeed["pitIn"]>,
+  partner: TrackKey,
+  partnerSessionId: string,
+): Promise<PlayCueResult> {
+  const pLane = await readPitLane(partner);
+  const pResolved = await resolvePostSubject(pLane);
+  const refusePartner = async (error: string): Promise<PlayCueResult> => {
+    const solo = await playPostOn(track, returning);
+    return settleSync(
+      "post",
+      { track, sessionId: returning.sessionId, result: solo },
+      { track: partner, sessionId: partnerSessionId, result: { ok: false, error } },
+    );
+  };
+  if (!pResolved.ok) return refusePartner(pResolved.error);
+  if (pResolved.returning.sessionId !== partnerSessionId) {
+    return refusePartner("the race in the pit changed while syncing — press again");
+  }
+  if (!pResolved.gate.allowed) {
+    return refusePartner(pResolved.gate.reason ?? "the briefing room is not empty yet");
+  }
+  // BOTH zones must be clear NOW, not just the partner's: the hold gave the
+  // stay-seated loop up to five seconds to start on either pit, and zones run
+  // independently — a loop left sounding on one pit would play on under the
+  // mega announcement. One fresh read, two verdicts (mega, if sounding, names
+  // itself in both; stopping it twice is harmless). A REAL clip on this track
+  // refuses both presses — the partner's press would have been refused for
+  // the same reason on its own.
+  const live = await readQsysTruth({ fresh: true });
+  const [mineCleared, pCleared] = await Promise.all([
+    yieldStaySeated(paBusyIn(track, live)),
+    yieldStaySeated(paBusyIn(partner, live)),
+  ]);
+  if (!mineCleared.cleared) {
+    const busy: PlayCueResult = { ok: false, error: mineCleared.error ?? "the PA is busy" };
+    return settleSync(
+      "post",
+      { track, sessionId: returning.sessionId, result: busy },
+      { track: partner, sessionId: partnerSessionId, result: busy },
+    );
+  }
+  if (!pCleared.cleared) return refusePartner(pCleared.error ?? "the PA is busy");
+
+  const sides = [
+    { track, returning },
+    { track: partner, returning: pResolved.returning },
+  ] as const;
+  const briefedRooms = await Promise.all(
+    sides.map(
+      async (s) => (await sessionBriefed(s.returning.sessionId).catch(() => null))?.room ?? null,
+    ),
+  );
+  const claims = await Promise.all(sides.map((s) => claimCue("post", s.returning.sessionId)));
+  const claimedTracks = sides.filter((_, i) => claims[i].claimed).map((s) => s.track);
+  const zone = syncedZoneFor(claimedTracks);
+
+  const resultFor = (i: number, play: { atMs: number } | null): PlayCueResult => {
+    const claim = claims[i];
+    if (!claim.claimed) {
+      return {
+        ok: true,
+        alreadyPlayed: true,
+        atMs: claim.atMs ?? undefined,
+        sessionId: sides[i].returning.sessionId,
+        zone: sides[i].track,
+      };
+    }
+    return {
+      ok: true,
+      atMs: play?.atMs ?? claim.atMs,
+      sessionId: sides[i].returning.sessionId,
+      synced: zone === "mega",
+      zone: zone ?? sides[i].track,
+    };
+  };
+
+  if (!zone) {
+    // Both already sounded — two re-asserted releases, as playPostOn does.
+    await Promise.all(sides.map((s) => markRacePitted(s.track)));
+    return settleSync(
+      "post",
+      { track, sessionId: returning.sessionId, result: resultFor(0, null) },
+      { track: partner, sessionId: partnerSessionId, result: resultFor(1, null) },
+    );
+  }
+
+  // Both claimed → mega, generic clip. One claimed → that pit's own zone; on
+  // a split night its clip is the generic one too (room phrases are Mega's).
+  const clip: QsysClip = "post";
+  const play = await playQsysCue(zone, clip);
+  const claimedKeys = claims.flatMap((c) => (c.claimed ? [c.key] : []));
+  if (!play.ok) {
+    await releaseClaims(claimedKeys);
+    const failed: PlayCueResult = {
+      ok: false,
+      error: play.error ?? "the PA did not start the cue",
+    };
+    return settleSync(
+      "post",
+      { track, sessionId: returning.sessionId, result: failed },
+      { track: partner, sessionId: partnerSessionId, result: failed },
+    );
+  }
+  const atMs = Math.min(...claims.flatMap((c) => (c.claimed ? [c.atMs] : [])));
+  await settleClaims(claimedKeys, atMs, play.durationS, clip);
+  console.log(`[pit] synced post on ${zone} for ${claimedTracks.join("+")}`);
+
+  for (const [i, s] of sides.entries()) {
+    if (claims[i].claimed) await recordPost(s.track, s.returning, briefedRooms[i]);
+    await markRacePitted(s.track);
+  }
+  return settleSync(
+    "post",
+    { track, sessionId: returning.sessionId, result: resultFor(0, { atMs }) },
+    { track: partner, sessionId: partnerSessionId, result: resultFor(1, { atMs }) },
+  );
+}
+
 /**
  * Play the POST-RACE cue for the finished race — and release the lane.
  *
@@ -661,93 +1219,24 @@ export async function postRaceGate(sessionId: string): Promise<PostRaceGate> {
  */
 export async function playPostRace(track: TrackKey): Promise<PlayCueResult> {
   const lane = await readPitLane(track);
-  /**
-   * POST-RACE IS FOR THE GROUP IN THE PIT (2026-08-15).
-   *
-   * It used to read `racing` and then demand a finish stamp off it — two reads
-   * of one slot that had to mean two different things at two different times.
-   * That gate is what left blue 62 unplayable on a night the finish marker never
-   * landed: the group was demonstrably back, and the only control that could say
-   * so refused because nothing on the wire had agreed yet.
-   *
-   * The `pitIn` slot IS "a race has come in and owes its announcement", so
-   * occupying it is the whole arming condition. A group still genuinely on track
-   * is in `racing` and cannot be posted, which was the point of the old gate.
-   */
-  const returning = lane.pitIn;
-  if (!returning) {
-    return {
-      ok: false,
-      error: "no race is back in the pit — post-race arms when a race comes in",
-    };
-  }
-  const gate = await postRaceGate(returning.sessionId);
-  if (!gate.allowed) {
-    return { ok: false, error: gate.reason ?? "the briefing room is not empty yet" };
+  const resolved = await resolvePostSubject(lane);
+  if (!resolved.ok) return { ok: false, error: resolved.error };
+  if (!resolved.gate.allowed) {
+    return { ok: false, error: resolved.gate.reason ?? "the briefing room is not empty yet" };
   }
   // Same yield rule as pre: the stay-seated loop stops for the announcement
   // that answers it, and only for that.
   const cleared = await yieldStaySeated(await paBusy(track));
   if (!cleared.cleared) return { ok: false, error: cleared.error ?? "the PA is busy" };
 
-  /**
-   * THE ANNOUNCEMENT NAMES THE ROOM (owner 2026-08-16). The returning group's
-   * room rides the pitIn slot from the send; the briefed marker is the
-   * fallback for a slot written before the field existed or hand-placed from
-   * Override. Candidates are tried in order and the generic `post` is always
-   * last — a room clip the Core does not know yet fails its play, releases
-   * the claim, and the plain announcement still sounds on the same press.
-   * ONE one-shot whichever version plays: same clip/cue split as the
-   * big-race pre.
-   */
-  const briefedRoom = (await sessionBriefed(returning.sessionId).catch(() => null))?.room ?? null;
-  const room = returning.room ?? briefedRoom;
-  // MEGA ONLY (owner 2026-08-16: "this only happens on Mega"). The room is
-  // only ambiguous when two rooms serve one circuit; a split night's zone
-  // already carries its own post clip that knows its room, and it plays
-  // exactly as it always has — no extra attempt, no file dependency.
-  const roomForClip = track === "mega" ? room : null;
-  let result: Awaited<ReturnType<typeof claimAndPlay>> = {
-    outcome: "failed",
-    error: "the PA did not start the cue",
-  };
-  for (const clip of postClipCandidates(roomForClip)) {
-    result = await claimAndPlay(track, "post", returning.sessionId, clip);
-    if (result.outcome !== "failed") break;
+  const sync = await syncWithPartner("post", track, resolved.returning.sessionId);
+  if (sync.kind === "relayed") return sync.result;
+  if (sync.kind === "lead") {
+    return playPostSynced(track, resolved.returning, sync.partner, sync.partnerSessionId);
   }
-  if (result.outcome === "failed") return { ok: false, error: result.error };
-  if (result.outcome === "already") {
-    // Same cycle, pressed again — re-assert the release (see the header for
-    // why this is safe): if a straggling finish marker re-raised the hold
-    // after the first press, this press is how staff clear it.
-    await markRacePitted(track);
-    return {
-      ok: true,
-      alreadyPlayed: true,
-      atMs: result.atMs ?? undefined,
-      sessionId: returning.sessionId,
-    };
+  const result = await playPostOn(track, resolved.returning);
+  if (sync.heldLead) {
+    await publishSyncResult("post", track, { ...result, sessionId: resolved.returning.sessionId });
   }
-
-  // The insurance row keeps the MARKER's room, as it always has — fetched
-  // once above, where the clip choice needed it too.
-  if (briefedRoom) {
-    await recordBriefingEvent({
-      venue: VENUE,
-      businessDay: businessDayYmdET(),
-      room: briefedRoom,
-      track,
-      sessionId: returning.sessionId,
-      heatNumber: returning.heatNumber,
-      raceType: null,
-      tier: null,
-      action: "audio-post",
-    });
-  }
-
-  // The release. markRacePitted resolves the racing group itself and writes
-  // its own insurance row — one code path for this stamp, whoever presses.
-  await markRacePitted(track);
-
-  return { ok: true, atMs: result.atMs, sessionId: returning.sessionId };
+  return result;
 }
