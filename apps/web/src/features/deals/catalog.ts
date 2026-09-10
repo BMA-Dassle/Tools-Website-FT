@@ -176,7 +176,18 @@ export interface DealCatalogEntry {
   squareCatalogId: string | null;
   /** Hero + gallery imagery (Vercel Blob; always render through next/image). */
   media: { hero: string; gallery: { url: string; alt: string }[] };
-  /** SEO. `keywords` feeds the metadata export; `faqs` feeds FAQPage JSON-LD. */
+  /**
+   * SEO. `keywords` feeds the metadata export; `faqs` feeds FAQPage JSON-LD.
+   *
+   * `title` and `description` are TEMPLATES carrying a `{price}` token, never a
+   * typed-in dollar amount. The snippet Google shows has to state the price the
+   * page actually charges: a title reading "for $34" over a page selling at
+   * $25.50 wastes the sale on every search impression, and a snippet that
+   * disagrees with the visible price is exactly what suppresses the price rich
+   * result. `dealSeo()` fills the token from the live offer and adds the sale
+   * clause, so the copy tracks the price without anyone editing it — the same
+   * rule the value table and the fine print already follow.
+   */
   seo: { title: string; description: string; keywords: string[] };
   faqs: DealFaq[];
 }
@@ -277,9 +288,13 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
       ],
     },
     seo: {
-      title: "Laser Tag Deal — 2 Players + $20 Arcade Play for $34",
+      // "Arcade" not "Arcade Play": with the sale prefix in front, the longer
+      // form pushed the title past Google's pixel budget and the truncation fell
+      // on the price — the one part being added. Short enough to survive intact
+      // in both states beats a fuller sentence that loses its ending.
+      title: "Laser Tag Deal — 2 Players + $20 Arcade for {price}",
       description:
-        "Two Nexus Laser Tag sessions plus $20 in Game Zone Tokens for $34 at HeadPinz Fort Myers and Naples. A $44 value, and the game cards are included — no activation fee.",
+        "Two Nexus Laser Tag sessions plus $20 in Game Zone Tokens for {price} at HeadPinz Fort Myers and Naples. A $44 value, and the game cards are included — no activation fee.",
       keywords: [
         "laser tag deal fort myers",
         "laser tag fort myers",
@@ -317,9 +332,10 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
       ],
     },
     seo: {
-      title: "Gel Blaster Deal — 2 Players + $30 Arcade Play for $45",
+      // Trimmed for the same reason as the laser pack's — see the note there.
+      title: "Gel Blaster Deal — 2 Players + $30 Arcade for {price}",
       description:
-        "Two Nexus Gel Blaster sessions plus $30 in Game Zone Tokens for $45 at HeadPinz Fort Myers and Naples. A $58 value, and the game cards are included — no activation fee.",
+        "Two Nexus Gel Blaster sessions plus $30 in Game Zone Tokens for {price} at HeadPinz Fort Myers and Naples. A $58 value, and the game cards are included — no activation fee.",
       keywords: [
         "gel blaster fort myers",
         "gel blaster naples fl",

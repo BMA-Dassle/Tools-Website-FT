@@ -27,6 +27,7 @@ import {
   type DealOffer,
 } from "~/features/deals";
 import { money, offerFinePrint } from "~/features/deals/format";
+import { dealSeoDescription, dealSeoTitle } from "~/features/deals/seo";
 import DealBuyPanel from "./DealBuyPanel";
 
 /**
@@ -72,16 +73,22 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   const deal = getDeal(slug);
   if (!deal) return { title: "Not found" };
 
+  // Resolved here too, not just in the page body. Metadata is the only thing a
+  // search result or a shared link shows, so it has to state the live price for
+  // the same reason the hero does — a snippet advertising $34 over a page
+  // charging $25.50 spends the impression and wins none of the sale.
+  const offer = await currentDealOffer(deal);
   const url = canonicalFor(deal.slug);
-  const title = deal.seo.title;
+  const title = dealSeoTitle(deal, offer);
+  const description = dealSeoDescription(deal, offer);
   return {
     title,
-    description: deal.seo.description,
+    description,
     alternates: { canonical: url },
     keywords: deal.seo.keywords,
     openGraph: {
       title: `${title} | HeadPinz`,
-      description: deal.seo.description,
+      description,
       type: "website",
       url,
       siteName: "HeadPinz",
@@ -90,7 +97,7 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
     twitter: {
       card: "summary_large_image",
       title: `${title} | HeadPinz`,
-      description: deal.seo.description,
+      description,
       images: [HEADPINZ_OG_IMAGE],
     },
   };
@@ -135,7 +142,7 @@ function productJsonLd(
     "@type": "Product",
     "@id": `${url}#product`,
     name: deal.name,
-    description: deal.seo.description,
+    description: dealSeoDescription(deal, offer),
     // Google wants MULTIPLE images per product and picks per surface, so send the
     // hero plus the gallery rather than one. Deduped because the hero is usually
     // also the first gallery entry.
@@ -156,14 +163,25 @@ function productJsonLd(
         "@id": "https://headpinz.com/#organization",
       },
       areaServed: deal.locations.map((l) => DEAL_LOCATION_INFO[l].shortLabel),
-      // What a walk-in would pay for the same things, so the discount is
-      // machine-readable and matches the on-page strikethrough.
-      priceSpecification: {
-        "@type": "UnitPriceSpecification",
-        price: (offer.unitPriceCents / 100).toFixed(2),
-        priceCurrency: "USD",
-        valueAddedTaxIncluded: false,
-      },
+      // The REGULAR price, declared as a ListPrice, which is how a strikethrough
+      // becomes machine-readable: Google reads `offers.price` as what is charged
+      // and a ListPrice specification as what it was, and renders the markdown.
+      // This used to repeat the sale price into both, which said nothing at all —
+      // the comment claimed a discount the markup did not actually express.
+      // Emitted only while a sale genuinely runs; declaring a list price equal to
+      // the selling price is the fake-strikethrough pattern, and Google treats
+      // that as a policy problem rather than a rich result.
+      ...(discounted
+        ? {
+            priceSpecification: {
+              "@type": "UnitPriceSpecification",
+              priceType: "https://schema.org/ListPrice",
+              price: (offer.regularPriceCents / 100).toFixed(2),
+              priceCurrency: "USD",
+              valueAddedTaxIncluded: false,
+            },
+          }
+        : {}),
       eligibleQuantity: {
         "@type": "QuantitativeValue",
         minValue: 1,
