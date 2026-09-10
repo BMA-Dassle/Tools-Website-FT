@@ -27,7 +27,7 @@ import {
   type DealLocationKey,
   type DealOffer,
 } from "~/features/deals";
-import { money, offerFinePrint } from "~/features/deals/format";
+import { formatDealDeadlineIsoDate, money, offerFinePrint } from "~/features/deals/format";
 import { dealSeoDescription, dealSeoTitle } from "~/features/deals/seo";
 import DealBuyPanel from "./DealBuyPanel";
 
@@ -166,7 +166,10 @@ function productJsonLd(
       url,
       priceCurrency: "USD",
       price: (offer.unitPriceCents / 100).toFixed(2),
-      priceValidUntil: validUntil.toISOString().slice(0, 10),
+      // Formatted in ET, never sliced off a UTC string — see the helper. The
+      // sale's last valid day is the 13th in Fort Myers, which is already the
+      // 14th in UTC.
+      priceValidUntil: formatDealDeadlineIsoDate(validUntil),
       availability: "https://schema.org/InStock",
       itemCondition: "https://schema.org/NewCondition",
       seller: {

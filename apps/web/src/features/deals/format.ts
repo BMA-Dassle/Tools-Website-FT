@@ -46,6 +46,28 @@ export function formatDealDeadlineShort(endsAtIso: string): string {
 }
 
 /**
+ * The deadline as a plain `YYYY-MM-DD` calendar date IN EASTERN TIME — the shape
+ * schema.org's `priceValidUntil` wants.
+ *
+ * NOT `toISOString().slice(0, 10)`, which is the off-by-one this repo has now
+ * shipped three times: 11:59:59 PM on the 13th in Fort Myers is 3:59 AM on the
+ * 14th in UTC, so slicing the UTC string hands Google a sale window a full day
+ * longer than the one we actually honour. The visible page reverts on time
+ * either way — the resolver owns that — but structured data is an advertised
+ * claim too, and it must not be generous by accident.
+ */
+export function formatDealDeadlineIsoDate(endsAt: string | Date): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ET,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(endsAt));
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+/**
  * "Sunday" — the deadline's weekday alone, for ad copy that reads as a sentence
  * ("ends Sunday night") rather than a date stamp.
  *

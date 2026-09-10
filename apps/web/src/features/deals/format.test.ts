@@ -3,6 +3,7 @@ import {
   COUNTDOWN_THRESHOLD_MS,
   formatCountdown,
   formatDealDeadline,
+  formatDealDeadlineIsoDate,
   formatDealDeadlineShort,
   formatDealDeadlineWeekday,
   money,
@@ -23,6 +24,18 @@ describe("formatDealDeadline", () => {
 
   it("handles a winter deadline on the other side of DST", () => {
     expect(formatDealDeadline("2026-01-31T23:59:59-05:00")).toBe("Saturday, January 31");
+  });
+
+  it("gives priceValidUntil the EASTERN calendar date, not the UTC one", () => {
+    // The bug this replaced: 11:59:59 PM on the 13th in ET is 3:59 AM on the
+    // 14th in UTC, so `toISOString().slice(0, 10)` advertised the sale price as
+    // valid a day longer than we honour it.
+    expect(formatDealDeadlineIsoDate("2026-09-13T23:59:59-04:00")).toBe("2026-09-13");
+    expect(formatDealDeadlineIsoDate(new Date("2026-09-14T03:59:59Z"))).toBe("2026-09-13");
+    // And the same on the winter side of DST.
+    expect(formatDealDeadlineIsoDate("2026-01-31T23:59:59-05:00")).toBe("2026-01-31");
+    // Zero-padded, so the string is a valid ISO date Google will parse.
+    expect(formatDealDeadlineIsoDate("2026-03-05T12:00:00-05:00")).toBe("2026-03-05");
   });
 
   it("gives the weekday alone for ad copy, in ET", () => {
