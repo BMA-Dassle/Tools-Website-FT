@@ -5,9 +5,9 @@ import { IconArrowRight } from "@tabler/icons-react";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "@/lib/seo";
 import { ATTRACTIONS } from "@/lib/attractions-data";
-import { currentDealOffer, DEAL_CATALOG, dealValue } from "~/features/deals";
-import { formatDealDeadline, money } from "~/features/deals/format";
-import { dealDiscountPct } from "~/features/deals/seo";
+import { currentDealOffer, DEAL_CATALOG, dealSeoValue, dealValue } from "~/features/deals";
+import { money } from "~/features/deals/format";
+import { dealsHubSeo } from "~/features/deals/seo";
 
 /**
  * Deal-pack hub.
@@ -25,11 +25,15 @@ export const revalidate = 3600;
 
 const CANONICAL = "https://headpinz.com/deals";
 // Split so a running sale can be stated INSIDE the phrase — "HeadPinz Deals —
-// 25% Off Laser Tag…" — rather than bolted on front of a title that already has
+// 42% Off Laser Tag…" — rather than bolted on front of a title that already has
 // an em-dash in it. Two dashes in a search result reads like a mistake.
+//
+// The sale tail is shorter because the percentage costs ~13 characters and the
+// full phrase then truncated mid-product-list. `dealsHubSeo` picks between them;
+// a test pins both under the length Google will render.
 const TITLE_BRAND = "HeadPinz Deals";
 const TITLE_TAIL = "Laser Tag, Gel Blaster & Arcade Packs";
-const TITLE = `${TITLE_BRAND} — ${TITLE_TAIL}`;
+const TITLE_TAIL_SALE = "Laser Tag & Gel Blaster Packs";
 const DESCRIPTION =
   "Prepaid packs at HeadPinz Fort Myers and Naples: two laser tag or gel blaster sessions bundled with arcade game cards, for less than buying them separately.";
 
@@ -41,32 +45,27 @@ const DESCRIPTION =
  * cannot say so. It resolves the same offers the cards below render from, so the
  * snippet and the page can never disagree about whether a sale is on.
  *
- * The percent is stated exactly when both packs share one, and as "Up to" when
- * they do not — a hub covering two different markdowns must not advertise the
- * larger one as if it applied to both. The deadline is the EARLIEST live one,
- * since that is the first moment the sentence stops being true.
+ * Percentages follow the same two-anchor rule as the deal pages: the HEADLINE is
+ * the combined à-la-carte saving (the packs' standing discount and the sale
+ * compounded), while the deadline names only the markdown that actually expires.
+ * Each is stated exactly when the packs agree and as "up to" when they do not —
+ * a hub covering two different numbers must not advertise the larger one as if
+ * it applied to both — and the deadline is the EARLIEST live one, since that is
+ * the first moment the sentence stops being true.
  */
 export async function generateMetadata(): Promise<Metadata> {
-  const offers = await Promise.all(DEAL_CATALOG.map((deal) => currentDealOffer(deal)));
-  const live = offers.filter((o) => dealDiscountPct(o) > 0);
-
-  let title = TITLE;
-  let description = DESCRIPTION;
-  if (live.length > 0) {
-    const pcts = live.map(dealDiscountPct);
-    const single = new Set(pcts).size === 1;
-    const amount = single ? `${pcts[0]}%` : `up to ${Math.max(...pcts)}%`;
-    const deadlines = live.map((o) => o.endsAt).filter((e): e is string => e !== null);
-    const soonest =
-      deadlines.length > 0
-        ? deadlines.reduce((a, b) => (new Date(a) <= new Date(b) ? a : b))
-        : null;
-    const when = soonest ? `through ${formatDealDeadline(soonest)}` : "for a limited time";
-    // Title Case inside the title, sentence case mid-sentence in the description.
-    const lead = single ? `${pcts[0]}% Off` : `Up to ${Math.max(...pcts)}% Off`;
-    title = `${TITLE_BRAND} — ${lead} ${TITLE_TAIL}`;
-    description = `Save ${amount} ${when} — ${DESCRIPTION}`;
-  }
+  const entries = await Promise.all(
+    DEAL_CATALOG.map(async (deal) => {
+      const offer = await currentDealOffer(deal);
+      return { offer, value: dealSeoValue(deal, offer.unitPriceCents, offer.bonusItems) };
+    }),
+  );
+  const { title, description } = dealsHubSeo(entries, {
+    brand: TITLE_BRAND,
+    tail: TITLE_TAIL,
+    saleTail: TITLE_TAIL_SALE,
+    description: DESCRIPTION,
+  });
 
   return {
     title,

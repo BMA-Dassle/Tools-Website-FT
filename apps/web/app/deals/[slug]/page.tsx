@@ -19,6 +19,7 @@ import {
   currentDealOffer,
   DEAL_CATALOG,
   DEAL_LOCATION_INFO,
+  dealSeoValue,
   dealValue,
   getDeal,
   isDealLocation,
@@ -78,9 +79,13 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   // the same reason the hero does — a snippet advertising $34 over a page
   // charging $25.50 spends the impression and wins none of the sale.
   const offer = await currentDealOffer(deal);
+  // The à-la-carte comparison a snippet may quote: the SMALLEST saving across
+  // this deal's venues, because one canonical URL serves both and the number has
+  // to be true wherever the click lands.
+  const seoValue = dealSeoValue(deal, offer.unitPriceCents, offer.bonusItems);
   const url = canonicalFor(deal.slug);
-  const title = dealSeoTitle(deal, offer);
-  const description = dealSeoDescription(deal, offer);
+  const title = dealSeoTitle(deal, offer, seoValue);
+  const description = dealSeoDescription(deal, offer, seoValue);
   return {
     title,
     description,
@@ -142,7 +147,14 @@ function productJsonLd(
     "@type": "Product",
     "@id": `${url}#product`,
     name: deal.name,
-    description: dealSeoDescription(deal, offer),
+    // Deliberately the SEO (cross-venue minimum) comparison rather than the
+    // displayed one: structured data is read against the canonical URL, which
+    // covers both venues, so it must state the saving that holds at either.
+    description: dealSeoDescription(
+      deal,
+      offer,
+      dealSeoValue(deal, offer.unitPriceCents, offer.bonusItems),
+    ),
     // Google wants MULTIPLE images per product and picks per surface, so send the
     // hero plus the gallery rather than one. Deduped because the hero is usually
     // also the first gallery entry.

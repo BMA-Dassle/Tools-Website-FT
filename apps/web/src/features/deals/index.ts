@@ -13,6 +13,7 @@ export {
   dealExpiryFrom,
   dealIsSellable,
   etOffsetFor,
+  dealSeoValue,
   dealSquareCatalogId,
   dealValue,
   dealVoucherItems,

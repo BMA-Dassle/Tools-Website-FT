@@ -179,16 +179,35 @@ export interface DealCatalogEntry {
   /**
    * SEO. `keywords` feeds the metadata export; `faqs` feeds FAQPage JSON-LD.
    *
-   * `title` and `description` are TEMPLATES carrying a `{price}` token, never a
-   * typed-in dollar amount. The snippet Google shows has to state the price the
-   * page actually charges: a title reading "for $34" over a page selling at
+   * All three copy fields are TEMPLATES carrying `{tokens}`, never a typed-in
+   * dollar amount or percentage. The snippet Google shows has to state the price
+   * the page actually charges: a title reading "for $34" over a page selling at
    * $25.50 wastes the sale on every search impression, and a snippet that
    * disagrees with the visible price is exactly what suppresses the price rich
-   * result. `dealSeo()` fills the token from the live offer and adds the sale
-   * clause, so the copy tracks the price without anyone editing it — the same
-   * rule the value table and the fine print already follow.
+   * result. `features/deals/seo.ts` fills them from the live offer, so the copy
+   * tracks the price without anyone editing it — the same rule the value table
+   * and the fine print already follow.
+   *
+   * `description` is the NO-SALE sentence; `saleDescription` is the one used
+   * while a markdown runs. Two sentences rather than one wrapped in a prefix,
+   * because they are genuinely different: the sale version leads with the
+   * saving and must not repeat the à-la-carte value the prefix already stated.
+   *
+   * WHICH PERCENTAGE GOES WHERE (owner 2026-09-09). A pack carries TWO stacked
+   * discounts — the permanent bundle saving against à-la-carte, and the flash
+   * sale on top — and they compound rather than add: 22% then 25% is 42% off,
+   * not 47%. The headline `{off}` states the COMBINED figure, matching the
+   * savings badge on the page itself, while `{salePct}` and the deadline name
+   * only the part that actually expires. Advertising the combined number as the
+   * thing ending Sunday would overstate it: after the sale the pack is still
+   * 22% off. The deadline belongs to what changes, never to the total.
    */
-  seo: { title: string; description: string; keywords: string[] };
+  seo: {
+    title: string;
+    description: string;
+    saleDescription: string;
+    keywords: string[];
+  };
   faqs: DealFaq[];
 }
 
@@ -288,13 +307,17 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
       ],
     },
     seo: {
-      // "Arcade" not "Arcade Play": with the sale prefix in front, the longer
-      // form pushed the title past Google's pixel budget and the truncation fell
-      // on the price — the one part being added. Short enough to survive intact
-      // in both states beats a fuller sentence that loses its ending.
-      title: "Laser Tag Deal — 2 Players + $20 Arcade for {price}",
+      // "Arcade" not "Arcade Play": with `{off}` filled in, the longer form
+      // pushed the title past Google's pixel budget and the truncation fell on
+      // the price — the one part being added. Short enough to survive intact in
+      // both states beats a fuller sentence that loses its ending.
+      title: "Laser Tag Deal — {off}2 Players + $20 Arcade for {price}",
       description:
         "Two Nexus Laser Tag sessions plus $20 in Game Zone Tokens for {price} at HeadPinz Fort Myers and Naples. A $44 value, and the game cards are included — no activation fee.",
+      // Opens mid-sentence: the "Save $18.50 (42% off a $44 value) — " prefix is
+      // computed, so the value is never stated twice and never typed once.
+      saleDescription:
+        "two Nexus Laser Tag sessions plus $20 in Game Zone Tokens for {price} at HeadPinz Fort Myers and Naples. Extra {salePct}% off {deadline}.",
       keywords: [
         "laser tag deal fort myers",
         "laser tag fort myers",
@@ -333,9 +356,11 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
     },
     seo: {
       // Trimmed for the same reason as the laser pack's — see the note there.
-      title: "Gel Blaster Deal — 2 Players + $30 Arcade for {price}",
+      title: "Gel Blaster Deal — {off}2 Players + $30 Arcade for {price}",
       description:
         "Two Nexus Gel Blaster sessions plus $30 in Game Zone Tokens for {price} at HeadPinz Fort Myers and Naples. A $58 value, and the game cards are included — no activation fee.",
+      saleDescription:
+        "two Nexus Gel Blaster sessions plus $30 in Game Zone Tokens for {price} at HeadPinz Fort Myers and Naples. Extra {salePct}% off {deadline}.",
       keywords: [
         "gel blaster fort myers",
         "gel blaster naples fl",
@@ -486,6 +511,30 @@ export function dealValue(
     savingsCents,
     savingsPct: compareAtCents > 0 ? Math.floor((savingsCents / compareAtCents) * 100) : 0,
   };
+}
+
+/**
+ * The value comparison a SNIPPET may quote: the SMALLEST saving across every
+ * location this deal sells at.
+ *
+ * `dealValue` is per-location because attraction prices are, and a page knows
+ * which venue it is showing. A search result does not — one canonical URL covers
+ * both — so it has to pick a number that is true everywhere. The minimum is the
+ * only such number: quoting Fort Myers' saving on a page a Naples buyer lands on
+ * would advertise a discount that venue does not give, which is the same
+ * overstatement `savingsPct`'s floor exists to prevent, one level up.
+ *
+ * Both venues price laser tag and gel blasters identically today, so this
+ * returns exactly what either location would. It exists for the day one of them
+ * moves, which is precisely the day nobody would think to re-check the metadata.
+ */
+export function dealSeoValue(
+  deal: DealCatalogEntry,
+  priceCents: number,
+  bonusItems: readonly VoucherItem[] = [],
+): DealValue {
+  const values = deal.locations.map((l) => dealValue(deal, l, priceCents, bonusItems));
+  return values.reduce((lowest, v) => (v.savingsPct < lowest.savingsPct ? v : lowest));
 }
 
 /**
