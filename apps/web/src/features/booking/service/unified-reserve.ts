@@ -140,6 +140,7 @@ import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
 import { isNflBowlingItem, NflReservationError, nflQamfTitle, nflQamfBanner } from "~/features/nfl";
 import {
   guardNflBooking,
+  releaseNflClaim,
   confirmNflBooking,
   nflBookingMetadata,
   type NflGuardResult,
@@ -1416,6 +1417,18 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
           ),
         );
     }
+    // Same for the NFL lane block: nothing captured, so hand it back rather
+    // than leave one of Fort Myers' two blocks held for its 30-minute TTL.
+    if (audit.releaseNflBlocks) {
+      await audit
+        .releaseNflBlocks()
+        .catch((relErr) =>
+          console.error(
+            "[nfl] block release after failed reserve did not complete (expiry will):",
+            relErr instanceof Error ? relErr.message : relErr,
+          ),
+        );
+    }
     await finishReserveAttempt(audit.id, {
       state: "failed",
       failedStep: audit.step,
@@ -1484,6 +1497,18 @@ export async function prepareUnifiedDeposit(
           ),
         );
     }
+    // Same for the NFL lane block: nothing captured, so hand it back rather
+    // than leave one of Fort Myers' two blocks held for its 30-minute TTL.
+    if (audit.releaseNflBlocks) {
+      await audit
+        .releaseNflBlocks()
+        .catch((relErr) =>
+          console.error(
+            "[nfl] block release after failed prepare did not complete (expiry will):",
+            relErr instanceof Error ? relErr.message : relErr,
+          ),
+        );
+    }
     throw err;
   } finally {
     if (lockKey && lockHeld) {
@@ -1508,6 +1533,17 @@ interface ReserveAudit {
    * spent and forward recovery owns the booking, never a release.
    */
   releaseNativeClaims?: (() => Promise<void>) | null;
+  /**
+   * Armed while NFL lane BLOCKS are claimed but the booking has not captured.
+   *
+   * guardNflBooking deliberately claims before the vendor calls, with a
+   * 30-minute TTL as the safety net — but Fort Myers has only TWO blocks, so a
+   * failed checkout sitting on one for half an hour costs half the package's
+   * capacity on the busiest window of the week. The wrappers fire this on a
+   * throw, exactly as they do for voucher claims. Cleared at capture: from
+   * there the block is the guest's and forward recovery owns the booking.
+   */
+  releaseNflBlocks?: (() => Promise<void>) | null;
 }
 
 async function unifiedReserveInner(
@@ -1972,27 +2008,6 @@ async function unifiedReserveInner(
   //     that sells the package, inside trading hours (validateNflBooking);
   //   - a VIP block is RESERVED for that game (claimBlock), because a block is
   //     four lanes on one TV and can only show one game at a time.
-  // Throws NflReservationError (→ 409 in reserve-all) BEFORE any Square or QAMF
-  // write. If anything downstream fails, the catch below hands the block back;
-  // an un-released claim expires on its own within 30 minutes.
-  const nflGuards = new Map<string, NflGuardResult>();
-  for (const item of bowlingItems) {
-    if (item.kind !== "bowling" || !isNflBowlingItem(item)) continue;
-    if (item.optionId == null) {
-      throw new NflReservationError(
-        "NFL Ticket booking is missing its lane time option — please re-pick your game.",
-      );
-    }
-    const qamfId = item.qamfCenterId ?? qamfCenterIdForCode(session.center);
-    const guard = await guardNflBooking({
-      centerId: qamfId,
-      bookedAt: item.bookedAt,
-      gameId: item.nflGameId,
-      hours: centerHoursForDate(qamfId!, (item.bookedAt ?? "").slice(0, 10)),
-      laneCount: item.laneCount,
-    });
-    nflGuards.set(item.id, guard);
-  }
 
   // ── 2d. Validate Midnight Madness window (fail-closed) ────────────
   // MM shares the all-day Fri-Sun Time offer, so the offer id can't scope its
@@ -2039,6 +2054,38 @@ async function unifiedReserveInner(
         if (foodIssue) throw new PackageFoodMissingError(foodIssue);
       }
     }
+  }
+
+  // LAST of the cheap gates on purpose. Everything above throws without side
+  // effects; this one CLAIMS A LANE BLOCK, so running it earlier meant a cart
+  // that then failed the Midnight-Madness or package-food check had already
+  // taken one of Fort Myers' only two blocks and held it for the 30-minute
+  // claim TTL. guardNflBooking's own docstring sets the order: validate, then
+  // claim, then call the vendor.
+  const nflGuards = new Map<string, NflGuardResult>();
+  // Armed BEFORE the loop, not after: a cart with two NFL legs whose second leg
+  // throws has already claimed a block for the first, and a callback registered
+  // after the loop would never run for it. The closure reads the map at call
+  // time, so it covers however far the loop got — including not at all.
+  audit.releaseNflBlocks = async () => {
+    await Promise.all([...nflGuards.values()].map((g) => releaseNflClaim(g.claim.id)));
+  };
+  for (const item of bowlingItems) {
+    if (item.kind !== "bowling" || !isNflBowlingItem(item)) continue;
+    if (item.optionId == null) {
+      throw new NflReservationError(
+        "NFL Ticket booking is missing its lane time option — please re-pick your game.",
+      );
+    }
+    const qamfId = item.qamfCenterId ?? qamfCenterIdForCode(session.center);
+    const guard = await guardNflBooking({
+      centerId: qamfId,
+      bookedAt: item.bookedAt,
+      gameId: item.nflGameId,
+      hours: centerHoursForDate(qamfId!, (item.bookedAt ?? "").slice(0, 10)),
+      laneCount: item.laneCount,
+    });
+    nflGuards.set(item.id, guard);
   }
 
   // ── 2e. Race Sims: fail-closed until fully armed ───────────────────
@@ -2710,6 +2757,8 @@ async function unifiedReserveInner(
   // Point of no return for native voucher claims: the charge they reduced has
   // captured, so they are spent — a throw below must NOT hand them back.
   audit.releaseNativeClaims = null;
+  // Same point of no return for the lane block: the party has paid for it.
+  audit.releaseNflBlocks = null;
   await recordReserveCapture(audit.id, {
     depositOrderId: depositResult.depositOrderId,
     depositPaymentId: depositResult.depositPaymentId,

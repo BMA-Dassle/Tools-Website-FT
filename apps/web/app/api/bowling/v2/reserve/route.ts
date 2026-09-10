@@ -62,6 +62,7 @@ import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
 import { isNflSlug, NflReservationError, nflQamfTitle, nflQamfBanner } from "~/features/nfl";
 import {
   guardNflBooking,
+  releaseNflClaim,
   confirmNflBooking,
   nflBookingMetadata,
   type NflGuardResult,
@@ -411,7 +412,41 @@ interface ReserveBody {
   }>;
 }
 
+/**
+ * Hand an NFL lane block back when the booking that claimed it does not happen.
+ *
+ * guardNflBooking claims a block BEFORE the QAMF hold and the Square charge —
+ * deliberately, so two parties cannot be sold the same block — and leans on a
+ * 30-minute TTL if the booking then fails. Fort Myers has only TWO blocks, so
+ * half an hour of dead capacity on a Sunday afternoon is expensive, and
+ * `releaseNflClaim` sat unused: nothing in either rail ever called it.
+ *
+ * A wrapper rather than a release at each of the fifteen exits below, because
+ * one place cannot be forgotten by the sixteenth. Any 4xx/5xx response OR a
+ * throw releases; a 2xx does not. Releasing a claim that DID become a booking
+ * is harmless anyway — releaseClaim only deletes when no live reservation row
+ * references it — so the wrapper cannot undo a successful sale.
+ */
 export async function POST(req: NextRequest) {
+  const nflHeld: { claimId: number | null } = { claimId: null };
+  const release = async () => {
+    if (nflHeld.claimId == null) return;
+    await releaseNflClaim(nflHeld.claimId);
+  };
+  try {
+    const res = await reserveHandler(req, nflHeld);
+    if (res.status >= 400) await release();
+    return res;
+  } catch (err) {
+    await release();
+    throw err;
+  }
+}
+
+async function reserveHandler(
+  req: NextRequest,
+  nflHeld: { claimId: number | null },
+): Promise<NextResponse> {
   let body: ReserveBody;
   try {
     body = await req.json();
@@ -697,30 +732,12 @@ export async function POST(req: NextRequest) {
   // guard in unified-reserve. Validates the game window AND claims a VIP lane
   // block — a block is four lanes on one TV, so it can only show one game at a
   // time. Rejects BEFORE any QAMF confirm or Square write.
-  let nflGuard: NflGuardResult | null = null;
-  if (isNflSlug(body.experienceSlug)) {
-    if (body.optionId == null) {
-      return NextResponse.json(
-        { error: "NFL Ticket booking is missing its lane time option — please re-pick your game." },
-        { status: 400 },
-      );
-    }
-    try {
-      nflGuard = await guardNflBooking({
-        centerId,
-        bookedAt: body.bookedAt,
-        gameId: body.nflGameId,
-        hours: centerHoursForDate(centerId, (body.bookedAt ?? "").slice(0, 10)),
-        laneCount: body.bookingMeta?.laneCount,
-      });
-    } catch (err) {
-      if (err instanceof NflReservationError) {
-        return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
-      }
-      throw err;
-    }
-  }
-
+  // Runs BEFORE guardNflBooking on purpose. This is a cheap, pure check with no
+  // side effects, and guardNflBooking CLAIMS A LANE BLOCK — so validating after
+  // it meant an incomplete food payload took a block and then 400'd, holding one
+  // of Fort Myers' only two blocks for the full 30-minute claim TTL. The guard's
+  // own docstring sets the order ("1. validate 2. claim 3. vendor"); the food
+  // check was simply on the wrong side of it.
   // ── Package food (fail-closed, server-authoritative) ──────────────
   // A package that bundles guest-configured food (Pizza Bowl pizza + pitcher,
   // NFL game-day items) MUST carry one noted line per item per lane — that is
@@ -744,6 +761,32 @@ export async function POST(req: NextRequest) {
       );
       return NextResponse.json({ error: foodIssue, code: "package_food_missing" }, { status: 400 });
     }
+  }
+
+  let nflGuard: NflGuardResult | null = null;
+  if (isNflSlug(body.experienceSlug)) {
+    if (body.optionId == null) {
+      return NextResponse.json(
+        { error: "NFL Ticket booking is missing its lane time option — please re-pick your game." },
+        { status: 400 },
+      );
+    }
+    try {
+      nflGuard = await guardNflBooking({
+        centerId,
+        bookedAt: body.bookedAt,
+        gameId: body.nflGameId,
+        hours: centerHoursForDate(centerId, (body.bookedAt ?? "").slice(0, 10)),
+        laneCount: body.bookingMeta?.laneCount,
+      });
+    } catch (err) {
+      if (err instanceof NflReservationError) {
+        return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+      }
+      throw err;
+    }
+    // From here a block is HELD. The wrapper gives it back on any failure exit.
+    nflHeld.claimId = nflGuard.claim.id;
   }
 
   // ── Load Square products + compute subtotals ────────────────────
