@@ -50,12 +50,12 @@ import { markInKarts, markRacePitted, readPitLane } from "./lane.server";
 import { isStaySeatedFile, kartsAvailability, type PitLaneFeed, type PitLanes } from "./pit-board";
 import {
   playQsysCue,
-  readQsysLive,
   stopQsysZone,
   STAY_SEATED_FILE,
   type QsysClip,
   type QsysLiveState,
 } from "./qsys.server";
+import { readQsysTruth } from "./qsys-truth.server";
 
 // The stamp read side lives in audio-stamps.server.ts (lane.server needs it
 // too — post played = returned — and importing it from here would be a
@@ -120,9 +120,11 @@ export async function readClipLengths(): Promise<ClipLengths> {
  * announcement off mid-sentence. So a press refuses while ITS OWN zone is
  * playing; red and blue run independently. Mega conflicts with both, in both
  * directions, because the mega zone IS the two pits' speakers together.
- * Read from Pandora's websocket cache (instant); an unreadable feed fails
- * OPEN — a blind guard that refused every press on a Pandora blip would be
- * worse than the rare supersede it exists to stop.
+ * Read from Pandora's websocket cache, CROSS-CHECKED against the Core
+ * (qsys-truth.server.ts — the cache froze with mega "playing" for an hour on
+ * 2026-09-10 and locked every control); an unreadable feed fails OPEN — a
+ * blind guard that refused every press on a Pandora blip would be worse than
+ * the rare supersede it exists to stop.
  */
 function zonesConflict(a: string, b: string): boolean {
   return a === b || a === "mega" || b === "mega";
@@ -145,7 +147,9 @@ function paBusyIn(track: TrackKey, live: QsysLiveState | null): PaBusyVerdict {
 }
 
 async function paBusy(track: TrackKey): Promise<PaBusyVerdict> {
-  return paBusyIn(track, await readQsysLive());
+  // `fresh`: a press must not read a 2s-old beat — a post landing a second
+  // after a pre started would see an idle zone and supersede it.
+  return paBusyIn(track, await readQsysTruth({ fresh: true }));
 }
 
 /**
@@ -554,7 +558,7 @@ export async function nudgeStaySeated(lanes: PitLanes): Promise<void> {
     .catch(() => null);
   if (claimed !== "OK") return;
   // One live read shared by every lane on the beat.
-  const live = await readQsysLive();
+  const live = await readQsysTruth();
   await Promise.all(due.map((t) => playStaySeatedOn(t, lanes[t], live).catch(() => {})));
 }
 

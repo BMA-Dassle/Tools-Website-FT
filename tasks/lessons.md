@@ -5647,3 +5647,40 @@ review screen showed the discounted one, and the gate's $25 drift backstop did i
    before the reader is armed so a refusal never strands a captured payment.
 4. **The web rail working proves nothing about the kiosk rail.** Same service, different entry
    point. Test the split rail with the feature, not the rail that never split.
+
+## A cache that says "connected" can still be an hour behind — verify "busy" against the source (2026-09-10)
+
+**What happened.** Every pit control sat struck through as "PA busy · mega" for ~50 minutes.
+Staff rebooted the tablet and redeployed the app; nothing changed, because the verdict was
+never ours. It came off Pandora's cache of the Q-SYS push feed (`GET /qsys/audio/live`), which
+said mega was playing a 1:16 pre-race clip with its clock frozen at 0:06 and `connected: true`.
+The Core's own answer (`GET /qsys/audio/status`, a direct device read) said every zone Idle the
+whole time. Pandora's socket to the Core had gone zombie — open, silent, and never re-opened
+because nothing closed it. Even a `/stop` the Core acknowledged produced no cached event.
+
+**Why "PA busy" locked EVERYTHING.** Mega conflicts with both pits (it is their speakers), so
+one stuck zone blocked red and blue too. And the client derived the verdict from its own socket
+frame — which Pandora's relay serves from the same frozen cache — so the tablet could not know
+better, and reconnects only re-delivered the stale snapshot with a fresh timestamp.
+
+**The tell was in the data the whole time.** A playing zone pushes ~10 frames a second; the
+cache carried `stateUpdatedAt` 46 minutes old against a `playing: true`. Idle is silent by
+design, so an old timestamp means nothing there — but "playing with no ticks" is a freeze, full
+stop.
+
+**Rules.**
+
+1. **A busy/lock verdict read from a CACHE of external state needs a liveness check that the
+   cache cannot fake.** "Connected" is the cache's opinion of itself. Use the data's own rhythm
+   (ticks while playing) and, when it fails, go to the source. `qsys-truth.server.ts`: suspicion
+   → direct `/status`; a periodic sanity beat that asks the source even when the cache looks
+   fine (catches the freeze the other way — stuck IDLE while a clip plays); a disagreement trips
+   a short distrust window that bypasses the cache and heals itself when they agree again.
+2. **The server owns the verdict; the tablet draws it.** A browser holding a relay socket has no
+   second source. The board GET now ships `paBusy` per track and the client stops inferring it.
+3. **Log every disagreement.** `[qsys] Pandora's live cache disagrees with the Core — …` is the
+   evidence the Pandora fix (a socket keepalive/pong timeout) needs; without it the next freeze
+   is "PA busy again" with nothing to hand over.
+4. **Pandora-side follow-up owed:** the relay needs a ping/pong or idle-timeout on ITS upstream
+   socket to the Core so a dead TCP session is detected and reconnected. Until then the Core-side
+   truth read is the guard.
