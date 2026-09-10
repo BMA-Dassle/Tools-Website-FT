@@ -153,6 +153,11 @@ export async function resolveWelcomeBack(
   // So the ends are resolved once here and reused below to pick the subject:
   // the most recent group whose race has actually ENDED.
   const endBySession = new Map<string, number>();
+  // Which of those ends are the venue's STAMP (Pandora actualEnd) rather than
+  // the phase-one marker (the clock hitting zero). The standings capture below
+  // needs to know: a marker-only end means karts may still be on their final
+  // lap (see standingsFinal).
+  const stampedSessions = new Set<string>();
   for (const a of roomTimeline.slice(0, ANNOUNCE_LOOKBACK)) {
     // A group re-sent to a different room has its REAL room in its newest
     // assignment — the stale row in this room's history must not announce the
@@ -180,6 +185,7 @@ export async function resolveWelcomeBack(
       );
       const row = list?.find((s) => String(s.sessionId) === a.sessionId);
       endMs = row?.actualEnd ? Date.parse(row.actualEnd) : NaN;
+      if (Number.isFinite(endMs)) stampedSessions.add(a.sessionId);
     }
     if (!Number.isFinite(endMs)) continue;
     endBySession.set(a.sessionId, endMs);
@@ -222,6 +228,7 @@ export async function resolveWelcomeBack(
   // Already resolved in the loop above for anything in the lookback; the reads
   // below are the fallback for a subject that fell outside it.
   let actualEndMs: number | null = endBySession.get(subject.sessionId) ?? null;
+  let endIsStamped = stampedSessions.has(subject.sessionId);
 
   // FAST PATH: the venue's own RaceFinish marker means the end is already
   // known — no Pandora read at all. Fallback below is yesterday's behaviour,
@@ -229,6 +236,7 @@ export async function resolveWelcomeBack(
   if (actualEndMs === null) {
     const finishMarker = await readRaceFinishedMarker(subject.sessionId);
     actualEndMs = finishMarker ? finishMarker.endedAtMs : null;
+    endIsStamped = false;
   }
 
   if (actualEndMs === null) {
@@ -244,6 +252,7 @@ export async function resolveWelcomeBack(
     // forbids numeric round-trips on Pandora ids regardless.
     const session = sessions.find((s) => String(s.sessionId) === subject.sessionId);
     actualEndMs = session?.actualEnd ? Date.parse(session.actualEnd) : null;
+    endIsStamped = actualEndMs !== null;
   }
 
   if (!welcomeBackWindowOpen(Number.isFinite(actualEndMs as number) ? actualEndMs : null)) {
@@ -253,11 +262,16 @@ export async function resolveWelcomeBack(
   // The last best times, captured off the live socket the first time this runs
   // (the finished heat's standings keep being served until the next heat loads)
   // and read back from Redis every poll after. Heat-number-gated inside — a
-  // frame we cannot prove is ours is never recorded.
+  // frame we cannot prove is ours is never recorded — and laps-final-gated:
+  // the greeting can open on the marker, but the split waits for the stamp
+  // (or the marker to age), because the standings at clock-zero are not the
+  // standings (2026-09-10). Until then the board greets without the split.
   const recorded = await loadOrCaptureResults({
     track,
     sessionId: subject.sessionId,
     heatNumber: subject.heatNumber,
+    stampedEndMs: endIsStamped ? actualEndMs : null,
+    markerEndMs: endIsStamped ? null : actualEndMs,
   }).catch(() => null);
 
   // Not raced against the results capture above — it is a separate read on a

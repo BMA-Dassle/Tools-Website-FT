@@ -23,8 +23,9 @@ import "server-only";
  * names, which is why every write is caught and logged rather than thrown.
  *
  * ONE ROW PER (RACE, DRIVER), and the capture only ever happens once per race —
- * `loadOrCaptureResults` is gated on a heat match AND `state >= 3`, then claimed, so
- * a re-run reads the stored record instead of re-capturing. The upsert is therefore
+ * `loadOrCaptureResults` is gated on the laps being FINAL (the venue's stamped end, or
+ * an aged finish marker — `standingsFinal`) plus a heat match, then claimed, so a
+ * re-run reads the stored record instead of re-capturing. The upsert is therefore
  * belt-and-braces against a replay rather than an expected path, and it COALESCEs so
  * a second write can only ever ADD what the first lacked.
  *

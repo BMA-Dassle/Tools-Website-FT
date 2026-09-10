@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseHeatNumber, parseResultsFrame, splitByTarget } from "./results-frame";
+import {
+  UNSTAMPED_SETTLE_MS,
+  parseHeatNumber,
+  parseResultsFrame,
+  splitByTarget,
+  standingsFinal,
+} from "./results-frame";
 
 /**
  * REAL WIRE DATA, verbatim: Mega heat 66, captured off the live SMS-Timing
@@ -40,6 +46,55 @@ describe("parseResultsFrame — against the real finished-heat frame", () => {
       '{"N":"[HEAT] 70 - Blue Starter","S":1,"D":[{"N":"Amy","B":0,"K":"4","L":0,"P":1}]}',
     );
     expect(frame!.drivers[0].bestMs).toBeNull();
+  });
+});
+
+/**
+ * REAL WIRE DATA, verbatim: Mega heat 28, 2026-09-10, the frame served at
+ * 20:29:00Z — the instant the clock hit zero. S:4 already, and yet kart 21 is
+ * mid-lap (L5) and kart 39 still has a lap to come: 49 seconds later kart 39
+ * set 61702 on lap 7 and took P1. THIS is the frame the capture used to record.
+ */
+const CLOCK_ZERO_MEGA_HEAT_28 =
+  '{"N":"[HEAT] 28 - Mega Pro","S":4,"C":0,"D":[{"N":"a","K":"21","P":1,"L":5,"B":61828,"T":65953},{"N":"b","K":"39","P":2,"L":6,"B":61852,"T":62360}]}';
+
+describe("standingsFinal — the laps-final gate", () => {
+  const T = 1_800_000_000_000;
+
+  it("the finished state on the wire is NOT evidence the laps are final", () => {
+    // The frame says finished; the gate must not be asked about the frame at all.
+    const frame = parseResultsFrame(CLOCK_ZERO_MEGA_HEAT_28)!;
+    expect(frame.state).toBe(4);
+    expect(standingsFinal({ stampedEndMs: null, markerEndMs: T, nowMs: T + 15_000 })).toBe(false);
+  });
+
+  it("the venue's stamped end is final, however fresh", () => {
+    expect(standingsFinal({ stampedEndMs: T, markerEndMs: null, nowMs: T })).toBe(true);
+    expect(standingsFinal({ stampedEndMs: T, markerEndMs: T - 40_000, nowMs: T + 1 })).toBe(true);
+  });
+
+  it("a marker alone must age past the settle time (owner: 2-3 minutes)", () => {
+    expect(UNSTAMPED_SETTLE_MS).toBe(3 * 60_000);
+    const early = standingsFinal({
+      stampedEndMs: null,
+      markerEndMs: T,
+      nowMs: T + UNSTAMPED_SETTLE_MS - 1,
+    });
+    const settled = standingsFinal({
+      stampedEndMs: null,
+      markerEndMs: T,
+      nowMs: T + UNSTAMPED_SETTLE_MS,
+    });
+    expect(early).toBe(false);
+    expect(settled).toBe(true);
+  });
+
+  it("nothing known about the end → not final (never capture on a guess)", () => {
+    expect(standingsFinal({ stampedEndMs: null, markerEndMs: null, nowMs: T })).toBe(false);
+    expect(standingsFinal({ stampedEndMs: undefined, markerEndMs: undefined, nowMs: T })).toBe(
+      false,
+    );
+    expect(standingsFinal({ stampedEndMs: NaN, markerEndMs: NaN, nowMs: T })).toBe(false);
   });
 });
 

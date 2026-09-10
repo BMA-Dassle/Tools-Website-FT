@@ -5684,3 +5684,40 @@ stop.
 4. **Pandora-side follow-up owed:** the relay needs a ping/pong or idle-timeout on ITS upstream
    socket to the Core so a dead TCP session is detected and reconnected. Until then the Core-side
    truth read is the guard.
+
+## The timing socket's "finished" is the CLOCK, not the laps — capture standings on the venue's stamp (2026-09-10)
+
+Owner: "our race scoring TVs don't show the last lap?" They didn't. The results wall, the
+welcome-back split and the driver-view report all read ONE standings snapshot, taken once per
+race and served for 48h (archived for good in `race_lap_results`). It was taken the instant the
+race clock hit zero — while every kart was still driving its final lap.
+
+**The wrong assumption, written in three files:** "`S >= 3` on the SMS-Timing socket = finished
+= laps final." Measured live on Mega heat 28: the socket reported `S:4, C:0` at 20:29:00Z with
+kart 21 on lap 5 of 6; kart 39 set its best (61.702) on lap 7 at 20:29:49 and took P1. The
+snapshot at 20:28:53 had already archived kart 21 as the winner. The venue's stamped `ActualEnd`
+(20:29:39) — the moment the last kart completes its final lap — is the only "laps final" signal.
+
+**Scale, from Neon (14 days):** 953/1002 races captured before the stamp (avg 55s early); 363
+driver rows showed a slower best than the racer set; 16 drivers shown "didn't qualify" who beat
+the cutoff; nearly every race's lap count one short. Level-up TEXTS were fine — that cron reads
+Pandora's official scores, not the snapshot.
+
+**Rules.**
+
+1. **A vendor's state field tells you what the vendor's clock is doing, not what your data is
+   doing.** Before gating a one-shot record on a state, WATCH the payload past that state for a
+   full cycle and see whether it keeps changing. Comments asserting "finished means final" with
+   no measurement behind them are how this shipped.
+2. **A record written once and served for hours must be gated on the event that makes it final,
+   never on the event that makes it available.** `standingsFinal` (results-frame.ts): the stamped
+   end, or a finish marker aged past 3 min (owner: "we know 2-3 minutes will be correct"). The
+   wire capture obeys it like the fallbacks; both TV-poll callers now say whether their end is a
+   stamp or the marker.
+3. **When the fast signal and the final signal differ, show the previous complete answer, not a
+   premature one.** The results board's walk-back falls through to the last stamped race for the
+   ~45-90s the new one takes to settle. A wrong winner for a minute is worse than the old result.
+4. **Cross-check one-shot archives against a continuous feed.** `race_best_laps` (folded off
+   every passing) exposed the bug in one query: `best_ms > best_lap_ms`. Repair:
+   `scripts/backfill-race-lap-results-final-lap.mjs` (best laps from the feed, positions/laps
+   from Pandora scores; dry-run default).
