@@ -42,7 +42,10 @@ import { clarityTag, clarityEvent } from "~/lib/clarity";
 // there is no provider, so this renders English on the web and the guest's
 // language on the kiosk without either side needing to know about the other.
 import { useT } from "~/features/kiosk/i18n/useT";
-import { IconBallFootball, IconCheck } from "@tabler/icons-react";
+// AMERICAN football. Tabler's IconBallFootball is the association-football
+// ball, inherited from the World Cup picker this step was modelled on — it
+// shipped a soccer ball at the top of the NFL page (owner, 2026-09-09).
+import { IconBallAmericanFootball, IconCheck } from "@tabler/icons-react";
 
 const VIOLET = "#A78BFA"; // v3 Experience-step VIP accent (owner 2026-07-26)
 
@@ -73,6 +76,17 @@ const etTime = (iso: string) =>
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(iso));
+
+/**
+ * When the lane goes back, in ET — lane-open plus the package's 3 hours.
+ *
+ * Shown beside "lanes open" because it is the fact that actually shapes the
+ * guest's afternoon: "yours until 3:45 PM" answers the question the kickoff
+ * time does not. Derived from NFL_WINDOW_MINUTES rather than typed, so it can
+ * never disagree with the window the booking actually holds.
+ */
+const etWindowEnd = (laneOpenIso: string) =>
+  etTime(new Date(Date.parse(laneOpenIso) + NFL_WINDOW_MINUTES * 60_000).toISOString());
 
 /** Today in ET as YYYY-MM-DD. en-CA formats as ISO, which is why it's used. */
 const etToday = () =>
@@ -109,6 +123,52 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
   const [soldOutIds, setSoldOutIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const t = useT();
+
+  /**
+   * Kiosk canvas sizing, authored rather than zoomed.
+   *
+   * Every other bowling step is either kiosk-native at canvas px or listed in
+   * KioskFlow's NATIVE_STEP_IDS; this one was neither, so it rode the Chromium
+   * `zoom` bump — a 512px web column scaled up, which is not the same thing as
+   * a screen designed for the 1080px canvas. `nfl-game` joins that set in this
+   * change, so these are the real sizes now and nothing scales them again.
+   */
+  const kiosk = !!session.context?.kiosk;
+  const S = kiosk
+    ? {
+        title: "text-[62px]",
+        sub: "text-[23px]",
+        price: "text-[52px]",
+        priceUnit: "text-[18px]",
+        railLabel: "text-[18px]",
+        chip: "px-[26px] py-[18px] text-[22px]",
+        windowTime: "text-[44px]",
+        windowMeta: "text-[21px]",
+        windowCount: "text-[17px]",
+        row: "px-[26px] py-[24px] min-h-[84px] gap-[18px]",
+        team: "text-[27px]",
+        net: "px-3 py-1.5 text-[16px]",
+        status: "text-[18px]",
+        icon: 40,
+        check: 30,
+      }
+    : {
+        title: "text-[34px]",
+        sub: "text-[13px]",
+        price: "text-[30px]",
+        priceUnit: "text-[11px]",
+        railLabel: "text-[11px]",
+        chip: "px-3.5 py-2.5 text-[13px]",
+        windowTime: "text-[26px]",
+        windowMeta: "text-[12px]",
+        windowCount: "text-[11px]",
+        row: "px-4 py-3.5 gap-3",
+        team: "text-[16px]",
+        net: "px-[7px] py-[3px] text-[10px]",
+        status: "text-[11px]",
+        icon: 22,
+        check: 18,
+      };
 
   const centerId = item.qamfCenterId ?? qamfCenterIdForCode(session.center);
   // The experiences endpoint keys on the SQUARE center code, not the wizard's
@@ -413,19 +473,36 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
   }
 
   return (
-    <div className="mx-auto max-w-lg space-y-5">
-      <div className="text-center">
-        <div className="flex items-center justify-center gap-2">
-          <IconBallFootball size={22} style={{ color: VIOLET }} aria-hidden />
-          <h2 className="font-display text-2xl uppercase tracking-widest text-white">
-            {t("nfl.title")}
-          </h2>
-        </div>
-        <p className="mt-1.5 text-sm text-white/70">{t("nfl.subtitle")}</p>
-        {dayPriceCents != null && (
-          <p className="mt-2 text-sm font-bold" style={{ color: VIOLET }}>
-            {t("nfl.priceLine", { price: `$${(dayPriceCents / 100).toFixed(2)}` })}
+    // Fills the wizard's own max-w-4xl (864px of content) instead of clamping
+    // to max-w-lg. A Sunday slate is THIRTEEN games: in a 512px column that is
+    // a long scroll flanked by dead margin, and the guest cannot see the shape
+    // of the day. Two columns at full width fit the whole slate.
+    <div className="mx-auto w-full space-y-5">
+      {/* Title and price share one row, so the first kickoff window is on
+          screen rather than below a stacked header block. */}
+      <div className="flex items-end justify-between gap-6 border-b border-white/10 pb-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2.5">
+            <IconBallAmericanFootball size={S.icon} style={{ color: VIOLET }} aria-hidden />
+            <h2 className={`font-display ${S.title} uppercase tracking-wide text-white`}>
+              {t("nfl.title")}
+            </h2>
+          </div>
+          <p className={`mt-1.5 ${S.sub} max-w-xl leading-relaxed text-white/55`}>
+            {t("nfl.subtitle")}
           </p>
+        </div>
+        {dayPriceCents != null && (
+          <div className="shrink-0 text-right">
+            <div className={`font-display ${S.price} font-black`} style={{ color: VIOLET }}>
+              ${(dayPriceCents / 100).toFixed(2)}
+            </div>
+            <div
+              className={`${S.priceUnit} mt-0.5 font-semibold uppercase tracking-wider text-white/40`}
+            >
+              {t("nfl.card.perLaneUnit")}
+            </div>
+          </div>
         )}
       </div>
 
@@ -444,43 +521,58 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
         <p className="py-8 text-center text-sm text-white/50">{t("nfl.noSchedule")}</p>
       ) : (
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
+          <p className={`mb-2 ${S.railLabel} font-semibold uppercase tracking-wider text-white/40`}>
             {t("nfl.pickDate")}
           </p>
           {/* Horizontal scroll: a busy month is ~14 chips, which will not fit a
               kiosk column, and wrapping them buries the games below the fold.
               scrollbar-hide because the site's ::-webkit-scrollbar is bowling
               cyan — under a row of chips it reads as a stray progress bar
-              rather than a scrollbar (the utility exists for exactly this). */}
-          <div
-            className="scrollbar-hide -mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
-            role="tablist"
-            aria-label={t("nfl.pickDate")}
-          >
-            {dates.map((d) => {
-              const on = d === activeDate;
-              return (
-                <button
-                  key={d}
-                  type="button"
-                  role="tab"
-                  aria-selected={on}
-                  disabled={reservingId !== null}
-                  onClick={() => {
-                    setActiveDate(d);
-                    setError(null); // a failure on Sunday says nothing about Monday
-                  }}
-                  className="shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold transition-all disabled:cursor-not-allowed"
-                  style={{
-                    borderColor: on ? VIOLET : "rgba(255,255,255,0.10)",
-                    backgroundColor: on ? "rgba(167,139,250,0.14)" : "rgba(255,255,255,0.03)",
-                    color: on ? VIOLET : "rgba(255,255,255,0.70)",
-                  }}
-                >
-                  {dateChipLabel(d)}
-                </button>
-              );
-            })}
+              rather than a scrollbar (the utility exists for exactly this).
+
+              The fade is what makes the scroll DISCOVERABLE. With the scrollbar
+              hidden the rail simply ended mid-chip ("Mon, Se") against the page
+              background, which reads as a clipping bug rather than as more days
+              to the right (owner screenshot, 2026-09-09). pointer-events-none so
+              it never eats a tap on the chip beneath it. */}
+          <div className="relative">
+            <div
+              className="scrollbar-hide -mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+              role="tablist"
+              aria-label={t("nfl.pickDate")}
+            >
+              {dates.map((d) => {
+                const on = d === activeDate;
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    role="tab"
+                    aria-selected={on}
+                    disabled={reservingId !== null}
+                    onClick={() => {
+                      setActiveDate(d);
+                      setError(null); // a failure on Sunday says nothing about Monday
+                    }}
+                    className={`shrink-0 rounded-lg border ${S.chip} font-semibold transition-all disabled:cursor-not-allowed`}
+                    style={{
+                      borderColor: on ? VIOLET : "rgba(255,255,255,0.10)",
+                      backgroundColor: on ? "rgba(167,139,250,0.14)" : "rgba(255,255,255,0.03)",
+                      color: on ? VIOLET : "rgba(255,255,255,0.70)",
+                    }}
+                  >
+                    {dateChipLabel(d)}
+                  </button>
+                );
+              })}
+            </div>
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 right-0 w-16"
+              style={{
+                background: "linear-gradient(to right, rgba(0,4,24,0), var(--color-bg-deep))",
+              }}
+            />
           </div>
         </div>
       )}
@@ -505,16 +597,33 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
               the price thirteen times — a wall of identical text the guest has
               to read past to find the only thing that differs, the matchup.
               The window says the time once, and the rows carry the matchups. */}
-          <div className="space-y-4">
+          <div className="space-y-6">
             {windows.map((w) => (
               <div key={w.laneOpenIso}>
-                <div className="mb-1.5 flex items-baseline gap-2 border-b border-white/10 pb-1.5">
-                  <span className="text-sm font-bold text-white">{etTime(w.kickoffIso)}</span>
-                  <span className="text-[11px] text-white/45">
+                <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-white/10 pb-2">
+                  <span className={`font-display ${S.windowTime} font-black text-white`}>
+                    {etTime(w.kickoffIso)}
+                  </span>
+                  <span className={`${S.windowMeta} text-white/45`}>
                     {t("nfl.window.opens", { open: etTime(w.laneOpenIso) })}
                   </span>
+                  {/* When the lane goes BACK. The kickoff answers "when does it
+                      start"; this answers "how long have I got", which is the
+                      question that decides the rest of the guest's day. */}
+                  <span className={`${S.windowMeta} text-white/45`}>
+                    {t("nfl.window.until", { end: etWindowEnd(w.laneOpenIso) })}
+                  </span>
+                  <span
+                    className={`${S.windowCount} ml-auto font-semibold uppercase tracking-wider text-white/30`}
+                  >
+                    {w.games.length === 1
+                      ? t("nfl.window.countOne")
+                      : t("nfl.window.count", { n: w.games.length })}
+                  </span>
                 </div>
-                <div className="space-y-1">
+                {/* Two columns: a Sunday's 1:00 window alone is eight games, and
+                    one per row pushed the 4:25 and night games off the screen. */}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {w.games.map((g) => {
                     const isSoldOut = g.soldOut || soldOutIds.has(g.id);
                     const isPicked = item.nflGameId === g.id && !!item.qamfReservationId;
@@ -525,32 +634,48 @@ const NflGameStepComponent: StepDef<BowlingItem>["Component"] = ({
                         disabled={isSoldOut || reservingId !== null || tooManyLanes}
                         onClick={() => void pickGame(g)}
                         aria-pressed={isPicked}
-                        className="flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all disabled:cursor-not-allowed"
+                        className={`flex w-full items-center ${S.row} rounded-lg border text-left transition-all disabled:cursor-not-allowed`}
                         style={{
-                          borderColor: isPicked ? VIOLET : "transparent",
+                          // A visible resting border, not `transparent`: thirteen
+                          // borderless tiles on a near-black page read as one
+                          // undifferentiated block.
+                          borderColor: isPicked ? VIOLET : "rgba(255,255,255,0.06)",
                           backgroundColor: isPicked
                             ? "rgba(167,139,250,0.12)"
                             : "rgba(255,255,255,0.03)",
                           opacity: isSoldOut || tooManyLanes ? 0.4 : 1,
                         }}
                       >
-                        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
+                        {/* The matchup is the ONLY thing that differs between
+                            rows and the only thing the guest is scanning for, so
+                            it carries the row's weight. */}
+                        <span
+                          className={`min-w-0 flex-1 truncate ${S.team} font-semibold text-white`}
+                        >
                           {g.matchup}
                         </span>
                         {g.network && (
-                          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-white/35">
+                          <span
+                            className={`shrink-0 rounded ${S.net} font-bold uppercase tracking-wider`}
+                            style={{
+                              backgroundColor: isPicked
+                                ? "rgba(167,139,250,0.20)"
+                                : "rgba(255,255,255,0.07)",
+                              color: isPicked ? "#c4b1fc" : "rgba(255,255,255,0.50)",
+                            }}
+                          >
                             {g.network}
                           </span>
                         )}
                         <span className="shrink-0">
                           {reservingId === g.id ? (
-                            <span className="text-[11px]" style={{ color: VIOLET }}>
+                            <span className={S.status} style={{ color: VIOLET }}>
                               {t("nfl.card.holding")}
                             </span>
                           ) : isPicked ? (
-                            <IconCheck size={18} style={{ color: VIOLET }} aria-hidden />
+                            <IconCheck size={S.check} style={{ color: VIOLET }} aria-hidden />
                           ) : isSoldOut ? (
-                            <span className="text-[11px] font-semibold text-white/40">
+                            <span className={`${S.status} font-semibold text-white/40`}>
                               {t("nfl.card.soldOut")}
                             </span>
                           ) : null}

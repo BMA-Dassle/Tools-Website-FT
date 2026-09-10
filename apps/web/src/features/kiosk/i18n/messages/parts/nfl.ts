@@ -21,10 +21,19 @@ export const nflEn = {
   "nfl.card.times": "{kickoff} kickoff · lanes open {open}",
   /** Heading above each kickoff window — the time is said once, not per game. */
   "nfl.window.opens": "lanes open {open}",
+  /** The other half of the window: when the lane goes back. */
+  "nfl.window.until": "yours until {end}",
+  /** Games in this kickoff window. Singular is its own key — the
+   *  Sunday night window has exactly one, and "1 games" is wrong in
+   *  both languages. */
+  "nfl.window.count": "{n} games",
+  "nfl.window.countOne": "1 game",
   /** The day's per-lane price, shown once above the list. */
   "nfl.priceLine": "{price} per lane",
   "nfl.card.soldOut": "Sold out",
   "nfl.card.perLane": "/lane",
+  /** Unit under the price in the header, where the number stands alone. */
+  "nfl.card.perLaneUnit": "per lane",
   "nfl.card.holding": "Holding your lane…",
   "nfl.pickDate": "Which day?",
   "nfl.dateToday": "Today",
@@ -53,9 +62,13 @@ export const nflEs: Record<keyof typeof nflEn, string> = {
     "Tu partido en las pantallas LED de NeoVerse. Las pistas abren 15 minutos antes del saque inicial y son tuyas por 3 horas — incluye zapatos, una pizza de un ingrediente, 10 alitas y una jarra de refresco.",
   "nfl.card.times": "Saque inicial {kickoff} · pistas abren {open}",
   "nfl.window.opens": "pistas abren {open}",
+  "nfl.window.until": "tuya hasta {end}",
+  "nfl.window.count": "{n} partidos",
+  "nfl.window.countOne": "1 partido",
   "nfl.priceLine": "{price} por pista",
   "nfl.card.soldOut": "Agotado",
   "nfl.card.perLane": "/pista",
+  "nfl.card.perLaneUnit": "por pista",
   "nfl.card.holding": "Apartando tu pista…",
   "nfl.pickDate": "¿Qué día?",
   "nfl.dateToday": "Hoy",

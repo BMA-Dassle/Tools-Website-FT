@@ -215,6 +215,10 @@ const NATIVE_STEP_IDS = new Set([
   // v3 single-time-pick steps render their own kiosk variant at canvas px.
   "bowling-experience",
   "bowling-time",
+  // The NFL game picker now sizes itself off session.context.kiosk instead of
+  // riding the zoom bump. Leaving it out would scale an already-canvas-sized
+  // screen a second time.
+  "nfl-game",
   "kiosk-bowling-details",
   "kiosk-bowling-people",
   // Race Sims (kiosk-native, canvas px). racesim-product is deliberately NOT
