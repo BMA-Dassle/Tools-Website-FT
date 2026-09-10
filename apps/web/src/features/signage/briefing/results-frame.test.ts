@@ -73,8 +73,8 @@ describe("standingsFinal — the laps-final gate", () => {
     expect(standingsFinal({ stampedEndMs: T, markerEndMs: T - 40_000, nowMs: T + 1 })).toBe(true);
   });
 
-  it("a marker alone must age past the settle time (owner: 2-3 minutes)", () => {
-    expect(UNSTAMPED_SETTLE_MS).toBe(3 * 60_000);
+  it("a marker alone must age past the settle time (owner: 2 minutes)", () => {
+    expect(UNSTAMPED_SETTLE_MS).toBe(2 * 60_000);
     const early = standingsFinal({
       stampedEndMs: null,
       markerEndMs: T,

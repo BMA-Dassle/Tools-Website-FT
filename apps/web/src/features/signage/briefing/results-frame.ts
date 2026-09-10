@@ -50,9 +50,10 @@ export interface ResultsFrame {
  * How long after the clock hits zero the standings are trusted WITHOUT the
  * venue's stamp. The pending-finish window is one lap in the ordinary case
  * (~45-90s) and 5 minutes at most (a kart that never comes round); owner
- * 2026-09-10: "we know 2-3 minutes will be correct".
+ * 2026-09-10: "we know 2-3 minutes will be correct" — and then "can we do 2
+ * minutes old?" Two it is; the stamp still wins the moment it lands.
  */
-export const UNSTAMPED_SETTLE_MS = 3 * 60_000;
+export const UNSTAMPED_SETTLE_MS = 2 * 60_000;
 
 /**
  * ARE THE LAPS FINAL? The one question every standings capture must answer

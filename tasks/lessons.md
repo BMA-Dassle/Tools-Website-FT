@@ -5711,7 +5711,7 @@ Pandora's official scores, not the snapshot.
    no measurement behind them are how this shipped.
 2. **A record written once and served for hours must be gated on the event that makes it final,
    never on the event that makes it available.** `standingsFinal` (results-frame.ts): the stamped
-   end, or a finish marker aged past 3 min (owner: "we know 2-3 minutes will be correct"). The
+   end, or a finish marker aged past 2 min (owner: "2-3 minutes will be correct" → "2 minutes"). The
    wire capture obeys it like the fallbacks; both TV-poll callers now say whether their end is a
    stamp or the marker.
 3. **When the fast signal and the final signal differ, show the previous complete answer, not a
