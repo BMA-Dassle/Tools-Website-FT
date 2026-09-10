@@ -204,7 +204,8 @@ export function gameZoneItemDollars(item: VoucherItem): number {
 }
 
 /**
- * FLASH SALE (owner 2026-08-10): 25% off both packs through Friday night ET.
+ * FLASH SALE (owner 2026-09-09, re-run of the 2026-08-10 sale): 25% off both
+ * packs through Sunday night ET — five days, Wednesday to Sunday.
  *
  * A genuine markdown — $34 → $25.50 and $45 → $33.75, both exact quarters, and
  * the prices really return when it ends. Runs at BOTH venues (the offer
@@ -212,10 +213,16 @@ export function gameZoneItemDollars(item: VoucherItem): number {
  * is venue-scoped. The popup window (`naples-offer-window.ts`) is set to the
  * same instant — move or end BOTH dates together.
  *
+ * WHY A DATE AND NOT A FLAG: the sale ends by the clock, on every surface at
+ * once, through the resolver the CHARGE re-reads. Nothing to remember to turn
+ * off, and nothing that can keep charging $25.50 after the ad has stopped
+ * claiming it.
+ *
  * TO END EARLY: set both deals' `limitedOffer` back to null and pull the popup
- * window in. TO EXTEND: move both dates out.
+ * window in. TO EXTEND: move both dates out. The owner expects to adjust this
+ * one — moving this line and the popup's is the whole job.
  */
-export const FLASH_SALE_ENDS_AT = "2026-08-14T23:59:59";
+export const FLASH_SALE_ENDS_AT = "2026-09-13T23:59:59";
 
 const SHARED_FAQS: DealFaq[] = [
   {

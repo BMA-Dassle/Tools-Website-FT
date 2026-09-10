@@ -38,11 +38,11 @@ const fiftyTokens = (extra: Partial<{ endsAt: string; allocation: number }> = {}
 const noOfferDeal: DealCatalogEntry = { ...laser, limitedOffer: null };
 
 describe("the shipped catalog", () => {
-  // Owner 2026-08-10: "lets run a flash sale for additional 25% off." This
-  // describe is the guard that an offer is never switched on OR off without
-  // someone deciding to — it pins exactly what is configured, so any edit to
-  // the catalog's `limitedOffer` fields has to come here and say so.
-  it("runs the 25%-off flash sale on both packs, ending Friday 8/14", () => {
+  // Owner 2026-09-09: re-run the 8/10 flash sale, "additional 25% off," for
+  // five days. This describe is the guard that an offer is never switched on OR
+  // off without someone deciding to — it pins exactly what is configured, so any
+  // edit to the catalog's `limitedOffer` fields has to come here and say so.
+  it("runs the 25%-off flash sale on both packs, ending Sunday 9/13", () => {
     for (const deal of DEAL_CATALOG) {
       expect(deal.limitedOffer).not.toBeNull();
       expect(deal.limitedOffer!.endsAt).toBe(FLASH_SALE_ENDS_AT);
@@ -54,8 +54,8 @@ describe("the shipped catalog", () => {
 
   it("charges the sale price while it runs and the regular price after", () => {
     for (const deal of DEAL_CATALOG) {
-      const during = resolveDealOffer(deal, new Date("2026-08-10T12:00:00-04:00"), 0);
-      const after = resolveDealOffer(deal, new Date("2026-08-15T12:00:00-04:00"), 0);
+      const during = resolveDealOffer(deal, new Date("2026-09-09T12:00:00-04:00"), 0);
+      const after = resolveDealOffer(deal, new Date("2026-09-14T12:00:00-04:00"), 0);
       expect(during.isOfferLive).toBe(true);
       expect(during.unitPriceCents).toBe(deal.priceCents * 0.75);
       expect(during.regularPriceCents).toBe(deal.priceCents);
@@ -79,7 +79,7 @@ describe("the Naples advertising window", () => {
     // make `new Date()` return Invalid Date, and every comparison against NaN is
     // false — the window would read as "never closed". Fail at the typo.
     expect(() => dealOfferEndsAt(NAPLES_OFFER_ENDS_AT)).not.toThrow();
-    expect(dealOfferEndsAt(NAPLES_OFFER_ENDS_AT)).toBe("2026-08-14T23:59:59-04:00");
+    expect(dealOfferEndsAt(NAPLES_OFFER_ENDS_AT)).toBe("2026-09-13T23:59:59-04:00");
   });
 
   it("closes at 11:59 PM Eastern on the advertised day", () => {
@@ -90,7 +90,7 @@ describe("the Naples advertising window", () => {
       minute: "2-digit",
       hour12: false,
     });
-    expect(fmt.format(new Date(dealOfferEndsAt(NAPLES_OFFER_ENDS_AT)))).toBe("Friday 23:59");
+    expect(fmt.format(new Date(dealOfferEndsAt(NAPLES_OFFER_ENDS_AT)))).toBe("Sunday 23:59");
   });
 });
 

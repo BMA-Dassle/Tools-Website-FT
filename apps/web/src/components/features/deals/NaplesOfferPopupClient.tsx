@@ -14,10 +14,12 @@
  * past the deadline in the first place, so both a fresh load and a page left
  * open overnight land in the same place.
  *
- * WHAT IT CLAIMS (2026-08-10 run): a genuine 25% sale price that ends Friday
- * night, after which the packs really return to their regular prices — see the
- * server shell for the full reasoning and the honesty rule. `note` states the
- * before-and-after in plain words, in the footer, where it is read last.
+ * WHAT IT CLAIMS (2026-09-09 run): a genuine 25% sale price that ends on the
+ * advertised night, after which the packs really return to their regular prices
+ * — see the server shell for the full reasoning and the honesty rule. `note`
+ * states the before-and-after in plain words, in the footer, where it is read
+ * last; the shell derives its weekday from the deadline, so this copy stays true
+ * when the sale moves.
  *
  * Trigger rules live here, not in the layout: 15s dwell or 35% scroll, once per
  * visitor per 3 days, and never over a flow where a modal would be hostile.

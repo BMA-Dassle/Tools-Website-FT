@@ -46,6 +46,22 @@ export function formatDealDeadlineShort(endsAtIso: string): string {
 }
 
 /**
+ * "Sunday" — the deadline's weekday alone, for ad copy that reads as a sentence
+ * ("ends Sunday night") rather than a date stamp.
+ *
+ * Exists so that copy is DERIVED rather than typed. The 2026-08-10 run hardcoded
+ * "ends Friday night" in the Naples popup, which is a sentence that silently
+ * becomes a lie the next time the sale moves a day — the deadline itself is
+ * already a single constant, and the words describing it should follow it
+ * instead of being a second place to remember.
+ */
+export function formatDealDeadlineWeekday(endsAtIso: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: ET, weekday: "long" }).format(
+    new Date(endsAtIso),
+  );
+}
+
+/**
  * A remaining duration as a clock: `1d 6h`, `2h 14m`, `48m 07s`.
  *
  * Seconds only appear in the last hour, where they are the difference between

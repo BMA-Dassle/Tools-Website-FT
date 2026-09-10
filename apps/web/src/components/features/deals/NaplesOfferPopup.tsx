@@ -1,14 +1,14 @@
 /**
  * HeadPinz Naples limited-time offer modal — SERVER shell.
  *
- * WHAT IT ADVERTISES NOW (owner 2026-08-10): a FLASH SALE — a genuine 25%
- * markdown configured as `salePriceCents` on the catalog's `limitedOffer`, ending
- * Friday night. Unlike the 8/3 run (where the only limited thing was ACCESS —
- * "we don't advertise them anywhere" — and the comments here stressed that the
- * price was NOT changing), this time the price really is what changes: $25.50
- * and $33.75 through Friday, $34 and $45 after. The countdown is honest because
- * the discount genuinely ends, enforced by the same resolver the charge path
- * re-resolves at charge time. What remains banned is the reverse claim — a
+ * WHAT IT ADVERTISES NOW (owner 2026-09-09, re-running the 8/10 sale): a FLASH
+ * SALE — a genuine 25% markdown configured as `salePriceCents` on the catalog's
+ * `limitedOffer`, ending Sunday 9/13. Unlike the 8/3 run (where the only limited
+ * thing was ACCESS — "we don't advertise them anywhere" — and the comments here
+ * stressed that the price was NOT changing), the price really is what changes:
+ * $25.50 and $33.75 while it runs, $34 and $45 after. The countdown is honest
+ * because the discount genuinely ends, enforced by the same resolver the charge
+ * path re-resolves at charge time. What remains banned is the reverse claim — a
  * countdown to a REGULAR-price rise nobody intends to perform.
  *
  * The modal stays the single urgency surface (owner 2026-08-03: no on-page
@@ -25,7 +25,7 @@
 import { ATTRACTIONS } from "@/lib/attractions-data";
 import { currentDealOffer, DEAL_CATALOG, dealIsSellable, dealValue } from "~/features/deals";
 import { dealsNaplesPopupEnabled } from "~/features/deals/flags";
-import { money } from "~/features/deals/format";
+import { formatDealDeadlineWeekday, money } from "~/features/deals/format";
 import { dealOfferEndsAt } from "~/features/deals/service/offer";
 import { NAPLES_OFFER_ENDS_AT, naplesOfferIsOpen } from "./naples-offer-window";
 import {
@@ -71,7 +71,11 @@ export async function NaplesOfferPopup() {
     endsAt,
     deals,
     // Says what is actually limited: the sale price, with the real after-number.
-    note: "25% off ends Friday night — after that these packs return to their regular prices. We don't list them anywhere else on our site.",
+    // The DAY is derived from the deadline rather than typed, so moving the sale
+    // can never leave the ad naming the wrong night.
+    note:
+      `25% off ends ${formatDealDeadlineWeekday(endsAt)} night — after that these packs ` +
+      `return to their regular prices. We don't list them anywhere else on our site.`,
   };
 
   return <NaplesOfferPopupClient content={content} />;

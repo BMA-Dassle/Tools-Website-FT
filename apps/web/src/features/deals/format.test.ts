@@ -4,6 +4,7 @@ import {
   formatCountdown,
   formatDealDeadline,
   formatDealDeadlineShort,
+  formatDealDeadlineWeekday,
   money,
   offerFinePrint,
 } from "./format";
@@ -22,6 +23,14 @@ describe("formatDealDeadline", () => {
 
   it("handles a winter deadline on the other side of DST", () => {
     expect(formatDealDeadline("2026-01-31T23:59:59-05:00")).toBe("Saturday, January 31");
+  });
+
+  it("gives the weekday alone for ad copy, in ET", () => {
+    // What the Naples popup writes "ends ___ night" from. The ET part matters
+    // for the same reason as above: 11:59 PM on the 13th is already the 14th in
+    // UTC, and a formatter that fell back would advertise the wrong night.
+    expect(formatDealDeadlineWeekday("2026-09-13T23:59:59-04:00")).toBe("Sunday");
+    expect(formatDealDeadlineWeekday("2026-09-14T03:59:59Z")).toBe("Sunday");
   });
 });
 
