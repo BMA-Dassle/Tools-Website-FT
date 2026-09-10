@@ -1,5 +1,31 @@
 # Open Tasks
 
+## Pit station: "PA busy" frozen-cache fix + cue sync (2026-09-10) — branches `fix/pit-pa-busy-frozen-cache`, `feat/pit-cue-sync`
+
+Incident: every pit control struck through as "PA busy · mega" for ~50 min; Pandora's cache of
+the Q-SYS feed froze with mega "playing" (clock stuck at 0:06, `connected: true`) while the Core's
+direct `/status` said Idle. See tasks/lessons.md § A cache that says "connected" can still be an
+hour behind. Owner asks the same session: sanity-check the live status against the Core; a 5s
+window that syncs a pre (or post) pressed on both tracks onto the "both" (mega) zone; never show
+"PA busy" for the stay-seated loop.
+
+- [x] `pit/qsys-truth.ts` (PURE) — `liveSuspicion` (playing + no ticks for 5s, or link down) and
+      `zonesDisagree`. 11 tests, including the 2026-09-10 freeze verbatim.
+- [x] `pit/qsys-truth.server.ts` — `readQsysTruth`: cache → suspicion or 30s sanity beat →
+      direct `/status`; disagreement → `console.warn` + 120s distrust (cache bypassed, lapses on
+      its own); 2s memo for pollers, `fresh` for presses. 9 tests with an in-memory Redis.
+- [x] `qsys.server.ts` — `stateUpdatedAtMs` parsed off `/live`; `readQsysStatus` (direct Core).
+- [x] `pit-board.ts` — `paBusyZoneFor` is the ONE busy rule (mega ↔ both pits; stay-seated never
+      counts). 4 tests. Route ships `paBusy` per track; PitClient draws the server's verdict and
+      drops its own socket-frame derivation and the `?qsys=0` skip.
+- [x] PitClient chip: "PA CACHE STALE · READING CORE" (amber, suspicion in the tooltip) outranks
+      "PA LIVE" while the server is bypassing the cache.
+- [ ] Cue sync (`feat/pit-cue-sync`) — see the section's checklist once built.
+- [ ] **Live**: on deploy, watch the chip go amber then clear once Pandora's relay is restarted;
+      confirm a press goes through with the cache still frozen.
+- [ ] **Pandora**: file the keepalive/pong-timeout fix for the upstream socket — the freeze will
+      recur until it lands; our truth read only masks it.
+
 ## Host attribution: ask before taking a group (2026-09-07) — branch `fix/host-reassign-confirm` — BUILT, gates green
 
 Track staff: a group "every so often takes the last person's assignment". Three mechanisms, all

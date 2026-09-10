@@ -96,6 +96,15 @@ export interface QsysLiveState {
    *  before the drop — stale, not wrong. */
   connected: boolean;
   zones: QsysZoneState[];
+  /**
+   * When Pandora last received a state frame from the Core (`stateUpdatedAt`
+   * on the /live response). THE FREEZE DETECTOR: frames arrive ~10/second
+   * while a clip plays, so a zone that says `playing` against a timestamp
+   * seconds old is a cache that has stopped hearing from the Core, not a clip
+   * (2026-09-10 — see qsys-truth.ts). Null when the response carried none;
+   * a direct /status read stamps its own receipt time here.
+   */
+  stateUpdatedAtMs: number | null;
 }
 
 function pandoraHeaders(): Record<string, string> {
@@ -254,14 +263,44 @@ export async function readQsysLive(): Promise<QsysLiveState | null> {
     });
     if (!res.ok) return null;
     const json = (await res.json()) as {
-      data?: { connected?: boolean; zones?: QsysZoneState[] };
+      data?: { connected?: boolean; zones?: QsysZoneState[]; stateUpdatedAt?: string };
     };
     const data = json?.data;
     if (!data) return null;
+    const updated = data.stateUpdatedAt ? Date.parse(data.stateUpdatedAt) : NaN;
     return {
       connected: data.connected === true,
       zones: Array.isArray(data.zones) ? data.zones : [],
+      stateUpdatedAtMs: Number.isFinite(updated) ? updated : null,
     };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The player's state FROM THE CORE ITSELF — GET /qsys/audio/status, which
+ * Pandora proxies straight through to the device rather than answering from
+ * its cache. Slower (a venue round trip) and never polled at 1Hz for that
+ * reason; qsys-truth.server.ts asks it when the cache looks frozen, on a
+ * periodic sanity beat, and for as long as the two have been found to
+ * disagree. This is the read that said "every zone Idle" for the whole hour
+ * the cache said "mega playing" on 2026-09-10. Same zone objects as the
+ * state frame (wire doc). Null on any failure.
+ */
+export async function readQsysStatus(): Promise<QsysLiveState | null> {
+  if (!PANDORA_KEY) return null;
+  try {
+    const res = await fetch(`${PANDORA_BASE}/qsys/audio/status/${FT_SQUARE_LOCATION_ID}`, {
+      headers: pandoraHeaders(),
+      signal: AbortSignal.timeout(6000),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data?: { zones?: QsysZoneState[] } };
+    const zones = json?.data?.zones;
+    if (!Array.isArray(zones)) return null;
+    return { connected: true, zones, stateUpdatedAtMs: Date.now() };
   } catch {
     return null;
   }

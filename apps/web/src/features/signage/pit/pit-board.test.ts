@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   mergePitRoster,
   orderPitRoster,
+  paBusyZoneFor,
   pitCardName,
   pitRailState,
   pitArrivalNoticeVisible,
@@ -337,5 +338,48 @@ describe("pit arrival notice", () => {
   it("ignores a send stamp from the screen's future — that is clock skew", () => {
     // Otherwise a board whose clock is behind flashes for the whole skew.
     expect(show({ nowMs: at - 5_000 })).toBe(false);
+  });
+});
+
+describe("paBusyZoneFor — the one 'PA busy' rule for the station and the board GET", () => {
+  const z = (zone: string, playing: boolean, file = "") => ({ zone, playing, file });
+  const idle = [z("red", false), z("blue", false), z("mega", false)];
+
+  it("is clear when nothing plays, and when there is no feed at all", () => {
+    expect(paBusyZoneFor("red", idle)).toBeNull();
+    expect(paBusyZoneFor("red", null)).toBeNull();
+  });
+
+  it("a track's own zone blocks it; the other pit's does not", () => {
+    const redPlaying = [
+      z("red", true, "Red Track Pre-Message.mp3"),
+      z("blue", false),
+      z("mega", false),
+    ];
+    expect(paBusyZoneFor("red", redPlaying)).toBe("red");
+    expect(paBusyZoneFor("blue", redPlaying)).toBeNull();
+  });
+
+  it("mega blocks both pits, and both pits block mega — it is their speakers", () => {
+    const megaPlaying = [
+      z("red", false),
+      z("blue", false),
+      z("mega", true, "Dual Track Pre-Message.mp3"),
+    ];
+    expect(paBusyZoneFor("red", megaPlaying)).toBe("mega");
+    expect(paBusyZoneFor("blue", megaPlaying)).toBe("mega");
+    const bluePlaying = [z("red", false), z("blue", true, "Blue Track Post.mp3"), z("mega", false)];
+    expect(paBusyZoneFor("mega", bluePlaying)).toBe("blue");
+  });
+
+  it("the stay-seated loop never counts as busy — a press stops it (owner 2026-09-10)", () => {
+    const loop = [
+      z("red", true, "Stay Seated.mp3"),
+      z("blue", false),
+      z("mega", true, "media/stay seated.MP3"),
+    ];
+    expect(paBusyZoneFor("red", loop)).toBeNull();
+    expect(paBusyZoneFor("blue", loop)).toBeNull();
+    expect(paBusyZoneFor("mega", loop)).toBeNull();
   });
 });

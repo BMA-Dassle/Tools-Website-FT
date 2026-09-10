@@ -53,7 +53,7 @@
  * Same polling shape as the check-in board: a 5-second board poll and a
  * 1-second local clock so every readout ticks between polls.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
@@ -66,7 +66,6 @@ import {
 } from "~/features/signage/live-session";
 import { liveHeatNumber } from "~/features/signage/briefing/room-return";
 import {
-  isStaySeatedFile,
   kartsAvailability,
   pitRailState,
   type PitLaneFeed,
@@ -127,7 +126,19 @@ interface PitBoard {
   now: number;
   lanes: PitLanes;
   audio: Record<string, CueStamps>;
-  qsys: { connected: boolean; zones: QsysZone[] } | null;
+  /** Mirrors the route's QsysTruth: `source` says whether the server took
+   *  Pandora's cache at its word or went to the Core; `suspicion` is why not. */
+  qsys: {
+    connected: boolean;
+    zones: QsysZone[];
+    source?: "live" | "status";
+    suspicion?: string | null;
+  } | null;
+  /** THE SERVER'S busy verdict per track (2026-09-10) — see the route. This
+   *  tablet's own socket frame is no longer trusted for it: Pandora's relay
+   *  serves that frame from the cache that froze with mega "playing" for an
+   *  hour, and nothing here could have known better. */
+  paBusy?: Record<TrackKey, string | null>;
   socketUrl: string | null;
   postGate: Record<TrackKey, PostGate | null>;
   /** Each clip's length as the player last reported it — mirrors the route's
@@ -415,17 +426,14 @@ export default function PitClient({ token, version }: { token: string; version: 
   // the warm-loop-fresh Redis carry, never live Pandora.
   const status = useTrackStatus(1_000);
 
-  // Read at fetch time by loadBoard (a ref, not state, so the poller's
-  // closure always sees the current value): while this tablet holds the
-  // player's socket, the poll skips the server-side Pandora live read and is
-  // pure Redis — which is what makes the 1s cadence below free.
-  const socketConnectedRef = useRef(false);
-
+  // The poll used to skip the server's Pandora read (?qsys=0) while this
+  // tablet held the player's socket. It no longer can: the busy verdict comes
+  // from the server now (paBusy), and the server memoises the read so the 1s
+  // cadence stays cheap.
   const loadBoard = useCallback(
     async (signal?: AbortSignal) => {
       try {
-        const qsysParam = socketConnectedRef.current ? "&qsys=0" : "";
-        const res = await fetch(`/api/admin/pit?token=${encodeURIComponent(token)}${qsysParam}`, {
+        const res = await fetch(`/api/admin/pit?token=${encodeURIComponent(token)}`, {
           cache: "no-store",
           signal,
         });
@@ -450,11 +458,10 @@ export default function PitClient({ token, version }: { token: string; version: 
     true,
   );
 
-  // The player's push feed, preferred; Pandora's cached copy is the fallback.
+  // The player's push feed, preferred FOR THE COUNTDOWN; the server's
+  // cross-checked copy is the fallback. Whether a press is BLOCKED is not
+  // read from either — that is the server's paBusy.
   const socket = useQsysSocket(board?.data.socketUrl ?? null);
-  useEffect(() => {
-    socketConnectedRef.current = socket.connected;
-  }, [socket.connected]);
   const zones = socket.connected && socket.zones ? socket.zones : (board?.data.qsys?.zones ?? null);
   const zonesAtMs = socket.connected && socket.zones ? socket.atMs : (board?.fetchedAtMs ?? 0);
 
@@ -522,17 +529,26 @@ export default function PitClient({ token, version }: { token: string; version: 
   // end, a named amber when Pandora is up but the VENUE's link to the Core
   // is down (the relay tells us — last state is stale), VIA POLL while the
   // socket itself is down, and amber only when there is no feed at all.
+  // OUTRANKING ALL OF THOSE: the server found Pandora's cache lying and is
+  // reading the Core directly (2026-09-10) — the socket this tablet holds is
+  // fed from that same cache, so "PA LIVE" would be the wrong word for it.
   const hasPoll = board?.data.qsys != null;
   const paChip =
     board == null
       ? null
-      : socket.connected && socket.upstream
-        ? { label: "PA LIVE", tone: GREEN }
-        : socket.connected
-          ? { label: "PA LINK DOWN AT VENUE", tone: AMBER }
-          : hasPoll
-            ? { label: "PA VIA POLL", tone: PORTAL_DARK.muted }
-            : { label: "PA FEED UNAVAILABLE", tone: AMBER };
+      : board.data.qsys?.source === "status"
+        ? {
+            label: "PA CACHE STALE · READING CORE",
+            tone: AMBER,
+            title: board.data.qsys.suspicion ?? undefined,
+          }
+        : socket.connected && socket.upstream
+          ? { label: "PA LIVE", tone: GREEN }
+          : socket.connected
+            ? { label: "PA LINK DOWN AT VENUE", tone: AMBER }
+            : hasPoll
+              ? { label: "PA VIA POLL", tone: PORTAL_DARK.muted }
+              : { label: "PA FEED UNAVAILABLE", tone: AMBER };
 
   return (
     <div
@@ -580,6 +596,7 @@ export default function PitClient({ token, version }: { token: string; version: 
         )}
         {paChip && (
           <span
+            title={"title" in paChip ? paChip.title : undefined}
             style={{
               fontSize: 10,
               fontWeight: 800,
@@ -650,31 +667,17 @@ export default function PitClient({ token, version }: { token: string; version: 
             audio={board?.data.audio ?? {}}
             gate={board?.data.postGate[track] ?? null}
             zone={zones?.find((z) => z.zone === track) ?? null}
-            // One clip per TRACK (owner): a zone can't overlap itself, and
-            // mega conflicts with both pits' zones since it IS their
-            // speakers. Red and blue run independently. The server refuses
-            // too; this is the button saying so instead of erroring.
-            //
-            // EXCEPT THE AMBIENT LOOP, WHICH YIELDS (owner 2026-08-16, live:
-            // "don't block this board for PA busy on karts returning. Pre-post
-            // always have priority"). The server has always stopped the
-            // stay-seated clip to make way for a real cue — yieldStaySeated,
-            // owner 2026-08-15: "pre/post should be able to override it
-            // instantly". This button never learned the distinction, so it
-            // struck itself through and printed "PA busy on this track".
-            //
-            // That was a self-sustaining deadlock: the loop only plays while a
-            // group sits in the pit owing a post, the post button is what pays
-            // that debt, and the button refused because the loop was playing.
-            // Blue 19 sat "finished 3:36 ago" with its one release struck out.
-            paBusyZone={
-              zones?.find(
-                (z) =>
-                  z.playing &&
-                  !isStaySeatedFile(z.file) &&
-                  (z.zone === track || z.zone === "mega" || track === "mega"),
-              )?.zone ?? null
-            }
+            // THE SERVER'S VERDICT, not this tablet's (2026-09-10). The rule
+            // itself is paBusyZoneFor in pit-board.ts — one clip per track,
+            // mega conflicts with both pits, the stay-seated loop never counts
+            // (it yields to a press; owner 2026-08-16 and again 2026-09-10).
+            // This card used to apply that rule to its own socket frame, and
+            // Pandora's relay serves that frame from the cache that froze with
+            // mega "playing" for an hour: every control read "PA busy · mega"
+            // and nothing on the tablet could know better. The server can —
+            // it cross-checks the Core — so the button draws what the press
+            // would be told.
+            paBusyZone={board?.data.paBusy?.[track] ?? null}
             zonesAtMs={zonesAtMs}
             nowMs={nowMs}
             pending={pending}

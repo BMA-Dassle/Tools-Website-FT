@@ -544,6 +544,31 @@ export function isStaySeatedFile(file: string | null | undefined): boolean {
   return file.toLowerCase().includes(STAY_SEATED_CLIP_FILE.replace(/\.mp3$/i, "").toLowerCase());
 }
 
+/**
+ * WHICH ZONE STANDS IN THE WAY OF A PRESS ON THIS TRACK, if any. PURE — the
+ * one statement of the "PA busy" rule the station draws and the board GET
+ * ships (2026-09-10; the client used to inline its own copy).
+ *
+ * One clip per track (owner 2026-08-14): a zone cannot overlap itself, and
+ * mega conflicts with both pits' zones because it IS their speakers. Red and
+ * blue run independently. The stay-seated loop NEVER counts (owner 2026-08-16,
+ * again 2026-09-10: "dont do PA Busy when its just the remain sitting alert
+ * playing") — the press stops it to make way, so it is not in the way.
+ */
+export function paBusyZoneFor(
+  track: "blue" | "red" | "mega",
+  zones: ReadonlyArray<{ zone: string; playing: boolean; file: string | null | undefined }> | null,
+): string | null {
+  if (!zones) return null;
+  const blocking = zones.find(
+    (z) =>
+      z.playing &&
+      !isStaySeatedFile(z.file) &&
+      (z.zone === track || z.zone === "mega" || track === "mega"),
+  );
+  return blocking?.zone ?? null;
+}
+
 /* ── may the pre-race cue play? ───────────────────────────────────────── */
 
 /**

@@ -10,10 +10,10 @@ import {
   readCueStamps,
 } from "~/features/signage/pit/audio.server";
 import { readPitLanes } from "~/features/signage/pit/lane.server";
-import { PANDORA_QSYS_SOCKET_URL, readQsysLive } from "~/features/signage/pit/qsys.server";
+import { PANDORA_QSYS_SOCKET_URL } from "~/features/signage/pit/qsys.server";
+import { readQsysTruth, type QsysTruth } from "~/features/signage/pit/qsys-truth.server";
 import type { ClipLengths, PitCueStamps, PostRaceGate } from "~/features/signage/pit/audio.server";
-import type { QsysLiveState } from "~/features/signage/pit/qsys.server";
-import type { PitLanes } from "~/features/signage/pit/pit-board";
+import { paBusyZoneFor, type PitLanes } from "~/features/signage/pit/pit-board";
 import type { TrackKey } from "~/features/signage/track";
 import { isAdminApiRequest } from "@/lib/admin-request-auth";
 
@@ -52,11 +52,22 @@ export interface PitBoardResponse {
   /** Cue stamps for every session the lanes mention, keyed by sessionId
    *  (TEXT — BMI ids exceed Number.MAX_SAFE_INTEGER, house rule). */
   audio: Record<string, PitCueStamps>;
-  /** The Q-SYS player's zone state from Pandora's WebSocket cache — the
-   *  tablet's FALLBACK when its own socket to the Core is down (the owner
-   *  prefers the direct feed, 2026-08-14). Null when Pandora can't be read;
-   *  the controls stand without it. */
-  qsys: QsysLiveState | null;
+  /** The Q-SYS player's zone state — Pandora's WebSocket cache cross-checked
+   *  against the Core (qsys-truth.server.ts). The tablet's countdown FALLBACK
+   *  when its own socket is down (the owner prefers the direct feed,
+   *  2026-08-14), and the source of `paBusy` below. Null when nothing can be
+   *  read; the controls stand without it. */
+  qsys: QsysTruth | null;
+  /**
+   * WHICH ZONE BLOCKS A PRESS ON EACH TRACK, or null — THE SERVER'S VERDICT,
+   * not the tablet's (2026-09-10). The station used to derive this from its
+   * own socket frame, and Pandora's relay serves that frame from the same
+   * cache that froze with mega "playing" for an hour: every control read
+   * "PA busy · mega" and nothing on the tablet could know better. The server
+   * can — it asks the Core — so the button now draws what the press would be
+   * told. The stay-seated loop never counts (paBusyZoneFor).
+   */
+  paBusy: Record<TrackKey, string | null>;
   /** The push feed the tablet binds to. Defaults to PANDORA'S WSS RELAY of
    *  the Core's feed (no auth, works from an https page with no tablet
    *  settings); PIT_QSYS_SOCKET_URL overrides it — e.g. ws://<core>:8001/ws
@@ -104,12 +115,13 @@ export async function GET(req: NextRequest) {
   }
   const audio: Record<string, PitCueStamps> = {};
   const postGate: Record<TrackKey, PostRaceGate | null> = { blue: null, red: null, mega: null };
-  // ?qsys=0 — the tablet holds the player's socket itself, so the poll skips
-  // the Pandora live read and stays pure Redis. This is what lets the client
-  // poll every second.
-  const wantQsys = req.nextUrl.searchParams.get("qsys") !== "0";
+  // The PA read rides EVERY poll now — it used to be skipped (?qsys=0) while
+  // the tablet held the player's socket, but the busy verdict moved server-
+  // side (see `paBusy`) and it has to come from a read the server vouches
+  // for. readQsysTruth memoises for 2s, so the 1s poll costs a Redis GET on
+  // the beats between Pandora calls.
   const [qsys, clipLengths] = await Promise.all([
-    wantQsys ? readQsysLive() : Promise.resolve(null),
+    readQsysTruth(),
     readClipLengths(),
     ...[...sessionIds].map(async (sid) => {
       audio[sid] = await readCueStamps(sid);
@@ -125,11 +137,15 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
+  const paBusy: Record<TrackKey, string | null> = { blue: null, red: null, mega: null };
+  for (const track of PIT_TRACKS) paBusy[track] = paBusyZoneFor(track, qsys?.zones ?? null);
+
   const body: PitBoardResponse = {
     now: Date.now(),
     lanes,
     audio,
     qsys,
+    paBusy,
     socketUrl: process.env.PIT_QSYS_SOCKET_URL || PANDORA_QSYS_SOCKET_URL,
     postGate,
     clipLengths,
