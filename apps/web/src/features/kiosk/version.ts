@@ -15,6 +15,12 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.35.2 — RACING: adult Pro is bookable tonight only (Fri 2026-09-11, owner).
+ *         Pro is a weekday/Mega product and Friday runs the weekend catalog,
+ *         so the tier simply wasn't offered — BMI had the heats the whole
+ *         time. Pro Red + Blue now appear on the race grid and in the product
+ *         list for Pro-qualified returning racers; junior Pro stays closed.
+ *         The date is pinned, so this lapses on its own at midnight.
  * 1.35.1 — CHECK-IN: a junior who arrives READY (account + signed waiver)
  *         is a junior at "Who's racing?" (2026-09-11: "on a junior race when
  *         they click add junior it doesn't list previous names and won't let
@@ -1383,7 +1389,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.35.1";
+export const KIOSK_VERSION = "1.35.2";
 
 let bootVersion: string | null = null;
 let captured = false;
