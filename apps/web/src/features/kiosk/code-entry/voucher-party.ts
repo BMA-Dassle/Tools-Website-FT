@@ -32,6 +32,9 @@ export interface VoucherPartyPerson {
   bmiPersonId?: string;
   /** Live waiver truth from the party route; ORed across duplicate rows. */
   waiverValid: boolean;
+  /** Birthdate from the party route when known — carried so prefill can
+   *  resolve the racer's class instead of guessing. */
+  dobIso?: string;
 }
 
 /** The structural slice of PartyMember the chip matcher needs. */
@@ -73,6 +76,7 @@ export function mergeRosters(
       const existing = (r.bmiPersonId ? byId.get(r.bmiPersonId) : undefined) ?? byName.get(nk);
       if (existing) {
         existing.waiverValid = existing.waiverValid || r.waiverValid;
+        if (r.dobIso && !existing.dobIso) existing.dobIso = r.dobIso;
         if (r.bmiPersonId && !existing.bmiPersonId) {
           existing.bmiPersonId = r.bmiPersonId; // upgrade; key stays stable
           byId.set(r.bmiPersonId, existing);
@@ -85,6 +89,7 @@ export function mergeRosters(
         ...(lastName ? { lastName } : {}),
         ...(r.bmiPersonId ? { bmiPersonId: r.bmiPersonId } : {}),
         waiverValid: r.waiverValid,
+        ...(r.dobIso ? { dobIso: r.dobIso } : {}),
       };
       if (r.bmiPersonId) byId.set(r.bmiPersonId, person);
       byName.set(nk, person);

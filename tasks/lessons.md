@@ -5781,3 +5781,41 @@ Changed pairing (guest + admin via one helper), products diff reduced to the lin
 sign-step re-sign copy, PDF `paymentAgreementLines`. Regression tests build their fixtures from
 3370's real version rows and include a CONTROL test pinning the old broken diff. No money path
 changed.
+
+## A default stamped at prefill outranks the truth learned later (2026-09-11)
+
+**Report:** "they fill out the waivers and everything but then on a junior race when they click add
+junior it doesn't list previous names and won't let you create a new one. Only on junior did we
+notice."
+
+**Cause:** kiosk check-in's roster prefill (`party-prefill.ts`) minted every booked person with
+`category: "adult"` — the comment said the people step "re-derives minors exactly as it does for
+hand-added guests". It does, but ONLY for people who walk the "Set up" step (no account or lapsed
+waiver). A junior who arrived READY — account plus a live waiver, the exact case the report
+describes — never went through Set up, so the stamp stuck. `resolveRaceClass` trusts an explicit
+`category` over a birthdate, so at "Who's racing?" the junior race filtered to zero eligible racers,
+"Add a Junior racer" sent the guest back to a party that already had the kid, and adding them again
+was refused as a duplicate (correctly). Adults were never affected because the wrong default
+happened to be "adult" — which is why it was only noticed on junior races.
+
+**Rules:**
+
+- **Never stamp a guessed value into a field that a resolver treats as authoritative.** If a field
+  means "known fact" (`category`, `isMinor`, a tier), leave it `undefined` when you don't know it and
+  let the resolver derive from evidence (`dobIso`). A placeholder that reads as a fact will win every
+  later comparison.
+- **"The next step corrects it" is only true if EVERY path reaches the next step.** Enumerate who
+  skips it. Here the ready-on-arrival guest — the happy path — was the one who skipped.
+- **Carry the evidence you already have.** The waiver read (`GET /bmi/person`) already returned the
+  birthdate; we threw it away and kept only the boolean. When a read yields more than the one bit
+  you asked for, plumb the rest if a downstream step is guessing at it.
+- **Unknown class must not dead-end.** `category.ts` already said `null` means "avoid a wrong
+  hard-block"; the picker hard-blocked anyway. A guest-facing filter that can go to zero needs a
+  path forward for the unknown case (offer them; the server allows null and auto-fill never
+  guesses).
+
+**Fixed:** `fix/checkin-junior-class-prefill` — `readRacerWaiver` returns `{ valid, dobIso }`
+(`checkRacerWaiverValid` is a wrapper, same fail-closed rules), the bindable roster row carries
+`dobIso`, prefill derives `category` via `resolveRaceClass` (unset when unknown) and keeps the date,
+the voucher-receipt chips carry it too, and the "Who's racing?" picker offers unknown-class racers.
+Kiosk 1.35.1. Not live-verified.
