@@ -1,5 +1,43 @@
 # Lessons Learned
 
+## A catalog split by price is not a catalog split by availability — and the BMI race SKUs are not day-restricted (2026-09-11)
+
+**Ask.** Owner, 5 PM Friday: "Allow pro races for tonight only." Pro is a weekday/Mega product;
+`scheduleForDate` puts Fri/Sat/Sun on the `"weekend"` schedule, and the weekend block in
+`race-products.ts` carries an explicit `// ── Weekend (no Pro on weekends) ──` marker, so the wizard
+had no Pro card to show.
+
+**The instinct was to go asking BMI for a weekend Pro page. BMI was never the blocker.** A read-only
+`/availability` probe, controls first, showed Pro Blue with 26 heats / 234 spots and Pro Red 27 / 324
+still ahead **that evening**, on the same returning-racer page the weekend Intermediate products
+already use. The $0 build products (`adult:pro:Red` / `:Blue`) returned the same grids — they are
+schedule-agnostic by design and always were. The only closed door was our own catalog.
+
+**Then the owner corrected the framing: "Don't we use the same SKU regardless of day?"** Correct, and
+the probe proves it in both directions — the *weekend* Intermediate SKU returns 40 heats on a
+**Monday**. The registry's weekday/weekend entries are two SKUs because BMI prices them differently
+($20.99 vs $26.99), NOT because either is restricted to those days. I had read a price split as an
+availability split and gone looking for a product that never needed to exist.
+
+**Rules:**
+
+- **Probe the vendor before theorising about the vendor.** "The weekend catalog has no Pro" is a fact
+  about our code. Whether Pro heats RUN that night is a fact about BMI, and it is one HTTP call away.
+  Controls first — the weekend Intermediate product on the same date — so an empty result is a real
+  empty and not a broken probe.
+- **Never put the same BMI productId on two catalog entries.** `getRaceProductById` resolves the
+  CHARGE price at checkout by productId alone (`RACE_PRODUCTS.find`), so two entries sharing an id
+  make the charged price depend on array order — a card showing $26.99 while Square takes $20.99.
+  This is why a schedule exception is `alsoOnDates` on the EXISTING entry, never a duplicate under
+  the other schedule. A registry test now asserts productIds are unique.
+- **A dated exception beats a flag for "tonight only".** `alsoOnDates: ["2026-09-11"]` lapses by
+  itself at midnight — there is no switch anyone has to remember to flip back, which is exactly the
+  failure mode the kill-switch-only flag rule exists to avoid.
+- **When a product is offered outside its own schedule, the cross-tier fan-outs must key off the
+  DATE's schedule, not the product's.** An exception product still carries `schedule: "weekday"`, but
+  the heats sharing its track that night are the weekend ones. Identical for every normal product —
+  it was selected by the date's schedule to begin with — so deriving from the date is strictly safer.
+
 ## A config-driven feature with no config is a feature that silently disappears — seed it in the same change, and fail CLOSED when it is missing (2026-09-06)
 
 **Incident.** The Pizza Bowl food step went config-driven on 8/25 ("the $0 items on the experience
