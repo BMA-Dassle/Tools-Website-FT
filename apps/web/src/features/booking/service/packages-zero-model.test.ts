@@ -586,3 +586,70 @@ describe("buildRaceChargeLines — per-category license/POV suppression", () => 
     expect(lines).toHaveLength(2); // the two bundle lines only
   });
 });
+
+// Adult Pro was opened for one Friday night (2026-09-11) by riding the WEEKDAY
+// Pro entries via RaceProduct.alsoOnDates. The first cut charged the weekday
+// $20.99 on a weekend night — below the Starter and Intermediate cards sitting
+// beside it. The CHARGE is what matters here: raceItemChargeLines is both the
+// Square charge and the cart's estimate, so this is the displayed==charged pin.
+describe("raceItemChargeLines — one-off exception-date pricing", () => {
+  const PRO_NIGHT = "2026-09-11"; // Friday
+  const PRO_BLUE = "43733371"; // adult Pro Blue (returning) — weekday entry, $20.99
+  const PRO_RED = "43733839"; // adult Pro Red (returning) — weekday entry, $20.99
+
+  const proHeat = (over: Partial<RaceHeatAssignment> = {}) =>
+    heat({
+      productId: PRO_BLUE,
+      track: "Blue",
+      tier: "pro",
+      heatId: "2026-09-11T19:00:00",
+      ...over,
+    });
+
+  it("charges the weekend price on the exception date, not the weekday one", () => {
+    const lines = raceItemChargeLines(
+      raceItem({ date: PRO_NIGHT, productIdAdult: PRO_BLUE, heats: [proHeat()] }),
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0].amount).toBeCloseTo(26.99, 2);
+  });
+
+  it("charges the weekday price for the same product on a weekday", () => {
+    const lines = raceItemChargeLines(
+      raceItem({
+        date: "2026-09-14", // Monday
+        productIdAdult: PRO_BLUE,
+        heats: [proHeat({ heatId: "2026-09-14T19:00:00" })],
+      }),
+    );
+    expect(lines[0].amount).toBeCloseTo(20.99, 2);
+  });
+
+  it("charges the combined Red+Blue card at the price its card quoted", () => {
+    // The customer picks ONE combined "Pro Race" card spanning both tracks; the
+    // item stores its synthetic `m:` id, which the charge re-resolves from the
+    // registry — so the exception must survive that round trip.
+    const combinedId = `m:${[PRO_BLUE, PRO_RED].sort().join(":")}`;
+    const lines = raceItemChargeLines(
+      raceItem({
+        date: PRO_NIGHT,
+        productIdAdult: combinedId,
+        heats: [proHeat(), proHeat({ productId: PRO_RED, track: "Red" })],
+      }),
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0].quantity).toBe(2);
+    expect(lines[0].amount).toBeCloseTo(53.98, 2); // 26.99 × 2, never 41.98
+  });
+
+  it("leaves a product with no exception date alone on that same night", () => {
+    const lines = raceItemChargeLines(
+      raceItem({
+        date: PRO_NIGHT,
+        productIdAdult: SINGLE_STARTER_RED,
+        heats: [heat({ heatId: "2026-09-11T19:00:00" })],
+      }),
+    );
+    expect(lines[0].amount).toBeCloseTo(20.99, 2);
+  });
+});

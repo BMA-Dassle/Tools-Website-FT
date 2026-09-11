@@ -49,7 +49,7 @@
  * displayed can never drift from charged (the displayed==charged rule).
  */
 import { bogoSaleActive } from "../data/packs";
-import { getRaceProductById } from "./race-products";
+import { getRaceProductById, priceOnDate } from "./race-products";
 import { membershipDiscountsForNames } from "./membership-discounts";
 import type { RaceHeatAssignment } from "../state/types";
 
@@ -138,7 +138,13 @@ export function computeBogoScheduledFree(
       for (let i = 0; i + 1 < list.length; i += 2) {
         const a = list[i];
         const b = list[i + 1];
-        const priceOf = (h: RaceHeatAssignment) => getRaceProductById(h.productId)?.price ?? 0;
+        // Date-aware for the same reason the charge is: a product opened on an
+        // exception date carries another schedule's price, and this comparison
+        // decides which heat of the pair is given away.
+        const priceOf = (h: RaceHeatAssignment) => {
+          const p = getRaceProductById(h.productId);
+          return p ? priceOnDate(p, item.date) : 0;
+        };
         const free = priceOf(a) < priceOf(b) ? a : b;
         heats.add(free);
         freeByMember.set(memberId, (freeByMember.get(memberId) ?? 0) + 1);

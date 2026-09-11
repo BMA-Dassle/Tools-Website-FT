@@ -68,6 +68,19 @@ export interface RaceProduct {
    * exception expires on its own once the date passes — nothing to switch off.
    */
   alsoOnDates?: string[];
+  /**
+   * Price charged on an `alsoOnDates` date, when it differs from this entry's
+   * normal `price`. A product borrowed from another schedule keeps that
+   * schedule's price otherwise, which is rarely what's wanted: weekend singles
+   * cost more than weekday ones, so a weekday Pro entry opened on a Friday
+   * would undercut the Starter and Intermediate cards sitting beside it.
+   *
+   * Read it through `priceOnDate`, never directly — that is the one resolver
+   * the product cards and `raceItemChargeLines` (the charge, and the cart
+   * estimate that mirrors it) both go through, so displayed and charged cannot
+   * drift apart.
+   */
+  alsoOnDatePrice?: number;
 }
 
 /**
@@ -83,6 +96,15 @@ export interface RaceProduct {
  * entries are safe to leave but should be pruned when the list is next touched.
  */
 const WEEKEND_PRO_EXCEPTION_DATES = ["2026-09-11"];
+
+/**
+ * What adult Pro costs on those dates. The entries these ride on are the
+ * WEEKDAY ones ($20.99), but the night is a weekend night and every other
+ * single race on the grid is weekend-priced — the first cut shipped Pro at
+ * $20.99 and it sat on the page *below* Starter and Intermediate at $26.99.
+ * Owner: match the weekend ladder.
+ */
+const WEEKEND_PRO_EXCEPTION_PRICE = 26.99;
 
 const RACE_PRODUCTS: RaceProduct[] = [
   // ════════════════════════════════════════════════════════════════════════
@@ -372,6 +394,7 @@ const RACE_PRODUCTS: RaceProduct[] = [
     track: "Blue",
     price: 20.99,
     alsoOnDates: WEEKEND_PRO_EXCEPTION_DATES,
+    alsoOnDatePrice: WEEKEND_PRO_EXCEPTION_PRICE,
   },
   {
     schedule: "weekday",
@@ -384,6 +407,7 @@ const RACE_PRODUCTS: RaceProduct[] = [
     track: "Red",
     price: 20.99,
     alsoOnDates: WEEKEND_PRO_EXCEPTION_DATES,
+    alsoOnDatePrice: WEEKEND_PRO_EXCEPTION_PRICE,
   },
   {
     schedule: "weekday",
@@ -911,7 +935,7 @@ export function productsForSchedule(
 ): RaceProduct[] {
   return RACE_PRODUCTS.filter(
     (p) => p.racerType === racerType && (p.schedule === schedule || offeredOnDate(p, dateYmd)),
-  );
+  ).map((p) => asOfDate(p, dateYmd));
 }
 
 /** True when `dateYmd` is one of this product's one-off exception dates — i.e.
@@ -920,6 +944,34 @@ export function productsForSchedule(
  *  standing schedule (the safe default: an exception never leaks). */
 function offeredOnDate(p: RaceProduct, dateYmd?: string | null): boolean {
   return !!dateYmd && !!p.alsoOnDates?.includes(dateYmd);
+}
+
+/**
+ * What this product costs on `dateYmd` — its `alsoOnDatePrice` on an exception
+ * date, its normal `price` otherwise.
+ *
+ * THE single price resolver. The product cards read it (via the selectors
+ * below, which hand back the resolved price already applied) and
+ * `raceItemChargeLines` reads it at charge time; the cart's estimate is that
+ * same function, so displayed and charged cannot drift. Anything that prices a
+ * race from the registry goes through here rather than touching `.price`.
+ *
+ * Works on a COMBINED (`m:`) product too — `combineTrackVariants` and
+ * `reconstructCombined` both spread the representative entry, so the exception
+ * fields ride along onto the merged Red+Blue card the customer actually picks.
+ */
+export function priceOnDate(product: RaceProduct, dateYmd?: string | null): number {
+  return offeredOnDate(product, dateYmd) && product.alsoOnDatePrice != null
+    ? product.alsoOnDatePrice
+    : product.price;
+}
+
+/** A product as it should be presented on `dateYmd` — exception price applied.
+ *  Returns the original object untouched when nothing changes, so identity is
+ *  preserved for every product on a normal day. */
+function asOfDate(p: RaceProduct, dateYmd?: string | null): RaceProduct {
+  const price = priceOnDate(p, dateYmd);
+  return price === p.price ? p : { ...p, price };
 }
 
 /**
@@ -942,7 +994,7 @@ export function singleRaceProductsOnTrack(
       p.racerType === racerType &&
       !p.packType &&
       (p.schedule === schedule || offeredOnDate(p, dateYmd)),
-  );
+  ).map((p) => asOfDate(p, dateYmd));
 }
 
 /**

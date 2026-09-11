@@ -28,7 +28,7 @@ import type { ContactInfo } from "../types";
 import { activeComboSpecial, comboChargeLines } from "~/features/combos/combo-pricing";
 import type { DiscountDomain } from "~/features/discount-codes";
 import { applyPromoToBillLines, promoSavingsCents } from "./promo-pricing";
-import { getRaceProductById } from "./race-products";
+import { getRaceProductById, priceOnDate } from "./race-products";
 import { raceUsesZeroBmiModel, cancelRaceOrder, holdRaceItem } from "./race";
 import { getPackage, packagePerRacerPrice, POV_PRICE } from "./packages";
 import { membershipDiscountsForNames } from "./membership-discounts";
@@ -997,12 +997,17 @@ export function raceItemChargeLines(
     const product = getRaceProductById(pid);
     if (!product) continue;
     // combo = one pack per racer at the pack TOTAL; single = per heat.
+    // Priced through priceOnDate, not product.price: a product opened on a
+    // one-off exception date (RaceProduct.alsoOnDates) is borrowed from another
+    // schedule and carries THAT schedule's price, which is not what the card
+    // quoted. Same resolver the cards use — this function IS the cart estimate
+    // as well as the charge, so the two cannot disagree.
     lines.push(
       ...splitByDiscount(
         catHeats,
         product.packType === "combo",
         product.name,
-        product.price,
+        priceOnDate(product, item.date),
         product.productId,
       ),
     );
