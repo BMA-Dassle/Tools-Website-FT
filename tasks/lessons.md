@@ -5721,3 +5721,63 @@ Pandora's official scores, not the snapshot.
    every passing) exposed the bug in one query: `best_ms > best_lap_ms`. Repair:
    `scripts/backfill-race-lap-results-final-lap.mjs` (best laps from the feed, positions/laps
    from Pandora scores; dry-run default).
+
+## A "paid" latch is not a "settled" answer — a re-price makes it lie (2026-09-11)
+
+**Incident.** Event 3370 (LPG Emergency Physicians, HPFM, starting that same evening) added food
+twice after signing. Reservation admin read **Balance remaining: $199.63** and offered a PAY BALANCE
+button; the button opened `/contract/8ab08d62/pay`, which answered **"You're all set! Your balance is
+paid in full — Paid $2,042.88, Balance due $0.00."** The contract page's What Changed card agreed
+with it: **"Balance: $1,328.85 → $0.00."** The guest was being asked to re-sign for money the site
+told her twice she did not owe. The audit log has the staff `balance_pay_view` at 2:48 PM on an
+event starting at 6:00.
+
+**Cause 1 — the latch.** `balance_paid_at` is set by the 72h balance charge and **nothing clears it
+when an event is later re-priced**. The pay page's `payable` gate excluded `resign_required`
+(correctly — `/api/group-function/balance-pay` rejects that status outright), and the fallback then
+read `balance_paid_at || balance_cents <= 0` and landed on "paid". The panel below it never read the
+row at all: it printed `totalCents` as "Paid" and a hardcoded `$0.00` as "Balance due".
+
+**Do not clear the latch.** `resign-settle` reads it as `wasPaidInFull` to decide whether to charge
+the delta at signature or hand the balance to the 72h cron; clearing it would have sent an event
+hours from its start time down the cron path. The latch is a correct record of "a balance charge
+happened". It is simply not the answer to "is anything owed".
+
+**Cause 2 — the snapshot is one revision behind.** A `contract_versions` row stores
+`extractContractSnapshot(existing)` taken **before** `updateGfQuoteDetails` writes the change, while
+the row's `changes` array describes that pending change. Diffing the two newest snapshots therefore
+renders the PREVIOUS revision, and the newest change — the one being re-confirmed — never renders at
+all. Both the guest card and admin version history had it. The correct pairing for row N is
+`snapshot[N] → (snapshot[N+1] ?? live)`; that also picks up writes which never made a version of
+their own (the balance charge zeroing `balance_cents`), which is what a reader wants.
+
+**Cause 3 — hardcoded acknowledgements.** The sign step and the signed PDF both asserted "I agree to
+make a 50% deposit" and "the remaining balance will be automatically charged 72 hours prior" for a
+guest already 90% paid, re-confirming a difference charged at signature, on an event starting that
+evening. The PDF is the record of what she signed.
+
+**Rules:**
+
+- **Amount due = `total_cents - collected_cents`. Always.** Never a timestamp, never
+  `deposit_due_cents` (the 96h dispatch flip inflates it to the full total), never `balance_cents`
+  alone as a proxy for "settled". The codebase already states this rule in `resign-settle` and
+  `depositPaidCents` — every surface has to obey it, not only the one that charges.
+- **A latch answers "did X happen once", never "is X still true".** Any `*_paid_at` / `*_sent_at`
+  read as current state is a bug waiting for the next re-price. Grep its readers before trusting one,
+  and fix the readers rather than clearing the latch — something load-bearing is usually reading it.
+- **A status a write API refuses needs its own screen, not a fallthrough.** `resign_required` fell
+  through to "paid" because it was neither payable nor obviously closed. When a gate rejects a
+  status, the UI for that status is a deliberate state — here, "re-confirm your contract".
+- **Never print a money figure the row cannot produce.** `Paid: {totalCents}` and a literal `$0.00`
+  due are why the page could be confidently wrong. Derive both from the row, always.
+- **If a snapshot is written before the change it describes, say so at the write site and pair it at
+  the read site.** Shared helper `diffVersionsAgainstLive` now owns the pairing so the guest card and
+  admin history cannot drift apart again.
+- **An acknowledgement checkbox and the PDF line recording it must derive from the same facts as the
+  charge.** A contract asserting terms the guest never saw is worse than a blank one.
+
+**Fixed:** `fix/resign-balance-display` — pay-page state machine (plus a `resign` state), What
+Changed pairing (guest + admin via one helper), products diff reduced to the lines that moved,
+sign-step re-sign copy, PDF `paymentAgreementLines`. Regression tests build their fixtures from
+3370's real version rows and include a CONTROL test pinning the old broken diff. No money path
+changed.
