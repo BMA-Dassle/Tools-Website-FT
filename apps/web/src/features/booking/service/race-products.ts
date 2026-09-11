@@ -50,7 +50,39 @@ export interface RaceProduct {
    *  track label to the BMI product that books heats on that track. The
    *  parent entry's productId/pageId still drives the UI card. */
   trackProducts?: Record<string, { productId: string; pageId: string }>;
+  /**
+   * One-off center-local dates (`YYYY-MM-DD`) on which this product is ALSO
+   * offered, on top of its normal `schedule` — owner-authorised exceptions to
+   * the standing schedule (e.g. Pro opened for a single Friday night).
+   *
+   * Deliberately a flag on the EXISTING entry rather than a duplicate entry
+   * under the other schedule: the BMI SKUs are not day-restricted (verified
+   * 2026-09-11 — the "weekend" Intermediate SKU returns heats on a Monday and
+   * the "weekday" Pro SKU returns heats on a Friday), so a second entry would
+   * reuse the same productId — and `getRaceProductById`, which resolves the
+   * CHARGE price at checkout, keys on productId alone. Two entries sharing an
+   * id make that lookup order-dependent, i.e. a displayed price that doesn't
+   * match the charged one. One entry, one price, one id.
+   *
+   * Absent = schedule-only, the normal case. Dates are matched exactly, so an
+   * exception expires on its own once the date passes — nothing to switch off.
+   */
+  alsoOnDates?: string[];
 }
+
+/**
+ * Dates on which ADULT Pro is opened on a weekend, against the standing
+ * "no Pro on weekends" rule (see the weekend block below).
+ *
+ * 2026-09-11 (Fri) — owner, same day. BMI already runs the heats: probed live
+ * that afternoon, Pro Blue had 26 heats / 234 spots and Pro Red 27 / 324 still
+ * ahead, so the only thing missing was the catalog entry. Junior Pro was left
+ * closed (owner's call); Sat 9/12 and Sun 9/13 stay closed.
+ *
+ * Each date expires on its own at midnight — a past date here is inert, so old
+ * entries are safe to leave but should be pruned when the list is next touched.
+ */
+const WEEKEND_PRO_EXCEPTION_DATES = ["2026-09-11"];
 
 const RACE_PRODUCTS: RaceProduct[] = [
   // ════════════════════════════════════════════════════════════════════════
@@ -339,6 +371,7 @@ const RACE_PRODUCTS: RaceProduct[] = [
     category: "adult",
     track: "Blue",
     price: 20.99,
+    alsoOnDates: WEEKEND_PRO_EXCEPTION_DATES,
   },
   {
     schedule: "weekday",
@@ -350,6 +383,7 @@ const RACE_PRODUCTS: RaceProduct[] = [
     category: "adult",
     track: "Red",
     price: 20.99,
+    alsoOnDates: WEEKEND_PRO_EXCEPTION_DATES,
   },
   {
     schedule: "weekday",
@@ -385,7 +419,9 @@ const RACE_PRODUCTS: RaceProduct[] = [
     price: 15.99,
   },
 
-  // ── Weekend (no Pro on weekends) ──
+  // ── Weekend (no Pro on weekends — except the dates in
+  //    WEEKEND_PRO_EXCEPTION_DATES, which open the weekday adult Pro entries
+  //    above for one night at their weekday price) ──
   {
     schedule: "weekend",
     racerType: "existing",
@@ -871,8 +907,19 @@ export function bmiBookingTarget(
 export function productsForSchedule(
   schedule: import("./race-pricing").Schedule,
   racerType: RacerType,
+  dateYmd?: string | null,
 ): RaceProduct[] {
-  return RACE_PRODUCTS.filter((p) => p.schedule === schedule && p.racerType === racerType);
+  return RACE_PRODUCTS.filter(
+    (p) => p.racerType === racerType && (p.schedule === schedule || offeredOnDate(p, dateYmd)),
+  );
+}
+
+/** True when `dateYmd` is one of this product's one-off exception dates — i.e.
+ *  it's offered today despite belonging to another schedule. Without a date the
+ *  answer is always false, so a caller that can't supply one simply sees the
+ *  standing schedule (the safe default: an exception never leaks). */
+function offeredOnDate(p: RaceProduct, dateYmd?: string | null): boolean {
+  return !!dateYmd && !!p.alsoOnDates?.includes(dateYmd);
 }
 
 /**
@@ -887,9 +934,14 @@ export function singleRaceProductsOnTrack(
   track: string,
   schedule: import("./race-pricing").Schedule,
   racerType: RacerType,
+  dateYmd?: string | null,
 ): RaceProduct[] {
   return RACE_PRODUCTS.filter(
-    (p) => p.track === track && p.schedule === schedule && p.racerType === racerType && !p.packType,
+    (p) =>
+      p.track === track &&
+      p.racerType === racerType &&
+      !p.packType &&
+      (p.schedule === schedule || offeredOnDate(p, dateYmd)),
   );
 }
 
@@ -902,8 +954,9 @@ export function juniorProductsOnTrack(
   track: string,
   schedule: import("./race-pricing").Schedule,
   racerType: RacerType,
+  dateYmd?: string | null,
 ): RaceProduct[] {
-  return singleRaceProductsOnTrack(track, schedule, racerType).filter(
+  return singleRaceProductsOnTrack(track, schedule, racerType, dateYmd).filter(
     (p) => p.category === "junior",
   );
 }

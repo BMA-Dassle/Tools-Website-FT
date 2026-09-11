@@ -303,7 +303,7 @@ function categoriesInParty(party: PartyMember[]): Array<{ category: RaceCategory
 function productsForLeg(dateYmd: string, tier: string, category: RaceCategory): RaceProduct[] {
   const schedule = scheduleForDate(dateYmd);
   const pick = (racerType: "existing" | "new") =>
-    productsForSchedule(schedule, racerType).filter(
+    productsForSchedule(schedule, racerType, dateYmd).filter(
       (p) => p.tier === tier && p.category === category && !p.packType && !p.trackProducts,
     );
   const existing = pick("existing");
@@ -417,9 +417,9 @@ export async function fetchRaceLegCandidates(args: {
     const schedule = scheduleForDate(dateYmd);
     await Promise.all(
       [...unionTracks].map(async (track) => {
-        let unionProducts = singleRaceProductsOnTrack(track, schedule, "existing");
+        let unionProducts = singleRaceProductsOnTrack(track, schedule, "existing", dateYmd);
         if (unionProducts.length === 0)
-          unionProducts = singleRaceProductsOnTrack(track, schedule, "new");
+          unionProducts = singleRaceProductsOnTrack(track, schedule, "new", dateYmd);
         const fetched = await Promise.all(
           unionProducts.map(async (p) => {
             try {

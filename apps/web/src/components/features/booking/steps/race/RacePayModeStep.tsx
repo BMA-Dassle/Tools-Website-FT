@@ -651,7 +651,7 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
       if (!item.date) return [];
       const racerType = racerTypeFor(session.party, category);
       return combineTrackVariants(
-        filterProducts(productsForSchedule(scheduleForDate(item.date), racerType), {
+        filterProducts(productsForSchedule(scheduleForDate(item.date), racerType, item.date), {
           racerType,
           adultCount: category === "adult" ? racers.length : 0,
           juniorCount: category === "junior" ? racers.length : 0,

@@ -952,6 +952,7 @@ import {
   resolveBuildPair,
   singleRaceProductsOnTrack,
 } from "./race-products";
+import { scheduleForDate } from "./race-pricing";
 
 // ── internal: find a proposal matching a heat's start time ──────────────
 
@@ -1063,9 +1064,16 @@ async function assertHeatBookable(
   let trackAllTierBlocks: TrackTierBlock[] | undefined;
   const isAdultStarter = tier === "starter" && category === "adult";
   if (!isAdultStarter && product && date) {
-    const siblings = singleRaceProductsOnTrack(track, product.schedule, product.racerType).filter(
-      (sib) => sib.productId !== product.productId,
-    );
+    // The DATE's schedule, not the product's: a product offered on a one-off
+    // exception date (RaceProduct.alsoOnDates) keeps its own schedule, but the
+    // siblings sharing the track that night are the date's. Identical for every
+    // normal product — it was selected by the date's schedule to begin with.
+    const siblings = singleRaceProductsOnTrack(
+      track,
+      scheduleForDate(date),
+      product.racerType,
+      date,
+    ).filter((sib) => sib.productId !== product.productId);
     const fetched = await Promise.all(
       siblings.map(async (sib) => {
         const sibTarget = bmiBookingTarget(sib.productId, {

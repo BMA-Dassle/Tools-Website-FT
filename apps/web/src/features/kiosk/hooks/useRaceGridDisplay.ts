@@ -114,7 +114,7 @@ export function useRaceGridDisplay(center: string): {
   const fetches = useMemo(
     () =>
       tracks.flatMap((track) =>
-        singleRaceProductsOnTrack(track, schedule, "existing").map((p) => ({
+        singleRaceProductsOnTrack(track, schedule, "existing", date).map((p) => ({
           productId: p.productId,
           pageId: p.pageId,
           track,
@@ -123,7 +123,9 @@ export function useRaceGridDisplay(center: string): {
         })),
       ),
     // `tracks` is memoized on schedule, so its reference is stable per day.
-    [tracks, schedule],
+    // `date` is pinned per mount and can add a one-off exception product
+    // (RaceProduct.alsoOnDates) to the grid.
+    [tracks, schedule, date],
   );
 
   const queries = useQueries({
