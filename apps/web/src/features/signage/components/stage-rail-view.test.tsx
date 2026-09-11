@@ -95,16 +95,23 @@ function splitRows(): StageRow[] {
   });
 }
 
+/** One crew member. Hoisted out of `crewBoard` so a test can build its own
+ *  floor — the idle-clock cases each need a specific set of stamps. */
+const crewEntry = (o: Partial<CrewEntry> & { userId: number; firstName: string }): CrewEntry => ({
+  briefed: 0,
+  race: null,
+  /** No `pitted` stamp by default, so no pill wears a clock unless a test
+   *  asks for one — the idle chip is opt-in here, like `top`. */
+  freeSinceMs: null,
+  state: "available",
+  top: false,
+  ...o,
+});
+
 /** A floor at about 6 PM: two available, three on a group, one on a break, one
  *  rostered who has not arrived — every state the pills can be in. */
 function crewBoard(over: Partial<CrewBoard> = {}): CrewBoard {
-  const entry = (o: Partial<CrewEntry> & { userId: number; firstName: string }): CrewEntry => ({
-    briefed: 0,
-    race: null,
-    state: "available",
-    top: false,
-    ...o,
-  });
+  const entry = crewEntry;
   return {
     list: [
       entry({ userId: 1, firstName: "Ivan", briefed: 7 }),
@@ -145,7 +152,7 @@ function crewBoard(over: Partial<CrewBoard> = {}): CrewBoard {
 interface El {
   type?: unknown;
   key?: string | null;
-  props?: { children?: ReactNode; style?: Record<string, unknown> };
+  props?: { children?: ReactNode; style?: Record<string, unknown>; title?: unknown };
 }
 
 /**
@@ -179,6 +186,20 @@ function walk(node: ReactNode, out: El[] = []): El[] {
   return out;
 }
 
+/**
+ * Every idle-clock chip in the tree, by its title.
+ *
+ * Matched on the chip's own `title` rather than on the rendered text, because
+ * a rail is full of other durations — a session clock, a delay, a film's time
+ * remaining — and a test that searched the words for `44m` would pass or fail
+ * on whichever of those happened to be showing.
+ */
+function idleChips(node: ReactNode): string[] {
+  return walk(node)
+    .map((el) => el.props?.title)
+    .filter((t): t is string => typeof t === "string" && t.startsWith("Free for "));
+}
+
 /** Every string and number in the tree, joined — the wall's words. */
 function textOf(node: ReactNode): string {
   if (node == null || typeof node === "boolean") return "";
@@ -200,6 +221,7 @@ describe("StageRailView", () => {
     it(`sizes every ${density} row against the viewport, never in pixels`, () => {
       // With the Track Ops row in, so the pills are held to the rule too.
       const tree = StageRailView({
+        nowMs: NOW,
         rows: megaRows(),
         density,
         accent: "#a06bff",
@@ -227,7 +249,7 @@ describe("StageRailView", () => {
    */
   for (const density of ["wall", "compact"] as const) {
     it(`never lets a ${density} stage label wrap onto a second line`, () => {
-      const tree = StageRailView({ rows: megaRows(), density, accent: "#a06bff" });
+      const tree = StageRailView({ nowMs: NOW, rows: megaRows(), density, accent: "#a06bff" });
       // The label columns are the only `em`-based flex bases in the tree — the
       // detail span next to them is `1 1 0`, and the point of the em basis is
       // that the column tracks the label's own clamp.
@@ -247,7 +269,12 @@ describe("StageRailView", () => {
     // Two rows that used to be one is how duplicate keys get introduced, and
     // React's answer to a duplicate key is to drop a row — on this wall, the
     // second briefing room.
-    const tree = StageRailView({ rows: megaRows(), density: "wall", accent: "#a06bff" });
+    const tree = StageRailView({
+      nowMs: NOW,
+      rows: megaRows(),
+      density: "wall",
+      accent: "#a06bff",
+    });
     const keys = walk(tree)
       .map((el) => el.key)
       .filter((k): k is string => k != null);
@@ -255,7 +282,9 @@ describe("StageRailView", () => {
   });
 
   it("names both rooms on a Mega night", () => {
-    const text = textOf(StageRailView({ rows: megaRows(), density: "wall", accent: "#a06bff" }));
+    const text = textOf(
+      StageRailView({ nowMs: NOW, rows: megaRows(), density: "wall", accent: "#a06bff" }),
+    );
     expect(text).toContain("Red room");
     expect(text).toContain("Blue room");
     expect(text).toContain("Session 63");
@@ -273,13 +302,17 @@ describe("StageRailView", () => {
    * than off a prop a caller could forget.
    */
   it("pills each lane stage with the room it comes back to, on a Mega night", () => {
-    const text = textOf(StageRailView({ rows: megaRows(), density: "wall", accent: "#a06bff" }));
+    const text = textOf(
+      StageRailView({ nowMs: NOW, rows: megaRows(), density: "wall", accent: "#a06bff" }),
+    );
     expect(text).toContain("→ RED ROOM");
     expect(text).toContain("→ BLUE ROOM");
   });
 
   it("shows no pill on a split night, where the screen is already the room", () => {
-    const text = textOf(StageRailView({ rows: splitRows(), density: "wall", accent: "#ff3b30" }));
+    const text = textOf(
+      StageRailView({ nowMs: NOW, rows: splitRows(), density: "wall", accent: "#ff3b30" }),
+    );
     expect(text).not.toContain("→ RED ROOM");
     expect(text).toContain("Briefing");
   });
@@ -291,7 +324,12 @@ describe("StageRailView", () => {
    * noise. The tracker had these before it joined this component.
    */
   it("bands the wall rows with a hairline, but never the first", () => {
-    const tree = StageRailView({ rows: megaRows(), density: "wall", accent: "#a06bff" });
+    const tree = StageRailView({
+      nowMs: NOW,
+      rows: megaRows(),
+      density: "wall",
+      accent: "#a06bff",
+    });
     const borders = walk(tree)
       .map((el) => el.props?.style?.borderTop)
       .filter((v) => typeof v === "string" && v.startsWith("1px"));
@@ -300,7 +338,12 @@ describe("StageRailView", () => {
   });
 
   it("leaves the compact camera rail unbanded", () => {
-    const tree = StageRailView({ rows: megaRows(), density: "compact", accent: "#a06bff" });
+    const tree = StageRailView({
+      nowMs: NOW,
+      rows: megaRows(),
+      density: "compact",
+      accent: "#a06bff",
+    });
     const borders = walk(tree)
       .map((el) => el.props?.style?.borderTop)
       .filter((v) => typeof v === "string" && v.startsWith("1px"));
@@ -327,7 +370,7 @@ describe("StageRailView", () => {
       },
       nowMs: NOW,
     });
-    const text = textOf(StageRailView({ rows, density: "wall", accent: "#a06bff" }));
+    const text = textOf(StageRailView({ nowMs: NOW, rows, density: "wall", accent: "#a06bff" }));
     // Beside the state (the check-in board's shape) and on the state (the TV
     // feeds' shape) both reach the row.
     expect(text).toContain("Anthony");
@@ -344,7 +387,7 @@ describe("StageRailView", () => {
       lane: null,
       nowMs: NOW,
     });
-    const text = textOf(StageRailView({ rows, density: "wall", accent: "#a06bff" }));
+    const text = textOf(StageRailView({ nowMs: NOW, rows, density: "wall", accent: "#a06bff" }));
     expect(text.match(/no host yet/g)).toHaveLength(1);
   });
 
@@ -355,6 +398,7 @@ describe("StageRailView", () => {
     it("lists the crew in the order the fold gave them", () => {
       const text = textOf(
         StageRailView({
+          nowMs: NOW,
           rows: megaRows(),
           density: "wall",
           accent: "#a06bff",
@@ -373,7 +417,13 @@ describe("StageRailView", () => {
 
     it("tags each assigned marshal with the track letter and heat", () => {
       const text = textOf(
-        StageRailView({ rows: megaRows(), density: "wall", accent: "#a06bff", crew: crewBoard() }),
+        StageRailView({
+          nowMs: NOW,
+          rows: megaRows(),
+          density: "wall",
+          accent: "#a06bff",
+          crew: crewBoard(),
+        }),
       );
       expect(text).toContain("B35");
       expect(text).toContain("R33");
@@ -385,6 +435,7 @@ describe("StageRailView", () => {
     it("is dropped entirely when nobody is on the floor", () => {
       const empty = textOf(
         StageRailView({
+          nowMs: NOW,
           rows: megaRows(),
           density: "wall",
           accent: "#a06bff",
@@ -393,7 +444,7 @@ describe("StageRailView", () => {
       );
       expect(empty).not.toContain("Track Ops");
       const absent = textOf(
-        StageRailView({ rows: megaRows(), density: "wall", accent: "#a06bff" }),
+        StageRailView({ nowMs: NOW, rows: megaRows(), density: "wall", accent: "#a06bff" }),
       );
       expect(absent).not.toContain("Track Ops");
     });
@@ -401,6 +452,7 @@ describe("StageRailView", () => {
     it("says the roster is unavailable rather than letting a short list lie", () => {
       const text = textOf(
         StageRailView({
+          nowMs: NOW,
           rows: megaRows(),
           density: "wall",
           accent: "#a06bff",
@@ -410,8 +462,81 @@ describe("StageRailView", () => {
       expect(text).toContain("roster unavailable");
     });
 
+    /**
+     * THE IDLE CLOCK REACHES THE TELEVISIONS TOO (owner 2026-09-10, asked
+     * directly: "do we have room on other TVs to add this to the pill?").
+     *
+     * Both densities, because the camera board is the one with the tight rail
+     * and is therefore the one a later change is most likely to quietly drop.
+     */
+    it("prints how long each FREE marshal has been waiting, at both densities", () => {
+      const crew = crewBoard({
+        list: [
+          crewEntry({ userId: 1, firstName: "Roisel" }),
+          crewEntry({ userId: 2, firstName: "Pedro", briefed: 1, freeSinceMs: NOW - 38 * 60_000 }),
+          crewEntry({ userId: 3, firstName: "Denys", briefed: 6, freeSinceMs: NOW - 75 * 60_000 }),
+        ],
+      });
+      for (const density of ["wall", "compact"] as const) {
+        const text = textOf(
+          StageRailView({
+            rows: megaRows(),
+            density,
+            accent: "#a06bff",
+            crew,
+            nowMs: NOW,
+          }),
+        );
+        expect(text).toContain("38m");
+        expect(text).toContain("1h 15m");
+      }
+    });
+
+    it("gives no clock to somebody who has not taken a group tonight", () => {
+      // Roisel has no stamp: the pill shows flag 0 and nothing else. A counter
+      // with no start time would have to invent one.
+      const tree = StageRailView({
+        rows: megaRows(),
+        density: "wall",
+        accent: "#a06bff",
+        crew: crewBoard({ list: [crewEntry({ userId: 1, firstName: "Roisel" })] }),
+        nowMs: NOW,
+      });
+      const text = textOf(tree);
+      expect(text).toContain("Roisel");
+      expect(idleChips(tree)).toEqual([]);
+    });
+
+    it("gives no clock to a marshal who is out on a group", () => {
+      // Their stamp is from the group BEFORE this one, so a duration beside
+      // their name would be a number the desk cannot act on.
+      const tree = StageRailView({
+        rows: megaRows(),
+        density: "wall",
+        accent: "#a06bff",
+        crew: crewBoard({
+          list: [
+            crewEntry({
+              userId: 1,
+              firstName: "Matthew",
+              briefed: 4,
+              state: "assigned",
+              race: { track: "blue", heatNumber: 35 },
+              freeSinceMs: NOW - 44 * 60_000,
+            }),
+          ],
+        }),
+        nowMs: NOW,
+      });
+      const text = textOf(tree);
+      expect(text).toContain("Matthew");
+      expect(text).toContain("B35");
+      expect(idleChips(tree)).toEqual([]);
+    });
+
     it("keeps every pill's key distinct", () => {
       const tree = StageRailView({
+        nowMs: NOW,
         rows: megaRows(),
         density: "compact",
         accent: "#a06bff",
@@ -434,7 +559,7 @@ describe("StageRailView", () => {
       lane: null,
       nowMs: NOW,
     });
-    const text = textOf(StageRailView({ rows, density: "wall", accent: "#a06bff" }));
+    const text = textOf(StageRailView({ nowMs: NOW, rows, density: "wall", accent: "#a06bff" }));
     expect(text).not.toContain("→");
   });
 });

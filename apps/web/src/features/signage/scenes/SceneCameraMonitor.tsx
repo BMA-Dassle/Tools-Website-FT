@@ -265,6 +265,7 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
           calledCheckinAt={calledCheckinAt}
           returning={feed?.checkinReturning ?? null}
           crew={feed?.crew ?? null}
+          nowMs={nowMs}
           trackShort={(t) => TRACK_SHORT[trackFromName(t) ?? "mega"] ?? t}
         />
       </div>

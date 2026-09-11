@@ -245,23 +245,88 @@ export async function listBriefingAssignments(
  * unattributed today (see the column's own note above). A caller that dropped
  * those sessions would show a night nobody identified themselves on as a night
  * nobody briefed.
+ *
+ * ── AND WHEN EACH OF THEM LAST CAME FREE (2026-09-10) ───────────────────────
+ *
+ * `free_since_epoch` is when this person's most recent group's KARTS CAME BACK
+ * — the "Race returned" press, which `briefing_events` already records as a
+ * `pitted` row. It is what the Track Ops strip now sorts on: longest idle goes
+ * to the next group, rather than the person who has briefed the most (owner
+ * 2026-09-10, after a night where one marshal ran 17 groups and another ran 2).
+ *
+ * PIT CLEAR, NOT `sent_at`, AND THE DIFFERENCE IS ~19 MINUTES. `sent_at` is
+ * when they LEFT with the group; the measured average round trip is 18-21
+ * minutes. Sorting on either gives nearly the same ORDER, but only this one
+ * gives a number the desk can read as "how long have they been standing
+ * there", which is the whole point of putting it on the pill.
+ *
+ * NO NEW COLUMN, AND IT WORKS BACKWARDS. Both facts are already recorded and
+ * always have been: the `pitted` row is insurance-grade and session-keyed, and
+ * `staff_user_id` above says whose group that session was. The join is the
+ * only thing that was missing. Measured coverage when this shipped: 29/31
+ * groups on 09-10, 53/53 on 09-09, 48/48 on 09-08, 90/91 on 09-07.
+ *
+ * A LATERAL, so the `COUNT(DISTINCT session_id)` above is untouched — it
+ * contributes exactly one row per assignment, which is what a plain join to an
+ * events table would NOT have done (a session with two `pitted` rows would
+ * have counted as two groups).
+ *
+ * NULL MEANS "NO STAMP", AND THE FOLD READS IT AS "LONGEST WAITING". Either
+ * they have not taken a group tonight, or the press was missed on the one they
+ * did (2-3% of groups). Both are handled the same way, deliberately: crew-list
+ * puts them at the front of the queue, which errs towards giving somebody a
+ * group rather than skipping them.
  */
+/**
+ * A Postgres `EXTRACT(EPOCH …)` to epoch milliseconds, or null.
+ *
+ * THE ARITHMETIC IS DONE IN SQL ON PURPOSE. The other timestamp on this table
+ * is read with `Date.parse(String(row.sent_at))`, which works only because V8
+ * happens to be lenient about Postgres's space-separated `2026-09-10 20:31:54+00`.
+ * That is a coincidence to rely on once, not in a value that feeds a sort.
+ *
+ * AND THE GUARD IS THE POINT. Without `isFinite` a bad read becomes `NaN`, and
+ * a `NaN` in the comparator crew-list sorts with is not a wrong order — it is
+ * an INCONSISTENT one, which scrambles the list differently on every poll and
+ * looks like a rendering bug rather than a data one.
+ */
+function epochSecondsToMs(raw: unknown): number | null {
+  if (raw == null) return null;
+  const seconds = Number(raw);
+  return Number.isFinite(seconds) ? Math.round(seconds * 1000) : null;
+}
+
 export async function countBriefingsByStaff(
   venue: string,
   businessDay: string,
 ): Promise<{
-  staff: Array<{ userId: number; firstName: string | null; briefed: number }>;
+  staff: Array<{
+    userId: number;
+    firstName: string | null;
+    briefed: number;
+    freeSinceMs: number | null;
+  }>;
   unattributed: number;
 }> {
   if (!isDbConfigured()) return { staff: [], unattributed: 0 };
   await ensureSchema();
   const q = sql();
   const rows = (await q`
-    SELECT staff_user_id, staff_first_name, COUNT(DISTINCT session_id) AS briefed
-    FROM briefing_assignments
-    WHERE venue = ${venue} AND business_day = ${businessDay} AND staff_user_id IS NOT NULL
-    GROUP BY staff_user_id, staff_first_name
-    ORDER BY briefed DESC, staff_first_name
+    SELECT a.staff_user_id,
+           a.staff_first_name,
+           COUNT(DISTINCT a.session_id) AS briefed,
+           EXTRACT(EPOCH FROM MAX(p.at)) AS free_since_epoch
+    FROM briefing_assignments a
+    LEFT JOIN LATERAL (
+      SELECT MAX(e.at) AS at
+      FROM briefing_events e
+      WHERE e.session_id = a.session_id AND e.action = 'pitted'
+    ) p ON TRUE
+    WHERE a.venue = ${venue}
+      AND a.business_day = ${businessDay}
+      AND a.staff_user_id IS NOT NULL
+    GROUP BY a.staff_user_id, a.staff_first_name
+    ORDER BY briefed DESC, a.staff_first_name
   `) as Array<Record<string, unknown>>;
   const unattributedRows = (await q`
     SELECT COUNT(DISTINCT session_id) AS unattributed
@@ -281,6 +346,7 @@ export async function countBriefingsByStaff(
       userId: Number(r.staff_user_id),
       firstName: r.staff_first_name == null ? null : String(r.staff_first_name),
       briefed: Number(r.briefed),
+      freeSinceMs: epochSecondsToMs(r.free_since_epoch),
     })),
     unattributed: Number(unattributedRows[0]?.unattributed ?? 0),
   };

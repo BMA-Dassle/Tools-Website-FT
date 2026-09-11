@@ -20,7 +20,8 @@ import { GREETING_TIMING_DEFAULTS } from "~/features/signage/briefing/return-gre
 // The pill every Track Ops surface draws, and the pure fold's shapes behind it
 // — no server import behind either (see crew-list.ts's header).
 import { CrewPill } from "~/components/features/crew/CrewPill";
-import type { CrewBoard } from "~/features/staff/crew-list";
+import { nextUp, type CrewBoard } from "~/features/staff/crew-list";
+import { CREW_GREEN, CREW_PILL_INK } from "~/lib/constants/crew";
 import { PORTAL_PIT_BOARD_TV_URL } from "~/lib/constants/admin-tools";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import {
@@ -290,7 +291,71 @@ function TimingChip({ timing, serverNowMs }: { timing?: TimingFeedStatus; server
  * The totals on the right still count the DAY, so a night's nine groups stay
  * nine after the person who ran four of them has gone home.
  */
-function TrackOpsStrip({ crew }: { crew: CrewBoard }) {
+/**
+ * WHO IS NEXT, AND WHO IS BEHIND THEM (owner 2026-09-10: "so the check in team
+ * knows who is next").
+ *
+ * THE PILLS ALREADY SAY THIS — the list is in queue order, so the leftmost
+ * available pill IS next. This says it in words anyway, and that is the point:
+ * "first in a row of eight pills" is a thing you work out, and the desk is
+ * reading this strip mid-conversation with a guest. A name is a thing you see.
+ *
+ * IT IS NOT A SECOND OPINION. `nextUp` is the fold's own function, off the
+ * same sorted list the pills are drawn from, so this line and the pill order
+ * cannot drift apart (features/staff/crew-list.ts).
+ *
+ * DESK ONLY. The walls get the new order and the clocks; they do not get this,
+ * because a marshal reading a pit sign from thirty feet needs to know who is
+ * free, and the desk is the one that decides who goes.
+ */
+function NextUpLine({ crew }: { crew: CrewBoard }) {
+  const { next, queued } = nextUp(crew.list);
+  const label = (text: string, first: boolean) => (
+    <span
+      className="text-[10px] font-extrabold uppercase"
+      style={{ color: TV_DARK.muted, letterSpacing: "0.14em", marginLeft: first ? 0 : 8 }}
+    >
+      {text}
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[13px]" style={{ marginRight: 4 }}>
+      {label("Next", true)}
+      {next ? (
+        <b className="font-extrabold" style={{ color: CREW_GREEN }}>
+          {next.firstName}
+        </b>
+      ) : (
+        /* Nobody free. Said plainly rather than left blank — an empty slot
+           beside the word NEXT reads as a board that has not loaded. */
+        <span className="italic" style={{ color: TV_DARK.muted }}>
+          nobody free
+        </span>
+      )}
+      {/* QUEUED is suppressed when there is no NEXT: "nobody free, and nobody
+          queued behind them" is one fact said twice. When somebody IS next, an
+          empty queue is worth printing — "nobody backing them up" is the cue to
+          stop sending and start covering. */}
+      {next && (
+        <>
+          {label("Queued", false)}
+          {queued.length > 0 ? (
+            <span style={{ color: CREW_PILL_INK }}>
+              {queued.map((e) => e.firstName).join(" · ")}
+            </span>
+          ) : (
+            <span style={{ color: TV_DARK.muted }}>—</span>
+          )}
+        </>
+      )}
+    </span>
+  );
+}
+
+/**
+ * @param nowMs the board poll's own `now` — see the call site.
+ */
+function TrackOpsStrip({ crew, nowMs }: { crew: CrewBoard; nowMs: number }) {
   return (
     <div
       className="flex items-center gap-2 px-6 pt-1.5 pb-3 border-b flex-wrap"
@@ -307,8 +372,10 @@ function TrackOpsStrip({ crew }: { crew: CrewBoard }) {
           Nobody on Track Ops right now
         </span>
       )}
+      {/* Ahead of the pills: the answer first, the evidence after it. */}
+      {crew.list.length > 0 && <NextUpLine crew={crew} />}
       {crew.list.map((entry) => (
-        <CrewPill key={entry.userId} entry={entry} density="desk" />
+        <CrewPill key={entry.userId} entry={entry} density="desk" nowMs={nowMs} />
       ))}
       {/* THE PORTAL COULD NOT BE REACHED. Said out loud, because the list is
           then only the people holding a group — a short strip that would
@@ -1860,7 +1927,16 @@ export default function CheckInClient({ token, version, boardMode = false, locFi
 
       {/* Board mode only: a plain check-in station sends nobody to a room, so
           the strip would be furniture on a screen that never acts on it. */}
-      {boardMode && briefing.board?.crew && <TrackOpsStrip crew={briefing.board.crew} />}
+      {/* THE POLL'S OWN CLOCK drives the idle chips, not `Date.now()`.
+          The board re-polls every five seconds and `now` is stamped by the
+          same request that built `crew`, so the chips advance with the data
+          rather than against the browser — and a desk whose clock has drifted
+          cannot show "-2m since their last group". Reading the wall clock here
+          would also be an impure call in render, which the react-hooks rule
+          rightly refuses. */}
+      {boardMode && briefing.board?.crew && (
+        <TrackOpsStrip crew={briefing.board.crew} nowMs={briefing.board.now} />
+      )}
 
       {/* Active sessions — check-in counts.
           HIDDEN IN BOARD MODE (owner 2026-08-12: "in board mode move the number

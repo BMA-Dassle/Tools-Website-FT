@@ -401,6 +401,7 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
             calledCheckinAt={calledCheckinAt}
             returning={feed?.checkinReturning ?? null}
             crew={feed?.crew ?? null}
+            nowMs={nowMs}
             style={{ position: "absolute", inset: 0 }}
           />
         ) : (

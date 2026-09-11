@@ -58,6 +58,29 @@ export const CREW_TOP_BORDER = "rgba(96,165,250,.45)";
 export const CREW_TOP_INK = "#93c5fd";
 
 /**
+ * THE IDLE CLOCK — how long this person has been free (owner 2026-09-10).
+ *
+ * NEUTRAL, AND THAT IS A DECISION. The chip only ever appears on an available
+ * pill, so green would be defensible — and it is exactly what this file's own
+ * header warns against: green already means "available" estate-wide, the
+ * pill's ring is carrying it, and a second green a few millimetres inside that
+ * ring reads as a rendering fault rather than as a second meaning. The chip
+ * has a job of its own and a grey of its own.
+ *
+ * NO WARMTH RAMP BY DURATION either, though it was tempting. The list is
+ * SORTED by this number, so the longest wait is already the leftmost pill and
+ * the NEXT line already names them; a colour threshold would add a number to
+ * argue about ("why is 20 minutes amber?") in exchange for saying a third time
+ * what position already says.
+ *
+ * A shade up from the pill's own ground so it reads as a chip ON the pill —
+ * the same trick the race tag uses, and the same reason it has an edge at all.
+ */
+export const CREW_IDLE_BG = "rgba(255,255,255,.10)";
+export const CREW_IDLE_BORDER = "rgba(255,255,255,.20)";
+export const CREW_IDLE_INK = "#cbd5e1";
+
+/**
  * The race tag, per track: the letter's ink, the chip behind it, and its edge.
  *
  * THE EDGE IS NEW (2026-09-07) and it is what makes the tag a chip rather than

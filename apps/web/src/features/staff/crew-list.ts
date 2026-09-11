@@ -26,6 +26,30 @@
  * Their briefings still count in the night's totals. The totals are about the
  * DAY; the list is about the floor.
  *
+ * ── THE ORDER IS A QUEUE, NOT A LEADERBOARD (owner 2026-09-10) ──────────────
+ *
+ * Within a state, the person who has been FREE LONGEST comes first. It used to
+ * be whoever had briefed the most, which answered "who is carrying tonight" —
+ * a recognition question — while the desk was reading the strip to answer "who
+ * do I send next", which is a fairness one. On 09-09 the two came apart badly:
+ * one marshal ran 17 groups and another ran 2, and the strip put the person
+ * with 17 at the front all evening.
+ *
+ * FREE SINCE = WHEN THEIR KARTS CAME BACK, not when they left with the group —
+ * the `pitted` stamp, threaded in by countBriefingsByStaff. See that function
+ * for why the distinction is worth ~19 minutes on the pill.
+ *
+ * NO STAMP SORTS FIRST. Somebody who has not taken a group tonight has been
+ * waiting the whole shift; somebody whose "Race returned" press was missed
+ * cannot be distinguished from them, and both should be offered a group rather
+ * than skipped. The pill shows no clock in either case — a counter with no
+ * start time would have to invent one.
+ *
+ * `briefed` NO LONGER DECIDES ANYTHING. It is still counted and still printed,
+ * and the top-briefer mark still finds the highest: the count says who is
+ * carrying the night, the POSITION says who is owed the next group. Two facts,
+ * two marks, neither pretending to be the other.
+ *
  * ── THE FOUR STATES ─────────────────────────────────────────────────────────
  *
  *   available  clocked in, hosting nothing   green ring + dot, sorted FIRST
@@ -86,6 +110,12 @@ export interface CrewEntry {
   briefed: number;
   /** The group they are running, or null. Null IS the free signal. */
   race: { track: TrackKey; heatNumber: number | null } | null;
+  /**
+   * When their last group's karts came back — the sort key, and the clock the
+   * desk reads. Null = no group tonight, or a missed "Race returned" press;
+   * both sort to the front and both print no clock. See the header.
+   */
+  freeSinceMs: number | null;
   state: CrewState;
   /** The highest count on the list, marked exactly once and never at zero.
    *  Decided here so the two surfaces cannot each pick their own top briefer. */
@@ -112,6 +142,8 @@ export interface BriefedCount {
   userId: number;
   firstName: string | null;
   briefed: number;
+  /** Epoch ms of their last `pitted` stamp. Null when there is none. */
+  freeSinceMs: number | null;
 }
 
 export interface CrewInput {
@@ -156,6 +188,66 @@ function hasGoneHome(holder: TrackOpsHolder, hosting: boolean): boolean {
   return !hosting && holder.presence === "out" && holder.hasPunchedToday;
 }
 
+/**
+ * The sort position of one person's idle clock. Older (smaller) comes first.
+ *
+ * ZERO FOR "NO STAMP", NOT `-Infinity`. Epoch 0 is 1970, which is older than
+ * anything a race night can produce, so it lands them at the front exactly as
+ * intended — and unlike `-Infinity` it can be subtracted from itself. Two
+ * people with no stamp would otherwise compare `-Infinity - -Infinity`, which
+ * is `NaN`: not a wrong order but an INCONSISTENT one, so the two surfaces
+ * would disagree and each poll could reshuffle the strip under the desk's
+ * hand. The `|| name` tie-break only runs because this returns 0.
+ */
+function freeSinceRank(entry: CrewEntry): number {
+  return entry.freeSinceMs ?? 0;
+}
+
+/**
+ * How long they have been standing there, as the pill prints it — `38m`,
+ * `1h 12m`, `2h`. Null when there is no stamp to count from, which is the
+ * pill's signal to draw no clock at all.
+ *
+ * THE CLOCK IS HANDED IN, never read here. This whole module is arithmetic
+ * over what the caller passes, which is what makes every rule in it testable
+ * without waiting for a race night — and on the walls `nowMs` is the
+ * director's venue-corrected clock rather than the player's own.
+ *
+ * A NEGATIVE READS AS `0m`. Clock skew between Neon and a screen is small but
+ * it is not zero, and "-1m since their last group" is the kind of thing that
+ * makes staff stop believing the rest of the board.
+ */
+export function formatIdle(freeSinceMs: number | null, nowMs: number): string | null {
+  if (freeSinceMs == null) return null;
+  const minutes = Math.max(0, Math.floor((nowMs - freeSinceMs) / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+/**
+ * WHO IS NEXT, AND WHO IS BEHIND THEM (owner 2026-09-10: "so the check in team
+ * knows who is next").
+ *
+ * The list is already in queue order, so this is a filter rather than a second
+ * opinion — and it lives here, beside the sort, precisely so it can never
+ * BECOME a second opinion. A component that picked its own "next" would
+ * eventually disagree with the pill sitting first in the row above it.
+ *
+ * AVAILABLE ONLY. Somebody out on a group, on a break, or not yet clocked in
+ * is not somebody the desk can send, so naming them as "next" would be worse
+ * than naming nobody. That makes this exactly the set of pills that wear a
+ * clock — which is what lets the two read as one thing.
+ */
+export function nextUp(list: readonly CrewEntry[]): {
+  next: CrewEntry | null;
+  queued: CrewEntry[];
+} {
+  const free = list.filter((e) => e.state === "available");
+  return { next: free[0] ?? null, queued: free.slice(1) };
+}
+
 export function buildCrewList(input: CrewInput): CrewEntry[] {
   const raceByUser = new Map<number, StaffRace>();
   for (const r of input.currentRaces) raceByUser.set(r.userId, r);
@@ -192,6 +284,7 @@ export function buildCrewList(input: CrewInput): CrewEntry[] {
       firstName,
       briefed: briefedByUser.get(userId)?.briefed ?? 0,
       race: race ? { track: race.track, heatNumber: race.heatNumber } : null,
+      freeSinceMs: briefedByUser.get(userId)?.freeSinceMs ?? null,
       state: crewState({
         presence: holder?.presence ?? null,
         hasPunchedToday: holder?.hasPunchedToday ?? false,
@@ -201,12 +294,12 @@ export function buildCrewList(input: CrewInput): CrewEntry[] {
     });
   }
 
-  // State, then who is carrying the night, then name so the order is identical
+  // State, then who has been free longest, then name so the order is identical
   // between two polls a second apart.
   list.sort(
     (a, b) =>
       STATE_RANK[a.state] - STATE_RANK[b.state] ||
-      b.briefed - a.briefed ||
+      freeSinceRank(a) - freeSinceRank(b) ||
       a.firstName.localeCompare(b.firstName),
   );
 

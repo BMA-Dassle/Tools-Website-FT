@@ -3,9 +3,9 @@
 /**
  * ONE TRACK OPS PILL, EVERY SCREEN THAT DRAWS ONE.
  *
- * `[dot] [flag] [count] [first name] [race tag]` — the anatomy is fixed and
- * the only thing that varies between the check-in board and a 55" television
- * is how big it is. That is deliberate (owner 2026-09-07): the same eight
+ * `[dot] [flag] [count] [idle clock] [first name] [race tag]` — the anatomy is
+ * fixed and the only thing that varies between the check-in board and a 55"
+ * television is how big it is. That is deliberate (owner 2026-09-07): the same eight
  * people appear on the desk and on two walls within a few feet of each other,
  * and the last time a shared row was drawn by three components they drifted
  * until a colour added to one never reached the other two.
@@ -22,6 +22,10 @@
  * features/staff/crew-list.ts decides who is available, assigned, on break or
  * not in yet, and in what order; this only paints it. Membership, state, order
  * and the top-briefer mark all arrive on the entry.
+ *
+ * NOR IS THE CLOCK. `freeSinceMs` arrives on the entry and `formatIdle` — the
+ * same pure fold — turns it into `38m`. What this file decides is only WHERE
+ * the chip sits and WHO wears one (available pills; see `idle` below).
  */
 import {
   CREW_BREAK_OPACITY,
@@ -29,6 +33,9 @@ import {
   CREW_DIM_INK,
   CREW_GREEN,
   CREW_GREEN_RING,
+  CREW_IDLE_BG,
+  CREW_IDLE_BORDER,
+  CREW_IDLE_INK,
   CREW_OUT_GREY,
   CREW_OUT_OPACITY,
   CREW_PILL_BG,
@@ -39,6 +46,7 @@ import {
   CREW_TOP_INK,
 } from "~/lib/constants/crew";
 import {
+  formatIdle,
   raceTagColors,
   raceTagLabel,
   type CrewEntry,
@@ -128,7 +136,65 @@ export function FlagIcon() {
   );
 }
 
-export function CrewPill({ entry, density }: { entry: CrewEntry; density: CrewPillDensity }) {
+/**
+ * The idle clock's face. A ring and two hands, same `em` sizing and same
+ * inline reasoning as FlagIcon above — two icons in one component is still
+ * cheaper than reaching for an icon pack.
+ *
+ * STROKED, WHERE THE FLAG IS FILLED, so the pair never reads as one blob at
+ * camera-board size: the flag is a solid checker and this is an outline, which
+ * is the difference the eye catches first at 11px.
+ */
+function ClockIcon() {
+  return (
+    <svg
+      width="1.02em"
+      height="1.02em"
+      viewBox="0 0 16 16"
+      aria-hidden
+      focusable="false"
+      style={{ flexShrink: 0 }}
+    >
+      <circle
+        cx="8"
+        cy="8"
+        r="6.25"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        opacity="0.75"
+      />
+      <path
+        d="M8 4.25V8l2.5 1.75"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function CrewPill({
+  entry,
+  density,
+  nowMs,
+}: {
+  entry: CrewEntry;
+  density: CrewPillDensity;
+  /**
+   * The clock to measure the idle chip against — REQUIRED, and never read
+   * inside this component.
+   *
+   * Every wall scene is handed the director's `nowMs`, which is `Date.now()`
+   * plus the venue's correction, and no screen in this estate formats a time
+   * for itself (a player's own locale once put a wall clock four hours out).
+   * Required rather than defaulted so a new caller has to decide which clock
+   * it is on instead of silently getting the browser's.
+   */
+  nowMs: number;
+}) {
   const dim = entry.state === "break" || entry.state === "not-in";
   const dot = STATE_DOT[entry.state];
   /**
@@ -144,6 +210,21 @@ export function CrewPill({ entry, density }: { entry: CrewEntry; density: CrewPi
   const border =
     entry.state === "available" ? CREW_GREEN_RING : topMark ? CREW_TOP_BORDER : CREW_PILL_BORDER;
   const tag = entry.race ? raceTagColors(entry.race) : null;
+  /**
+   * HOW LONG THEY HAVE BEEN FREE — on available pills only, and that is the
+   * whole rule (owner 2026-09-10).
+   *
+   * A clock on this pill means "you are in the queue", and the number is your
+   * place in it — the same set `nextUp` names on the check-in board's NEXT and
+   * QUEUED line. Somebody out on a group, on a break, or not yet clocked in
+   * cannot be sent anywhere, so a duration beside their name would be a fact
+   * with nothing to do: it would invite the desk to compare it against the
+   * numbers that DO mean "send me", which is how a board stops being read.
+   *
+   * It also happens to be the narrow choice, which the camera rail needs —
+   * one to three chips on a row of eight rather than eight.
+   */
+  const idle = entry.state === "available" ? formatIdle(entry.freeSinceMs, nowMs) : null;
 
   return (
     <span
@@ -195,6 +276,33 @@ export function CrewPill({ entry, density }: { entry: CrewEntry; density: CrewPi
       >
         {entry.briefed}
       </b>
+      {/* THE IDLE CLOCK, between the count and the name. It sits here because
+          the two numbers belong together — "one group, free 38 minutes" is a
+          single sentence about this person's night, and splitting them around
+          the name would make the eye read the pill twice. A chip rather than
+          bare text so it cannot be mistaken for part of the count beside it. */}
+      {idle && (
+        <span
+          title={`Free for ${idle} — since their last group's karts came back`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.28em",
+            fontWeight: 800,
+            fontSize: "0.9em",
+            fontVariantNumeric: "tabular-nums",
+            letterSpacing: "0.01em",
+            padding: "0.08em 0.46em 0.08em 0.38em",
+            borderRadius: 999,
+            color: CREW_IDLE_INK,
+            background: CREW_IDLE_BG,
+            border: `1px solid ${CREW_IDLE_BORDER}`,
+          }}
+        >
+          <ClockIcon />
+          {idle}
+        </span>
+      )}
       {entry.firstName}
       {/* THE GROUP THEY ARE ON, in that track's colour. Kept on a break pill —
           somebody who stepped away mid-group still holds it, and that is

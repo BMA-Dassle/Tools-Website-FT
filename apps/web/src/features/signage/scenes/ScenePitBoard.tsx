@@ -479,6 +479,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         calledCheckinAt={calledCheckinAt}
         returning={feed?.checkinReturning ?? null}
         crew={feed?.crew ?? null}
+        nowMs={nowMs}
         onTrackHost={onTrackHost}
       />
     );
@@ -815,6 +816,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
             timeOfDay={venueTimeOfDay(nowMs)}
             calledCheckinAt={calledCheckinAt}
             crew={feed?.crew ?? null}
+            nowMs={nowMs}
           />
         )}
       </div>
@@ -1352,6 +1354,7 @@ function Idle({
   timeOfDay,
   calledCheckinAt,
   crew,
+  nowMs,
 }: {
   accent: string;
   hasSession: boolean;
@@ -1365,6 +1368,8 @@ function Idle({
   /** Who is on Track Ops — the row under Pit in, same list as the check-in
    *  board's strip and the camera boards'. */
   crew: TvFeed["crew"];
+  /** The director's clock, for the crew pills' idle chips. */
+  nowMs: number;
 }) {
   if (hasSession) return <div style={{ flex: 1 }} />;
   // No wrapper: StageRailView already carries flex:1 / minHeight:0, and with the
@@ -1381,6 +1386,7 @@ function Idle({
       timeOfDay={timeOfDay}
       calledCheckinAt={calledCheckinAt}
       crew={crew}
+      nowMs={nowMs}
       trackShort={(t) => TRACK_SHORT[trackFromName(t) ?? "mega"] ?? t}
       style={{ background: "transparent", borderLeft: "none", padding: 0 }}
     />
@@ -1422,6 +1428,7 @@ function SessionTracker({
   returning,
   crew,
   onTrackHost,
+  nowMs,
 }: {
   accent: string;
   /** Our own on-time picture — the tracker shows the mega heat's predicted
@@ -1439,6 +1446,8 @@ function SessionTracker({
   crew: TvFeed["crew"];
   /** The marshal running the mega heat, for the header's clock chip. */
   onTrackHost: OnTrackHost | null;
+  /** The director's clock, for the crew pills' idle chips. */
+  nowMs: number;
 }) {
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
@@ -1525,6 +1534,7 @@ function SessionTracker({
           calledCheckinAt={calledCheckinAt}
           returning={returning}
           crew={crew}
+          nowMs={nowMs}
           trackShort={(t) => TRACK_SHORT[trackFromName(t) ?? "mega"] ?? t}
           style={{
             background: "transparent",

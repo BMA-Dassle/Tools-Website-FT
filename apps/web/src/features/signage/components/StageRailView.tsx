@@ -218,6 +218,18 @@ export interface StageRailViewProps {
    * quiet Tuesday is furniture.
    */
   crew?: CrewBoard | null;
+  /**
+   * The director's clock — `Date.now()` plus the venue's correction, which is
+   * what every scene already holds. The TRACK OPS pills count their idle chips
+   * against it.
+   *
+   * REQUIRED, not defaulted to `Date.now()`. A default would mean reading the
+   * wall clock inside render, which is impure (react-hooks says so, and it is
+   * right: the value would differ between a render and its replay). It would
+   * also quietly hand a new caller the PLAYER's clock on a wall where every
+   * other time comes from the director.
+   */
+  nowMs: number;
   style?: CSSProperties;
 }
 
@@ -233,6 +245,7 @@ export function StageRailView({
   timeOfDay,
   calledCheckinAt,
   crew,
+  nowMs,
   style,
 }: StageRailViewProps) {
   const s = SCALE[density];
@@ -530,7 +543,9 @@ export function StageRailView({
         })}
       </div>
 
-      {crew && crew.list.length > 0 && <TrackOpsRow crew={crew} scale={s} compact={compact} />}
+      {crew && crew.list.length > 0 && (
+        <TrackOpsRow crew={crew} scale={s} compact={compact} nowMs={nowMs} />
+      )}
 
       {returning && returning.groups.length > 0 && (
         <BackToBack
@@ -575,10 +590,12 @@ function TrackOpsRow({
   crew,
   scale,
   compact,
+  nowMs,
 }: {
   crew: CrewBoard;
   scale: Scale;
   compact: boolean;
+  nowMs: number;
 }) {
   return (
     <div
@@ -622,7 +639,12 @@ function TrackOpsRow({
         }}
       >
         {crew.list.map((entry) => (
-          <CrewPill key={entry.userId} entry={entry} density={compact ? "compact" : "wall"} />
+          <CrewPill
+            key={entry.userId}
+            entry={entry}
+            density={compact ? "compact" : "wall"}
+            nowMs={nowMs}
+          />
         ))}
         {/* The portal could not be reached, so this is only the people holding
             a group — said out loud, because a short list would otherwise read
