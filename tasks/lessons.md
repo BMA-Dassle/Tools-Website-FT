@@ -1,5 +1,47 @@
 # Lessons Learned
 
+## Before proposing a migration for a fact you want, go and check whether we already record it (2026-09-10)
+
+**Incident.** Asked to sort Track Ops by "longest waiting since last race", I presented the owner a
+choice between sorting on `briefing_assignments.sent_at` (when a marshal LEFT with the group) and a
+true idle clock — and priced the second one as "requires a new DB column written when a marshal is
+released, plus a migration, and every row before today has no end time, so the board reads blank for
+the first night."
+
+The owner pushed back in one line: _"Why can't we just stamp the time in databse after there group
+clears pit?"_
+
+We already did. Every "Race returned" press has written a `briefing_events` row with
+`action = 'pitted'` and a timestamp since 2026-08-13, and `briefing_assignments` already says whose
+group that session was. The whole feature was one `LEFT JOIN LATERAL` over data that was already
+there — no column, no migration, no backfill, and it worked RETROACTIVELY over rows written weeks
+earlier. Measured coverage: 29/31 groups on 09-10, 53/53 on 09-09, 48/48 on 09-08, 90/91 on 09-07.
+
+The cost of the wrong answer would have been real: a schema change, a release that reads blank for a
+night, and an owner talked out of the better option by a confident-sounding estimate.
+
+**Why I got it wrong.** I had read `briefing_assignments` end to end and reasoned about what IT
+holds. The fact I wanted was in a different table, written by a different surface (the pit lane), for
+a different reason (insurance). I checked the table the feature lived in instead of the question
+"does anything in this building already witness this moment?"
+
+**Rules.**
+
+1. **"We don't record that" is a claim about the whole database, so go and check the whole
+   database before making it.** Grep the schemas for the EVENT, not for the feature. Here:
+   `grep -n "action" **/events-db.ts` would have found `pitted` in one step.
+2. **An append-only event log keyed by a shared id is a join away from almost any "when did X
+   happen".** This repo has one (`briefing_events`, session-keyed, insurance-grade, never
+   rewritten). Reach for a join before a column: a join is retroactive and a column starts empty.
+3. **Price the expensive option honestly, then verify the price.** Saying "needs a migration and
+   reads blank for a night" is exactly the kind of estimate that decides a question — which makes
+   it exactly the kind that has to be checked before it is offered, not after.
+4. **When the owner questions a cost, treat it as evidence, not as a preference to be talked
+   around.** They know what the building records because they watch staff record it.
+5. **Prove the coverage with a read-only probe before you build on the row.** A `pitted` stamp that
+   only landed 60% of the time would have changed the design (the 2-3% that miss are handled as "no
+   clock, front of the queue"). One query settled it and belongs in the PR description.
+
 ## A config-driven feature with no config is a feature that silently disappears — seed it in the same change, and fail CLOSED when it is missing (2026-09-06)
 
 **Incident.** The Pizza Bowl food step went config-driven on 8/25 ("the $0 items on the experience
