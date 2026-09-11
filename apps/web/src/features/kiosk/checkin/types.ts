@@ -143,6 +143,10 @@ export interface CheckinPartyMember {
   /** 17-digit BMI Office id as a STRING; absent for bowling-only guests. */
   bmiPersonId?: string;
   waiverValid: boolean;
+  /** "YYYY-MM-DD" from the same Pandora read that answered the waiver, when the
+   *  record has one. The only way a person who arrives READY (account + live
+   *  waiver, so no "Set up" step) gets a race class at "Who's racing?". */
+  dobIso?: string;
   /** Which source this row was resolved from — `bmi-project` means BMI holds
    *  them on the reservation, `booking-label` means the name was typed at
    *  booking and nobody was ever registered. Lets the UI say so, and makes a

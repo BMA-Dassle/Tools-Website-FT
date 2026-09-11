@@ -108,6 +108,50 @@ describe("prefillPartyMembers", () => {
   });
 });
 
+describe("prefillPartyMembers — race class", () => {
+  // 2026-09-11: every prefilled row was stamped `category: "adult"`, and
+  // resolveRaceClass trusts an explicit category over the birthdate. A junior
+  // who arrived READY (account + live waiver) never walked "Set up", so the
+  // stamp stuck: the junior race listed nobody, "Add a Junior racer" led back
+  // to a party that already had them, and re-adding was refused as a duplicate.
+  const yearsAgo = (n: number) => `${new Date().getFullYear() - n}-01-01`;
+
+  it("derives junior from the roster birthdate and carries the date", () => {
+    const [kid] = prefillPartyMembers(
+      [],
+      [
+        {
+          firstName: "Mia",
+          lastName: "Osborn",
+          bmiPersonId: "1",
+          waiverValid: true,
+          dobIso: yearsAgo(8),
+        },
+      ],
+    );
+    expect(kid.category).toBe("junior");
+    expect(kid.dobIso).toBe(yearsAgo(8));
+  });
+
+  it("derives adult for a grown-up — and for a 13–17-year-old (adult CLASS, not isMinor)", () => {
+    const [grown, teen] = prefillPartyMembers(
+      [],
+      [
+        { firstName: "Eric", bmiPersonId: "2", waiverValid: true, dobIso: "1990-06-15" },
+        { firstName: "Tay", bmiPersonId: "3", waiverValid: true, dobIso: yearsAgo(15) },
+      ],
+    );
+    expect(grown.category).toBe("adult");
+    expect(teen.category).toBe("adult");
+  });
+
+  it("leaves the class UNSET when the roster has no birthdate — never a blanket adult", () => {
+    const [unknown] = prefillPartyMembers([], [{ firstName: "Sam", waiverValid: false }]);
+    expect(unknown.category).toBeUndefined();
+    expect(unknown.dobIso).toBeUndefined();
+  });
+});
+
 describe("isPlaceholderRacerName", () => {
   it("matches the count-based booking slot labels, case-insensitively", () => {
     // Exactly what RacePartyStep's setNewRacerCount mints: `Adult ${i + 1}`.

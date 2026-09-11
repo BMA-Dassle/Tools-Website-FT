@@ -55,7 +55,7 @@ import {
   type ScheduleRacer,
   type RacerOutcome,
 } from "./schedule-racers";
-import { checkRacerWaivers } from "./waiver";
+import { checkRacerWaivers, readRacerWaivers } from "./waiver";
 import { isExpressBooking, isExpressRoster } from "./express";
 import { getRaceProductById } from "~/features/booking/service/race-products";
 import {
@@ -2212,14 +2212,18 @@ export async function listBindableParty(
   const uniq = mergeRosterRows(rows);
   if (uniq.length === 0) return { members: [], degraded };
 
-  const waiverBy = await checkRacerWaivers(uniq.map((r) => r.personId));
+  const waiverBy = await readRacerWaivers(uniq.map((r) => r.personId));
   const members = uniq.map((r) => {
     const parts = r.full.split(/\s+/).filter(Boolean);
+    const read = r.personId ? waiverBy.get(r.personId) : undefined;
     return {
       firstName: parts[0] || "Guest",
       ...(parts.length > 1 ? { lastName: parts.slice(1).join(" ") } : {}),
       ...(r.personId ? { bmiPersonId: r.personId } : {}),
-      waiverValid: r.personId ? (waiverBy.get(r.personId) ?? false) : false,
+      waiverValid: read?.valid ?? false,
+      // The birthdate rides along so a READY racer (no Set-up step to learn
+      // it) still resolves to junior/adult at "Who's racing?".
+      ...(read?.dobIso ? { dobIso: read.dobIso } : {}),
       source: r.source,
     };
   });
