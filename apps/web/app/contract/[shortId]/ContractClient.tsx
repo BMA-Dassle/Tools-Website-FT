@@ -51,6 +51,9 @@ interface QuoteProps {
   collectedCents: number;
   lineItems: Array<{ name: string; price: number; qty: number; total: number }>;
   depositPaidAt: string | null;
+  /** Set once a balance charge lands and never cleared by a re-price — this is exactly the
+   *  `wasPaidInFull` gate resign-settle branches on, so the sign-step copy can match it. */
+  balancePaidAt: string | null;
   giftCardGan: string | null;
   status: string;
   isTaxExempt: boolean;
@@ -162,6 +165,11 @@ function ContractClientActive({ quote }: { quote: QuoteProps }) {
   // (delta = total - collected) — so the displayed amount always matches the actual charge,
   // regardless of what balance_cents holds.
   const resignDueCents = Math.max(0, quote.totalCents - quote.collectedCents);
+  // Mirrors resign-settle's `wasPaidInFull` gate EXACTLY (Boolean(balance_paid_at)). That
+  // flag is what decides whether signing settles the difference on the spot or hands the
+  // balance back to the 72h cron, so the sign-step copy MUST branch on the same fact —
+  // anything that merely looks equivalent will drift and promise the guest the wrong thing.
+  const resignSettlesNow = isResign && Boolean(quote.balancePaidAt);
   const isFullPayment = quote.balanceCents === 0;
   const isPostPaid = quote.isPostPaid;
   const hasLegacyDeposit = quote.priorDepositCents > 0 && !quote.depositPaidAt;
@@ -238,7 +246,10 @@ function ContractClientActive({ quote }: { quote: QuoteProps }) {
   const taxValid = taxExempt === "no" || (taxExempt === "yes" && Boolean(taxFileUrl));
   const allAgreed =
     agreeDeposit &&
-    (isFullPayment || isPostPaid || agreeNoPrepay) &&
+    // A settle-now re-sign never shows the 72h auto-charge checkbox (the difference is
+    // charged at signature), so it must not be required here either — or the Sign button
+    // would sit disabled forever with nothing on screen to tick.
+    (isFullPayment || isPostPaid || resignSettlesNow || agreeNoPrepay) &&
     taxExempt !== null &&
     taxValid &&
     (quote.isTaxExempt ? agreeUnderstand : true);
@@ -1469,17 +1480,32 @@ function ContractClientActive({ quote }: { quote: QuoteProps }) {
                   {
                     state: agreeDeposit,
                     set: setAgreeDeposit,
-                    text: isPostPaid
-                      ? "I understand this is a post-paid account and will be billed after the event."
-                      : cardOnFileOnly
-                        ? "I understand my previous deposit has been applied and I agree to provide a card on file for the remaining balance."
-                        : hasLegacyDeposit && legacyChargeCents > 0
-                          ? `I agree to pay the remaining balance of ${fmtDollars(legacyChargeCents)} via credit card after completing this document.`
-                          : isFullPayment
-                            ? "I agree to pay the full event total via credit card after completing this document."
-                            : "I agree to make a 50% deposit via credit card after completing this document.",
+                    // A re-sign is settled by /api/group-function/resign-settle the moment
+                    // this is signed — NOT by a deposit and NOT by the 72h cron. Without
+                    // this branch an already-paid guest re-confirming $199.63 of added food
+                    // was asked to agree to "a 50% deposit" and to a balance charged "72
+                    // hours prior" to an event starting that evening (event 3370).
+                    text: resignSettlesNow
+                      ? resignDueCents > 0
+                        ? `I agree to the updated event total of ${fmtDollars(quote.totalCents)} and authorize the ${fmtDollars(resignDueCents)} difference to be charged ${
+                            quote.hasCardOnFile
+                              ? `to my card on file${cardLast4 ? ` ending ${cardLast4}` : ""}`
+                              : "to the card I provide next"
+                          }.`
+                        : `I agree to the updated event total of ${fmtDollars(quote.totalCents)}. No further payment is due.`
+                      : isPostPaid
+                        ? "I understand this is a post-paid account and will be billed after the event."
+                        : cardOnFileOnly
+                          ? "I understand my previous deposit has been applied and I agree to provide a card on file for the remaining balance."
+                          : hasLegacyDeposit && legacyChargeCents > 0
+                            ? `I agree to pay the remaining balance of ${fmtDollars(legacyChargeCents)} via credit card after completing this document.`
+                            : isFullPayment
+                              ? "I agree to pay the full event total via credit card after completing this document."
+                              : "I agree to make a 50% deposit via credit card after completing this document.",
                   },
-                  ...((!isFullPayment || cardOnFileOnly) && !isPostPaid
+                  // Deposit-only re-signs DO still hand their balance to the 72h cron, so
+                  // they keep this checkbox — only settle-now re-signs drop it.
+                  ...((!isFullPayment || cardOnFileOnly) && !isPostPaid && !resignSettlesNow
                     ? [
                         {
                           state: agreeNoPrepay,
@@ -1712,7 +1738,13 @@ function ContractClientActive({ quote }: { quote: QuoteProps }) {
                 disabled={!allAgreed || !hasSig}
                 className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-4 text-lg font-bold shadow-lg shadow-cyan-500/20 disabled:opacity-40"
               >
-                Sign & Continue to Payment
+                {/* A settle-now re-sign with a card on file has NO pay step after this —
+                    handleSign settles the difference inline — so don't promise one. */}
+                {resignSettlesNow && !resignNeedsCard
+                  ? resignDueCents > 0
+                    ? `Sign & Pay ${fmtDollars(resignDueCents)}`
+                    : "Sign & Confirm"
+                  : "Sign & Continue to Payment"}
               </button>
             </div>
           </>

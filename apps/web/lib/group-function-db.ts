@@ -513,6 +513,17 @@ export async function getGfQuoteByShortId(shortId: string): Promise<GroupFunctio
   return (rows[0] as GroupFunctionQuote) ?? null;
 }
 
+export async function getGfQuoteById(id: number): Promise<GroupFunctionQuote | null> {
+  await ensureGfSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM group_function_quotes
+    WHERE id = ${id}
+    LIMIT 1
+  `;
+  return (rows[0] as GroupFunctionQuote) ?? null;
+}
+
 export async function getGfQuoteByPandaDocId(
   documentId: string,
 ): Promise<GroupFunctionQuote | null> {
@@ -1553,10 +1564,13 @@ const FIELD_LABELS: Record<string, string> = {
   line_items: "Products",
 };
 
+const fmtCentsLabel = (cents: number) =>
+  `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+
 function formatFieldValue(field: string, value: unknown): string {
   if (value === null || value === undefined) return "(empty)";
   if (field.endsWith("_cents") && typeof value === "number") {
-    return `$${(value / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+    return fmtCentsLabel(value);
   }
   if (field === "line_items" && Array.isArray(value)) {
     return value
@@ -1569,10 +1583,64 @@ function formatFieldValue(field: string, value: unknown): string {
   return String(value);
 }
 
+/** Aggregate a product list by name, so a duplicated line can't hide a quantity change. */
+function indexLineItems(value: unknown): Map<string, { qty: number; totalCents: number }> {
+  const index = new Map<string, { qty: number; totalCents: number }>();
+  if (!Array.isArray(value)) return index;
+  for (const li of value as Array<{ name?: string; qty?: number; total?: number }>) {
+    const name = li?.name || "?";
+    const prev = index.get(name) ?? { qty: 0, totalCents: 0 };
+    index.set(name, {
+      qty: prev.qty + Number(li?.qty ?? 1),
+      totalCents: prev.totalCents + Math.round(Number(li?.total ?? 0) * 100),
+    });
+  }
+  return index;
+}
+
+/**
+ * Products differ far more often than they differ INTERESTINGLY — a re-price typically
+ * moves two or three lines out of a dozen. Dumping the whole list on both sides buries
+ * the change the reader is being asked to re-confirm, so report only the lines that
+ * actually moved. Where the quantity held but the money moved (a percentage service
+ * charge riding on a new subtotal), show the money instead of an unchanged "x1".
+ */
+function diffLineItems(a: unknown, b: unknown): { before: string; after: string } | null {
+  const before = indexLineItems(a);
+  const after = indexLineItems(b);
+  const beforeParts: string[] = [];
+  const afterParts: string[] = [];
+
+  for (const name of new Set([...before.keys(), ...after.keys()])) {
+    const x = before.get(name);
+    const y = after.get(name);
+    if (x && y && x.qty === y.qty && x.totalCents === y.totalCents) continue;
+    const moneyOnly = Boolean(x && y && x.qty === y.qty);
+    if (x)
+      beforeParts.push(moneyOnly ? `${name} ${fmtCentsLabel(x.totalCents)}` : `${name} x${x.qty}`);
+    if (y)
+      afterParts.push(moneyOnly ? `${name} ${fmtCentsLabel(y.totalCents)}` : `${name} x${y.qty}`);
+  }
+
+  // Nothing meaningful moved — a reorder, or an edit to a field we don't report.
+  if (beforeParts.length === 0 && afterParts.length === 0) return null;
+  return {
+    before: beforeParts.join(", ") || "(none)",
+    after: afterParts.join(", ") || "(none)",
+  };
+}
+
 export function diffSnapshots(a: ContractSnapshot, b: ContractSnapshot): FieldDiff[] {
   const diffs: FieldDiff[] = [];
   for (const key of Object.keys(FIELD_LABELS) as Array<keyof ContractSnapshot>) {
     if (key === "event_date") continue;
+    if (key === "line_items") {
+      const itemDiff = diffLineItems(a.line_items, b.line_items);
+      if (itemDiff) {
+        diffs.push({ field: key, label: FIELD_LABELS[key], ...itemDiff });
+      }
+      continue;
+    }
     const av = JSON.stringify(a[key]);
     const bv = JSON.stringify(b[key]);
     if (av !== bv) {
@@ -1585,4 +1653,32 @@ export function diffSnapshots(a: ContractSnapshot, b: ContractSnapshot): FieldDi
     }
   }
   return diffs;
+}
+
+/**
+ * Pair every version row with the diff it actually describes.
+ *
+ * A version row stores the contract as it stood BEFORE the change it carries — the
+ * dispatch cron snapshots `existing` and THEN writes the update — while the row's
+ * `changes` array describes that pending change. So a row's true diff runs from its own
+ * snapshot to the NEXT row's snapshot, or, for the newest row, to the live quote.
+ *
+ * Diffing row N-1 against row N instead renders the PREVIOUS revision, and the newest
+ * change — the one the guest is being asked to re-confirm — never renders at all: event
+ * 3370 (2026-09-11) was asked to re-sign for $199.63 of added food under a "What Changed"
+ * card reading "Guest Phone: 239- → 816-810-9908 / Balance: $1,328.85 → $0.00", both of
+ * them week-old news. Diffing against the live row also picks up writes that never made a
+ * version of their own (a balance charge zeroing balance_cents), which is what the reader
+ * wants: everything that moved since this version was cut.
+ *
+ * `versions` must be in ascending version order, as `getContractVersions` returns them.
+ */
+export function diffVersionsAgainstLive(
+  versions: ContractVersion[],
+  live: ContractSnapshot,
+): Array<{ version: ContractVersion; diffs: FieldDiff[] }> {
+  return versions.map((v, i) => ({
+    version: v,
+    diffs: diffSnapshots(v.snapshot, versions[i + 1]?.snapshot ?? live),
+  }));
 }

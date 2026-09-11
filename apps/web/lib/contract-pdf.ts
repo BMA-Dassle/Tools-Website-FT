@@ -5,6 +5,39 @@ function dollars(cents: number): string {
   return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
 }
 
+/**
+ * The payment acknowledgements to print under "Let's Make it Official".
+ *
+ * These are the record of what the guest agreed to, so they must describe THIS event's
+ * actual arrangement rather than one fixed pair of lines. A re-signed event that was
+ * already paid in full — guest added food, re-confirmed, and resign-settle charged the
+ * difference on the spot — produced a signed PDF asserting they had agreed to "a 50%
+ * deposit" and to a balance "charged 72 hours prior to the event". Neither was on their
+ * screen and neither was true (event 3370, 2026-09-11).
+ *
+ * Safe to derive from the row: PDF generation always runs AFTER the money moves (the
+ * deposit route, resign-settle, and the post-paid branch of the sign route all call
+ * generateAndStorePdf once the charge has landed), so `collected_cents` is settled here.
+ */
+export function paymentAgreementLines(
+  quote: Pick<
+    GroupFunctionQuote,
+    "approval_required" | "deposit_due_cents" | "total_cents" | "collected_cents"
+  >,
+): string[] {
+  if (quote.approval_required && quote.deposit_due_cents === 0) {
+    return ["I understand this is a post-paid account and will be billed after the event."];
+  }
+  const outstandingCents = Math.max(0, quote.total_cents - quote.collected_cents);
+  if (outstandingCents <= 0) {
+    return [`I agree to the event total of ${dollars(quote.total_cents)}, paid in full by card.`];
+  }
+  return [
+    "I agree to make a 50% deposit via credit card after completing this document.",
+    "I understand the remaining balance will be automatically charged 72 hours prior to the event.",
+  ];
+}
+
 const C = {
   white: rgb(1, 1, 1),
   black: rgb(0, 0, 0),
@@ -740,8 +773,7 @@ export async function generateContractPdf(
   sectionHeader(ctx, "Let's Make it Official");
 
   const agreeItems = [
-    "I agree to make a 50% deposit via credit card after completing this document.",
-    "I understand the remaining balance will be automatically charged 72 hours prior to the event.",
+    ...paymentAgreementLines(quote),
     "I understand that waivers are required for all participants in waiver-required activities.",
     "I have read and understand the event information and helpful tips provided.",
     "I have read and agree to the cancellation policy.",
