@@ -154,15 +154,30 @@ export type LoadStatusInput = z.infer<typeof LoadStatusSchema>;
 
 /** Attach + load tokens onto ONE just-dispensed new card (post-charge). */
 /**
- * Game Zone COMP voucher redemption (kiosk). `claim` takes the code and hands
- * back a $0 ledger row to dispense against; `release` gives an unspent code
- * back when no card left the stacker. Codes are the BMI 24-char shape — the
- * server re-validates against BMI_VOUCHER_RE, this is only a cheap gate.
+ * Game Zone voucher redemption (kiosk). `claim` takes the code and hands back a
+ * $0 ledger row to dispense against; `release` gives an unspent code back when
+ * no card left the stacker.
+ *
+ * THREE ISSUERS SHARE THIS SCHEMA, so the length bound has to be the SHORTEST
+ * code any of them mints — not any single issuer's shape: ours (`HPW…`, 11),
+ * BMI's (24), and Groupon's redemption code, which is **7 OR 8** characters
+ * (`GROUPON_CODE_RE`). Each issuer's own validator owns the real shape check;
+ * this is only a cheap gate in front of them.
+ *
+ * WHY 7 AND NOT 8. It was 8, and that silently broke every 7-character Groupon.
+ * `38f3c51d6` widened `GROUPON_CODE_RE` to `{7,8}` across the scan path but
+ * never here, so a 7-char voucher validated, redeemed at Groupon — burning the
+ * guest's copy — and then failed THIS gate at claim with a bare 400 carrying no
+ * `reason`, which the kiosk renders as "Something went wrong — please see Guest
+ * Services". ZERO of twelve 7-char vouchers ever dispensed a card (2026-08-27 →
+ * 2026-09-11), while their laser-tag legs, claimed on the booking rail that
+ * never passes through here, worked the whole time. A bound shared by three
+ * issuers must track the shortest of them, or it is a silent rejection of one.
  */
 export const VoucherRedeemSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("claim"),
-    code: z.string().trim().min(8).max(64),
+    code: z.string().trim().min(7).max(64),
     locationCode: z.number().int(),
     center: z.string().trim().max(40).optional(),
     kioskId: z.string().trim().max(120).optional(),
@@ -173,7 +188,7 @@ export const VoucherRedeemSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("release"),
-    code: z.string().trim().min(8).max(64),
+    code: z.string().trim().min(7).max(64),
     txnId: z.string().uuid(),
     reason: z.string().trim().max(200).optional(),
   }),
@@ -182,7 +197,7 @@ export const VoucherRedeemSchema = z.discriminatedUnion("action", [
    *  validation ignores them, so they stay optional for compatibility. */
   z.object({
     action: z.literal("validate"),
-    code: z.string().trim().min(8).max(64),
+    code: z.string().trim().min(7).max(64),
     locationCode: z.number().int().optional(),
     center: z.string().trim().max(40).optional(),
   }),
@@ -191,12 +206,12 @@ export const VoucherRedeemSchema = z.discriminatedUnion("action", [
    *  code is the bearer instrument either way. */
   z.object({
     action: z.literal("status"),
-    code: z.string().trim().min(8).max(64),
+    code: z.string().trim().min(7).max(64),
   }),
   /** WEB leg: credit the value onto a card the guest already holds. */
   z.object({
     action: z.literal("to-card"),
-    code: z.string().trim().min(8).max(64),
+    code: z.string().trim().min(7).max(64),
     accountNumber,
     locationCode: z.number().int(),
   }),
