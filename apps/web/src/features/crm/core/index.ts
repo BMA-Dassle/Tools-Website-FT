@@ -30,8 +30,8 @@ export {
 export {
   CrmHttpError,
   apiError,
+  gateNotFound,
   json,
-  notFoundText,
   withCrmRoute,
   type CrmRouteContext,
   type CrmRouteHandler,

@@ -73,11 +73,14 @@ afterEach(() => {
 });
 
 describe("credential (step 3)", () => {
-  it("no credential anywhere → 404 text/plain 'Not found', never JSON", async () => {
+  it("no credential anywhere → 404 with the middleware's own API-gate body, never an {ok:false} envelope", async () => {
+    // middleware.ts's /api/admin/* branch answers `{"error":"Not found"}` as
+    // application/json; the route mirrors it byte for byte so nobody can tell
+    // which layer refused, and crmFetch treats the non-envelope as "reload".
     const res = await echo(get(URL_ME));
     expect(res.status).toBe(404);
-    expect(res.headers.get("content-type")).toMatch(/^text\/plain/);
-    expect(await res.text()).toBe("Not found");
+    expect(res.headers.get("content-type")).toMatch(/^application\/json/);
+    expect(await res.text()).toBe('{"error":"Not found"}');
   });
 
   it("a wrong header token → 404", async () => {

@@ -76,6 +76,20 @@ async function shoot(page: Page, name: string) {
   for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: 900 });
     await page.waitForTimeout(250);
+    // No horizontal overflow at either width (the phone rule in CLAUDE.md /
+    // brief §6.3: zero horizontal scroll at 390). Tables and boards may be
+    // wider only inside their own `overflow-x: auto` box, never the document.
+    const metrics = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      scrollHeight: document.documentElement.scrollHeight,
+      innerHeight: window.innerHeight,
+    }));
+    console.log(`[layout] ${name}@${width}: ${JSON.stringify(metrics)}`);
+    expect(
+      metrics.scrollWidth,
+      `${name}@${width}: the document scrolls horizontally`,
+    ).toBeLessThanOrEqual(metrics.clientWidth);
     await page.screenshot({ path: path.join(SHOTS, `${name}-${width}.png`), fullPage: true });
   }
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -223,8 +237,12 @@ test.describe("signed out", () => {
   });
 
   test("an unauthenticated CRM API call is an opaque 404", async ({ request }) => {
+    // The MIDDLEWARE answers first — its /api/admin/* branch refuses a missing
+    // credential with `{"error":"Not found"}` (application/json), and
+    // withCrmRoute mirrors that byte for byte for anything that gets past it.
+    // Either way: 404, no session, no user, no envelope.
     const res = await request.get("/api/admin/crm/me", { maxRedirects: 0 });
     expect(res.status()).toBe(404);
-    expect(await res.text()).toBe("Not found");
+    expect(await res.text()).toBe('{"error":"Not found"}');
   });
 });

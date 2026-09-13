@@ -12,7 +12,11 @@
  *                   `{token: undefined}` would 404 every GET. A body/query
  *                   `token` therefore BEATS the header; no token in the input
  *                   → the header / `?token=` / proxy-key path.
- *                   Failure → 404 `text/plain` "Not found", matching the gate.
+ *                   Failure → 404 `{"error":"Not found"}` (application/json),
+ *                   BYTE-IDENTICAL to what the middleware's `/api/admin/*`
+ *                   branch answers (`middleware.ts` ~:498) so a caller cannot
+ *                   tell which layer refused; the page gate's `text/plain`
+ *                   shape is for pages, not APIs.
  *   4. session      `crmUserFromRequest()` → 401 / 403 JSON `{ok:false,
  *                   error:"session"}`; `opts.director` → 403 `director_only`
  *   5. service      the handler; a plain object is wrapped as `{ok:true, …}`,
@@ -60,11 +64,15 @@ export function apiError(
   return json(body, { status });
 }
 
-/** The gate's opaque answer, byte for byte: text, not JSON. */
-export function notFoundText(): Response {
-  return new Response("Not found", {
+/**
+ * The middleware's `/api/admin/*` refusal, byte for byte: `{"error":"Not found"}`
+ * as application/json. NOT our `{ok:false}` envelope on purpose — `crmFetch`
+ * reads "not an envelope" on a known route as "the credential expired, reload".
+ */
+export function gateNotFound(): Response {
+  return new Response(JSON.stringify({ error: "Not found" }), {
     status: 404,
-    headers: { "content-type": "text/plain; charset=utf-8", ...NO_STORE },
+    headers: { "content-type": "application/json", ...NO_STORE },
   });
 }
 
@@ -127,7 +135,7 @@ export function withCrmRoute<TSchema extends ZodType, TOut extends Record<string
     const authed = bodyToken
       ? await isAdminApiRequest(req, { token: bodyToken })
       : await isAdminApiRequest(req);
-    if (!authed) return notFoundText();
+    if (!authed) return gateNotFound();
 
     const who = await crmUserFromRequest();
     if (!who.ok) return apiError(who.status, "session");

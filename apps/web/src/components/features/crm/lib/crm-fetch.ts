@@ -14,10 +14,16 @@
  *   - JSON bodies also carry `token` (a route may read it from the body when a
  *     header cannot be set);
  *   - 401 → the session is gone: reload the page, which the edge gate turns into
- *     `/sso/signin`. A 404 with a text body on a KNOWN route is the gate's own
- *     opaque refusal of the credential (an expired token) → same reload;
+ *     `/sso/signin`. A 404 on a KNOWN route whose body is NOT our `{ok:false}`
+ *     envelope is a gate refusing the credential (an expired token) → same
+ *     reload. Two gates can answer, and their bodies differ: the middleware's
+ *     `/api/admin/*` branch says `{"error":"Not found"}` (application/json,
+ *     `middleware.ts` ~:498) and `withCrmRoute` mirrors that byte for byte; a
+ *     `text/plain` "Not found" (the page gate's shape) is treated the same way;
  *   - any `{ ok: false }` envelope → a thrown `CrmApiError` carrying the HTTP
- *     status, the server's `error`, and Office's 403 prompt when present.
+ *     status, the server's `error`, and Office's 403 prompt when present. A
+ *     JSON 404 envelope is therefore a REAL not-found (a missing status id),
+ *     never a reload.
  *
  * Accepted loss (brief §3.4): a mutation in flight when the 8 h session expires
  * is dropped by that reload; the toast copy for it is `SIGNED_OUT_MESSAGE`.
@@ -63,10 +69,11 @@ export interface CrmFetchDeps {
 export const SIGNED_OUT_MESSAGE = "Signed out — your last change was not saved";
 
 /**
- * Route families that exist in PR1. A 404 TEXT response on one of these cannot
- * be "no such resource" — it is `isAdminApiRequest` refusing the credential the
- * same opaque way the page gate does — so the client treats it like a 401.
- * A JSON 404 (`{ ok: false, error }`) on any path is a real not-found.
+ * Route families that exist in PR1. A 404 on one of these that is not our own
+ * `{ ok: false, error }` envelope cannot be "no such resource" — it is the
+ * middleware or `isAdminApiRequest` refusing the credential the same opaque way
+ * the page gate does — so the client treats it like a 401. A JSON 404 envelope
+ * on any path is a real not-found.
  */
 export const KNOWN_ROUTES = ["/me", "/settings", "/statuses", "/jobs"] as const;
 
@@ -122,14 +129,6 @@ export function createCrmFetch(token: string, deps: Partial<CrmFetchDeps> = {}):
       throw new CrmApiError(401, SIGNED_OUT_MESSAGE);
     }
 
-    const contentType = res.headers.get("content-type") ?? "";
-    const isJson = contentType.includes("application/json");
-
-    if (res.status === 404 && !isJson && isKnownRoute(path)) {
-      reload();
-      throw new CrmApiError(404, SIGNED_OUT_MESSAGE);
-    }
-
     const text = await res.text();
     let parsed: unknown = null;
     if (text) {
@@ -138,6 +137,14 @@ export function createCrmFetch(token: string, deps: Partial<CrmFetchDeps> = {}):
       } catch {
         parsed = null;
       }
+    }
+
+    // A gate's refusal (middleware `{"error":"Not found"}`, a route's mirror of
+    // it, or the page gate's plain text) on a route we KNOW exists → the
+    // credential expired: reload. Our own `{ok:false}` 404 is a real not-found.
+    if (res.status === 404 && isKnownRoute(path) && !looksLikeEnvelope(parsed)) {
+      reload();
+      throw new CrmApiError(404, SIGNED_OUT_MESSAGE);
     }
 
     if (looksLikeEnvelope(parsed)) {

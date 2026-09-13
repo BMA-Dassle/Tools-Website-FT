@@ -36,7 +36,9 @@ are `crm_reps` rows a person signs in AS through `crm_rep_logins`.
 
 read input (query for GET, JSON body otherwise) → zod (400 `invalid_request`)
 → `isAdminApiRequest` two-branch (body/query `token` beats the `x-admin-token`
-header; failure = 404 text `Not found`) → `crmUserFromRequest()` (401 / 403
+header; failure = 404 `{"error":"Not found"}`, byte-identical to the middleware's
+own `/api/admin/*` refusal, so `crmFetch` reads either as "credential expired,
+reload") → `crmUserFromRequest()` (401 / 403
 `session`) → `director` option (403 `director_only`) → handler. A plain object
 return is wrapped `{ok:true, …}`; `CrmHttpError` maps to its status; anything
 else is a 500 logged with `actor_email`. Every JSON response is

@@ -13,9 +13,10 @@ import {
 /**
  * Pure tests of the client transport (brief §3.4 "crm-fetch.test.ts"): the
  * credential rides as a header and inside JSON bodies, a lost session reloads
- * the page, the gate's opaque text 404 on a known route reloads too, and a JSON
- * error envelope becomes a `CrmApiError` that keeps the status and Office's
- * prompt. No network: `fetchImpl` and `reload` are injected.
+ * the page, a gate's opaque 404 on a known route (text, or the middleware's
+ * `{"error":"Not found"}`) reloads too, and an `{ok:false}` error envelope
+ * becomes a `CrmApiError` that keeps the status and Office's prompt. No
+ * network: `fetchImpl` and `reload` are injected.
  */
 
 const TOKEN = "1700000000000.deadbeef";
@@ -95,6 +96,18 @@ describe("createCrmFetch — the session is gone", () => {
     const err = await crmFetch("/statuses/office-states?centre=HPFM").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CrmApiError);
     expect((err as CrmApiError).status).toBe(404);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('the middleware\'s JSON {"error":"Not found"} 404 on a KNOWN route is the same refusal → reload', async () => {
+    // middleware.ts's /api/admin/* branch answers an expired x-admin-token with
+    // this exact body (application/json); withCrmRoute mirrors it. Neither is
+    // our {ok:false} envelope, so both mean "sign in again", not "no such row".
+    const { crmFetch, reload } = rig(() => jsonResponse(404, { error: "Not found" }));
+    const err = await crmFetch("/me").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CrmApiError);
+    expect((err as CrmApiError).status).toBe(404);
+    expect((err as CrmApiError).message).toBe(SIGNED_OUT_MESSAGE);
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
