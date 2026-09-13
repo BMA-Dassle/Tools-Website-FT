@@ -953,7 +953,16 @@ export async function fetchProjectRawIds(
   const headers = readHeaders(token, clientKey);
   const res = await httpsRequest("GET", `/api/${clientKey}/project/${projectId}`, headers);
   if (res.status >= 400) return null;
-  return parseWithRawIds<Record<string, unknown>>(res.body);
+  // `companyId` — the project's BUSINESS — is another PERSON id and is as
+  // precision-critical as `personId`, but it is absent from the DEFAULT
+  // `BMI_ID_FIELDS`, so this read used to parse it as a NUMBER. Both tenants'
+  // company ids are seven digits today and nothing broke; on a 17-digit tenant
+  // it would have ROUNDED on the way IN to `putProjectFields` and written the
+  // wrong business back — the 2026 off-by-one under a new field name. The
+  // write side was already closed (`PROJECT_PUT_RAW_ID_FIELDS` above); this is
+  // the matching half on the read side. Flagged as open for C5 in
+  // docs/crm/bmi-mirror.md; pinned by `bmi-office-put-project-fields.test.ts`.
+  return parseWithRawIds<Record<string, unknown>>(res.body, PROJECT_PUT_RAW_ID_FIELDS);
 }
 
 // ── The ONE project-field writer for the CRM ────────────────────────
