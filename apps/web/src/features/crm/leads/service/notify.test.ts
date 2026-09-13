@@ -3,12 +3,16 @@ import { PLANNERS } from "@/lib/sales-lead-config";
 import { QUEUE_LEADS } from "../test-support";
 import type { MintOutcome } from "./mint";
 import {
+  ALREADY_SENT,
   CENTRE_TO_CENTER_KEY,
   QUEUE_CHAT_ENV,
   centerConfigFor,
+  notifyAlreadySent,
   notifyNewLead,
   queueCardSkipReason,
+  salesCardKey,
   summarizeNotify,
+  withoutCardActions,
   type NotifyDeps,
 } from "./notify";
 
@@ -29,7 +33,14 @@ const MINTED: MintOutcome = {
 };
 
 function fakes(over: Partial<NotifyDeps> = {}) {
-  const calls: Record<string, unknown[][]> = { sms: [], email: [], card: [], redis: [], note: [] };
+  const calls: Record<string, unknown[][]> = {
+    sms: [],
+    email: [],
+    card: [],
+    redis: [],
+    redisGet: [],
+    note: [],
+  };
   const deps: NotifyDeps = {
     sendSms: async (...a) => {
       calls.sms!.push(a);
@@ -46,6 +57,10 @@ function fakes(over: Partial<NotifyDeps> = {}) {
     redisSet: async (...a) => {
       calls.redis!.push(a);
       return "OK";
+    },
+    redisGet: async (...a) => {
+      calls.redisGet!.push(a);
+      return null;
     },
     appendPrivateNote: async (...a) => {
       calls.note!.push(a);
@@ -214,5 +229,105 @@ describe("notifyNewLead", () => {
     expect(line).toBe(
       "Guest text sent · guest email FAILED (sendgrid down) · Teams card to Kelsea sent · queue card skipped (CRM_JACOB_TEAMS_CHAT_ID not set)",
     );
+  });
+});
+
+describe("the queue card's buttons", () => {
+  const actionSets = (card: Record<string, unknown>) =>
+    (card.body as Array<{ type?: string }>).filter((b) => b?.type === "ActionSet");
+
+  it("withoutCardActions strips the ActionSet and any top-level actions", () => {
+    const stripped = withoutCardActions({
+      type: "AdaptiveCard",
+      body: [{ type: "TextBlock" }, { type: "ActionSet", actions: [{ verb: "sales_lead_ack" }] }],
+      actions: [{ verb: "sales_lead_ack" }],
+    });
+    expect(stripped.body).toEqual([{ type: "TextBlock" }]);
+    expect("actions" in stripped).toBe(false);
+    expect(stripped.type).toBe("AdaptiveCard");
+  });
+
+  it("an un-minted lead gets a READ-ONLY queue card: its verbs read salescard:{projectID}, which is never written", async () => {
+    const { deps, calls } = fakes();
+    await notifyNewLead(
+      { lead, mint: { status: "failed", error: "boom", httpStatus: 502 }, source: "web" },
+      deps,
+    );
+    expect(calls.redis).toHaveLength(0);
+    expect(calls.card).toHaveLength(1);
+    const card = calls.card![0]![1] as Record<string, unknown>;
+    expect(actionSets(card)).toHaveLength(0);
+  });
+
+  it("a minted lead keeps them — the state they read exists", async () => {
+    const { deps, calls } = fakes();
+    await notifyNewLead({ lead, mint: MINTED, source: "web" }, deps);
+    // [0] = the planner's card, [1] = the queue card.
+    const queueCard = calls.card![1]![1] as Record<string, unknown>;
+    expect(actionSets(queueCard)).toHaveLength(1);
+    expect(calls.redis![0]![0]).toBe(salesCardKey(MINTED.projectId));
+  });
+});
+
+describe("notifyAlreadySent (a resubmit inside the dedupe window)", () => {
+  const state = (displayName: string, isIndividual: boolean) =>
+    JSON.stringify({
+      projectID: "63000000009561437",
+      projectNumber: "DH2891",
+      planner: { displayName, isIndividual },
+    });
+
+  it("names the planner the FIRST submission used, not Guest Services", async () => {
+    const { deps } = fakes({ redisGet: async () => state("Kelsea", true) });
+    const out = await notifyAlreadySent({ lead, projectId: "63000000009561437" }, deps);
+    expect(out.planner).toEqual({ displayName: "Kelsea", isIndividual: true });
+  });
+
+  it("reads the card state by project id and sends nothing", async () => {
+    const keys: string[] = [];
+    const { deps, calls } = fakes({
+      redisGet: async (k) => {
+        keys.push(k);
+        return state("Guest Services", false);
+      },
+    });
+    const out = await notifyAlreadySent({ lead, projectId: "63000000009561437" }, deps);
+    expect(keys).toEqual([salesCardKey("63000000009561437")]);
+    expect(calls.sms).toHaveLength(0);
+    expect(calls.email).toHaveLength(0);
+    expect(calls.card).toHaveLength(0);
+    expect(calls.note).toHaveLength(0);
+    for (const c of [out.sms, out.email, out.plannerCard, out.queueCard])
+      expect(c).toEqual({ ok: true, status: null, skipped: true, reason: ALREADY_SENT });
+  });
+
+  it("an expired state is null, never a guessed name; a throwing Redis is not fatal", async () => {
+    const gone = await notifyAlreadySent(
+      { lead, projectId: "63000000009561437" },
+      fakes({ redisGet: async () => null }).deps,
+    );
+    expect(gone.planner).toBeNull();
+    const boom = await notifyAlreadySent(
+      { lead, projectId: "63000000009561437" },
+      fakes({
+        redisGet: async () => {
+          throw new Error("redis down");
+        },
+      }).deps,
+    );
+    expect(boom.planner).toBeNull();
+    expect(boom.sms.reason).toBe(ALREADY_SENT);
+  });
+
+  it("no project id → no read at all", async () => {
+    const keys: string[] = [];
+    const { deps } = fakes({
+      redisGet: async (k) => {
+        keys.push(k);
+        return null;
+      },
+    });
+    expect((await notifyAlreadySent({ lead, projectId: null }, deps)).planner).toBeNull();
+    expect(keys).toEqual([]);
   });
 });
