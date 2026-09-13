@@ -35,7 +35,7 @@ describe("quick-action slot registry", () => {
     expect(QUICK_ACTIONS.note.owner).toBe("B4");
   });
 
-  it("a guest with a phone gets tel: / sms:, an email opens the composer, Note and Snooze stay disabled", () => {
+  it("Call and Email open their sheets, Text routes in-app, Note and Snooze stay disabled", () => {
     const lead = makeLead({
       id: "5001",
       guest: {
@@ -48,7 +48,10 @@ describe("quick-action slot registry", () => {
       },
     });
     expect(quickActionsFor(lead).map((a) => [a.slot.id, a.target])).toEqual([
-      ["call", { kind: "href", href: "tel:+12395551234" }],
+      // C3 flipped the `call` line: the rail rings the guest on the rep's 3CX
+      // extension and logs the disposition, rather than handing the number to
+      // the device's dialer where the CRM never learns the call happened.
+      ["call", { kind: "sheet", id: "call" }],
       // C1 flipped the `text` line: it now opens the guest's CRM conversation,
       // where the rep's own DID, the consent check and the message log live.
       // Handing the phone's SMS app the number would send a text the CRM never
@@ -77,10 +80,10 @@ describe("quick-action slot registry", () => {
     const kindOf = (id: string) => rail.find((a) => a.slot.id === id)?.target?.kind ?? null;
 
     expect(kindOf("text")).toBe("route");
-    expect(kindOf("call")).toBe("href");
-    // C2 landed after C1: Email is no longer a `mailto:` hand-off but the
-    // in-drawer composer sheet. Still not a `route` — the point of this test
-    // is that `text` alone goes through the router.
+    // C2 and C3 landed after C1: Email and Call are no longer device hand-offs
+    // but in-drawer sheets. Neither is a `route` — the point of this test is
+    // that `text` alone goes through the router.
+    expect(kindOf("call")).toBe("sheet");
     expect(kindOf("email")).toBe("sheet");
   });
 
@@ -104,7 +107,9 @@ describe("quick-action slot registry", () => {
     });
   });
 
-  it("every sheet target has a registered sheet behind it", () => {
+  it("every slot that resolves to a sheet HAS one registered, and a title for it", () => {
+    // A `{kind:"sheet"}` slot with no entry renders permanently disabled, which
+    // would be a bug wearing a state's clothes.
     for (const id of QUICK_ACTION_IDS) {
       const target = QUICK_ACTIONS[id].resolve(
         makeLead({
@@ -121,7 +126,23 @@ describe("quick-action slot registry", () => {
       );
       if (target?.kind === "sheet") expect(sheetSlotFor(target.id), id).not.toBeNull();
     }
-    expect(Object.keys(QUICK_ACTION_SHEETS)).toEqual(["email"]);
+    // C3's `call` and C2's `email`, each exactly one key of its own.
+    expect(Object.keys(QUICK_ACTION_SHEETS)).toEqual(["call", "email"]);
+    expect(
+      QUICK_ACTION_SHEETS.call!.title(
+        makeLead({
+          id: "5005",
+          guest: {
+            first: "Lee",
+            last: "Health",
+            phone: "+12395551234",
+            email: null,
+            company: null,
+            prefers: null,
+          },
+        }),
+      ),
+    ).toBe("Calling Lee Health");
     expect(
       QUICK_ACTION_SHEETS.email!.title(
         makeLead({

@@ -10,7 +10,7 @@ import type { ComponentType } from "react";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import type { LeadView } from "~/features/crm/leads/contracts";
 import { contactKey, phoneKey } from "~/features/crm/sms/keys";
-import { contactHrefs } from "../leads/model";
+import { contactHrefs, leadName } from "../leads/model";
 
 /**
  * THE QUICK-ACTIONS SLOT REGISTRY — the deal's action rail
@@ -95,6 +95,10 @@ const href = (value: string | null): QuickActionTarget | null =>
 const route = (value: string | null): QuickActionTarget | null =>
   value ? { kind: "route", href: value } : null;
 
+/** This slot opens its `QUICK_ACTION_SHEETS` entry, when the lead can support it. */
+const sheet = (id: QuickActionId, when: boolean): QuickActionTarget | null =>
+  when ? { kind: "sheet", id } : null;
+
 /** Nothing is wired for this slot yet — the button renders disabled. */
 const notWiredYet = (): null => null;
 
@@ -116,7 +120,7 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
     id: "call",
     label: "Call",
     Icon: IconPhone,
-    resolve: (lead) => href(contactHrefs(lead).tel),
+    resolve: (lead) => sheet("call", Boolean(lead.guest.phone)),
     disabledTitle: "No phone on file",
     owner: "C3",
   },
@@ -164,11 +168,27 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
 };
 
 /**
- * The sheets a `{kind:"sheet"}` target opens. Pre-populated only where a PR
- * has shipped one, so C1 (`text`), C3 (`call`) and B4 (`note`, `snooze`) each
- * add exactly their own key.
+ * The sheets a `{kind:"sheet"}` target opens — ONE LINE PER SLOT, like
+ * `core/screens.ts` and `deal/tabs.ts`, so a channel PR adds its own key and
+ * nothing else in this file changes. Pre-populated only where a PR has shipped
+ * one; B4 (`note`, `snooze`) each add exactly their own key next.
+ *
+ * A slot whose `resolve` returns `{kind:"sheet"}` with no entry here renders
+ * disabled, which is a bug rather than a state, so `actions.test.ts` pins that
+ * the two agree.
+ *
+ * C1's `text` is deliberately NOT here: it is a `route` to the guest's
+ * Conversations thread, so there is one composer, one consent check and one
+ * place a text is recorded — not a second in-drawer composer beside it.
  */
 export const QUICK_ACTION_SHEETS: Partial<Record<QuickActionId, QuickActionSheetSlot>> = {
+  // C3: ring the guest on the rep's 3CX extension, then log what happened.
+  call: {
+    title: (lead) => `Calling ${leadName(lead)}`,
+    wide: true,
+    testId: "crm-deal-action-call",
+    load: () => import("../calls/DealCallSheet"),
+  },
   // Prototype title, verbatim (crm-shared.js:267 `Email ${l.guest.first}`).
   email: {
     title: (lead) => `Email ${lead.guest.first || "guest"}`,

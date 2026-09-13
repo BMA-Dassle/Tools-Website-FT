@@ -1,5 +1,5 @@
 import { CRM_BASE } from "~/features/crm/core/contracts";
-import { MORE_ITEMS, NAV_GROUPS, PHONE_TABS } from "~/features/crm/core/nav";
+import { MORE_ITEMS, NAV_GROUPS, PHONE_TABS, type BadgeKey } from "~/features/crm/core/nav";
 import type { ScreenId } from "~/features/crm/core/types";
 
 /**
@@ -21,7 +21,9 @@ export function isScreenReady(id: ScreenId): boolean {
   return false;
 }
 
-/** Badge counts by provider key — PR1 ships no providers, so this is empty. */
-export type BadgeCounts = Partial<
-  Record<"overdue" | "unassigned" | "pendingApproval" | "unread", { n: number; soft?: boolean }>
->;
+/**
+ * Badge counts by provider key. Keyed off `BadgeKey` itself rather than a
+ * re-typed list, so adding a badge in `core/nav.ts` is still one line and
+ * cannot silently miss this type.
+ */
+export type BadgeCounts = Partial<Record<BadgeKey, { n: number; soft?: boolean }>>;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NAV_GROUPS, MORE_ITEMS, PHONE_TABS, type BadgeKey } from "~/features/crm/core/nav";
 import { leadsKeys } from "~/features/crm/leads/queries";
 import { smsKeys } from "~/features/crm/sms/queries";
 import { BADGE_PATHS, BADGE_SOURCES, badgeCountsFrom, badgeKeyFor } from "./badges";
@@ -7,12 +8,16 @@ import { BADGE_PATHS, BADGE_SOURCES, badgeCountsFrom, badgeKeyFor } from "./badg
  * THE SIDEBAR BADGES — shell plumbing every CRM screen reads, so it gets a
  * guard of its own.
  *
- * Two things are pinned here because both were silently wrong at some point:
+ * Three things are pinned here, each because it was silently wrong at some
+ * point:
  *
+ *   • the CONTRACT between `core/nav.ts` (which NAMES a badge) and this table
+ *     (which says where the count comes from) — the failure mode otherwise is
+ *     a badge that silently never appears.
  *   • the FAN-OUT. `useBadgeCounts` polls one query per PATH, not per badge, so
  *     two badges fed by `/leads/badges` cost one request. A PR that adds a
  *     badge fills its line in `BADGE_SOURCES` and nothing else — this asserts
- *     the folding across two different payload paths at once.
+ *     the folding across several payload paths at once.
  *   • the QUERY KEYS. A badge must live under its owning sub's key or the
  *     sub's own `invalidateQueries` misses it: reading a conversation
  *     invalidates `smsKeys.all` and the Messages badge kept its stale count for
@@ -30,6 +35,36 @@ describe("badgeKeyFor", () => {
 
   it("anything without an owning sub still gets a stable key of its own", () => {
     expect(badgeKeyFor("/contracts/badges")).toEqual(["crm", "badges", "/contracts/badges"]);
+    expect(badgeKeyFor("/calls/badges")).toEqual(["crm", "badges", "/calls/badges"]);
+  });
+});
+
+describe("BADGE_SOURCES", () => {
+  it("has an entry for every badge the nav names", () => {
+    const named = new Set<BadgeKey>();
+    for (const g of NAV_GROUPS) for (const i of g.items) if (i.badge) named.add(i.badge);
+    for (const i of [...PHONE_TABS, ...MORE_ITEMS]) if (i.badge) named.add(i.badge);
+    for (const key of named) {
+      expect(Object.hasOwn(BADGE_SOURCES, key), key).toBe(true);
+    }
+  });
+
+  it("names the Calls badge's own endpoint (C3's line)", () => {
+    expect(BADGE_SOURCES.missedCalls).toEqual({
+      path: "/calls/badges",
+      field: "missedCalls",
+      soft: true,
+    });
+    expect(BADGE_PATHS).toContain("/calls/badges");
+  });
+
+  it("names the Messages badge's own endpoint (C1's line)", () => {
+    expect(BADGE_SOURCES.unread).toEqual({ path: "/sms/unread", field: "n", soft: true });
+    expect(BADGE_PATHS).toContain("/sms/unread");
+  });
+
+  it("lists each distinct path once, so the hook polls each endpoint once", () => {
+    expect(BADGE_PATHS.length).toBe(new Set(BADGE_PATHS).size);
   });
 });
 
@@ -53,6 +88,11 @@ describe("BADGE_PATHS", () => {
 });
 
 describe("badgeCountsFrom", () => {
+  const payloads = {
+    "/leads/badges": { overdue: 3, unassigned: 2 },
+    "/calls/badges": { missedCalls: 4 },
+  };
+
   it("folds two payload paths into one set of counts", () => {
     const out = badgeCountsFrom(
       { "/leads/badges": { overdue: 3, unassigned: 2 }, "/sms/unread": { n: 5 } },
@@ -64,10 +104,24 @@ describe("badgeCountsFrom", () => {
     expect(out.unread).toEqual({ n: 5, soft: true });
   });
 
+  it("folds every path's payload into one count map", () => {
+    expect(badgeCountsFrom(payloads, "director")).toEqual({
+      overdue: { n: 3 },
+      unassigned: { n: 2 },
+      missedCalls: { n: 4, soft: true },
+    });
+  });
+
   it("a rep never sees the director-only unassigned count", () => {
     const out = badgeCountsFrom({ "/leads/badges": { overdue: 1, unassigned: 9 } }, "rep");
     expect(out.overdue).toEqual({ n: 1 });
     expect(out.unassigned).toBeUndefined();
+  });
+
+  it("hides the director-only count from a rep, but shows them missed calls", () => {
+    const out = badgeCountsFrom(payloads, "rep");
+    expect(out.unassigned).toBeUndefined();
+    expect(out.missedCalls).toEqual({ n: 4, soft: true });
   });
 
   it("zero, missing and non-numeric all render NO badge — never a '0' pill", () => {
@@ -79,5 +133,19 @@ describe("badgeCountsFrom", () => {
       badgeCountsFrom({ "/leads/badges": undefined, "/sms/unread": { n: 2 } }, "rep").unread,
     ).toEqual({ n: 2, soft: true });
     expect(badgeCountsFrom({ "/sms/unread": { n: "lots" } }, "rep")).toEqual({});
+  });
+
+  it("shows no badge for a zero, and none for an endpoint that did not answer", () => {
+    expect(
+      badgeCountsFrom({ "/calls/badges": { missedCalls: 0 } }, "rep").missedCalls,
+    ).toBeUndefined();
+    expect(badgeCountsFrom({}, "rep")).toEqual({});
+    expect(badgeCountsFrom({ "/calls/badges": undefined }, "rep")).toEqual({});
+  });
+
+  it("ignores a value that is not a finite number rather than rendering NaN", () => {
+    expect(
+      badgeCountsFrom({ "/calls/badges": { missedCalls: "lots" } }, "rep").missedCalls,
+    ).toBeUndefined();
   });
 });
