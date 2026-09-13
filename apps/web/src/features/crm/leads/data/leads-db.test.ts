@@ -102,6 +102,7 @@ describe("insertLead", () => {
       mintError: null,
       capturePayload: { raw: true },
       createdBy: null,
+      requestedRepId: "1",
     });
     expect(id).toBe("1061");
     const ins = db.matching(/INSERT INTO crm_leads/)[0]!;
@@ -109,6 +110,32 @@ describe("insertLead", () => {
     expect(ins.text).toContain("'L-' || n.id::text");
     expect(ins.params[2]).toBe("FT");
     expect(ins.params[13]).toBe('{"raw":true}');
+    // B7: the planner the guest asked for is a real column, in its own slot.
+    expect(ins.text).toContain("requested_rep_id");
+    expect(ins.params[15]).toBe("1");
+  });
+
+  it("no planner asked for → requested_rep_id is NULL, not undefined", async () => {
+    db.respond = () => [{ id: "1062" }];
+    await insertLead({
+      contactId: "9",
+      accountId: null,
+      centre: "HPFM",
+      eventDate: "2026-12-11",
+      eventTime: null,
+      guests: 55,
+      type: "holiday",
+      source: "referral",
+      isProspect: false,
+      kids: false,
+      notes: null,
+      mintStatus: "pending",
+      mintError: null,
+      capturePayload: {},
+      createdBy: null,
+    });
+    const ins = db.matching(/INSERT INTO crm_leads/)[0]!;
+    expect(ins.params[15]).toBeNull();
   });
 });
 
@@ -192,6 +219,47 @@ describe("mapLeadRow", () => {
     expect(l.kids).toBe(false);
     expect(l.nextAction).toBeNull();
     expect(l.valueCents).toBe(0);
+  });
+
+  it("projects the planner the guest asked for — id, slug, first name, display name", () => {
+    expect(mapLeadRow(RAW).requestedRep).toEqual({
+      id: "1",
+      slug: "kelsea",
+      firstName: "Kelsea",
+      displayName: "Kelsea Kosco",
+    });
+  });
+
+  it("falls back down the name chain rather than rendering an empty chip", () => {
+    expect(mapLeadRow({ ...RAW, rq_first_name: null, rq_display_name: null }).requestedRep).toEqual(
+      {
+        id: "1",
+        slug: "kelsea",
+        firstName: "kelsea",
+        displayName: "kelsea",
+      },
+    );
+    expect(mapLeadRow({ ...RAW, rq_display_name: null }).requestedRep).toEqual({
+      id: "1",
+      slug: "kelsea",
+      firstName: "Kelsea",
+      displayName: "Kelsea",
+    });
+  });
+
+  it("no request, or a request whose rep row is gone, is null — never a half-built chip", () => {
+    expect(
+      mapLeadRow({
+        ...RAW,
+        requested_rep_id: null,
+        rq_slug: null,
+        rq_first_name: null,
+        rq_display_name: null,
+      }).requestedRep,
+    ).toBeNull();
+    // The column survives a deleted rep row only as an id; the join comes back
+    // empty, and a chip with no name is worse than no chip.
+    expect(mapLeadRow({ ...RAW, rq_slug: null }).requestedRep).toBeNull();
   });
 });
 
