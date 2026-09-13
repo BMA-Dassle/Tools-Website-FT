@@ -2,6 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
+import {
+  FIRST_AVAILABLE_OPTION,
+  PLANNERS_ENDPOINT,
+  PLANNER_FIELD_HELP,
+  PLANNER_FIELD_LABEL,
+  plannerStillOffered,
+  plannersForCenterKey,
+  type PlannerOption,
+} from "~/features/crm/leads/planners";
 
 /**
  * SalesLeadForm — replaces the Cognito iframe on group-events and birthday pages.
@@ -188,6 +197,16 @@ export function SalesLeadForm({
   const [bestTimeToCall, setBestTimeToCall] = useState<BestTime>("Afternoon");
   const [notes, setNotes] = useState("");
 
+  /**
+   * "Who would you like to work with?" — the planners who cover the centre the
+   * guest picked, read from the roster once per form open (the endpoint is
+   * CDN-cached; switching centre filters in the browser, never re-fetches).
+   * Empty string = "First available", which is the default and what every
+   * guest who ignores the control sends.
+   */
+  const [planners, setPlanners] = useState<PlannerOption[]>([]);
+  const [requestedPlanner, setRequestedPlanner] = useState("");
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
@@ -237,6 +256,35 @@ export function SalesLeadForm({
       setKidsKartingAck(false);
     }
   }, [kidsKartingConflict, kidsKartingAck]);
+
+  // The planner list, once per form open. A failure is silent: the control
+  // simply does not appear and the enquiry goes to the first available planner,
+  // exactly as every enquiry did before this control existed.
+  useEffect(() => {
+    let live = true;
+    fetch(PLANNERS_ENDPOINT, { headers: { Accept: "application/json" } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (live && d && Array.isArray(d.planners)) setPlanners(d.planners as PlannerOption[]);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  /**
+   * Never show — or post — a planner this form is no longer offering. Derived,
+   * not corrected after the fact: switching centre (a Naples enquiry cannot ask
+   * for a Fort Myers planner) or switching to a kids birthday (which goes to
+   * Guest Services by rule) falls straight back to "First available", and the
+   * guest's earlier pick is honoured again if they switch back.
+   */
+  const plannerChoices = isKidsBirthday ? [] : plannersForCenterKey(planners, selectedCenter);
+  const effectivePlanner =
+    !isKidsBirthday && plannerStillOffered(planners, selectedCenter, requestedPlanner)
+      ? requestedPlanner
+      : "";
 
   // Short-notice check: preferredDate picked is <3 calendar days out.
   // Uses local midnight anchors for both sides so TZ drift doesn't
@@ -365,6 +413,9 @@ export function SalesLeadForm({
           preferredContactMethod,
           bestTimeToCall,
           packagePrefill,
+          // "" = First available. The server resolves the slug against the
+          // roster and ignores it entirely for a kids birthday.
+          requestedPlanner: effectivePlanner,
         }),
       });
       const data = await res.json();
@@ -609,6 +660,32 @@ export function SalesLeadForm({
                   )}
                 </Field>
               </div>
+
+              {/* Who would you like to work with? — the planners who cover the
+                  centre above. Hidden for kids birthdays: those are handled by
+                  the Guest Services team, so offering a choice we cannot keep
+                  would be a promise broken at the first phone call. */}
+              {plannerChoices.length > 0 && (
+                <Field label={PLANNER_FIELD_LABEL}>
+                  <select
+                    value={effectivePlanner}
+                    onChange={(e) => setRequestedPlanner(e.target.value)}
+                    className={inputCls(accent)}
+                  >
+                    <option value="" style={{ backgroundColor: "#0a1628" }}>
+                      {FIRST_AVAILABLE_OPTION}
+                    </option>
+                    {plannerChoices.map((p) => (
+                      <option key={p.slug} value={p.slug} style={{ backgroundColor: "#0a1628" }}>
+                        {p.firstName}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-white/60" style={{ fontSize: "11px", lineHeight: 1.4 }}>
+                    {PLANNER_FIELD_HELP}
+                  </p>
+                </Field>
+              )}
             </>
           )}
 
