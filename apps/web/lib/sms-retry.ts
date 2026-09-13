@@ -376,6 +376,18 @@ export interface VoxSendResult {
   suppressed?: boolean;
   /** Which suppression rule applied, for the SMS log. */
   suppressionOutcome?: string;
+  /**
+   * The number the message ACTUALLY left from, E.164.
+   *
+   * Added for the CRM's per-rep DIDs. Until now a `fromOverride` that Vox
+   * rejected was silently retried from `VOX_FROM` with a "(From …)" prefix
+   * and NO flag said so (`:483-490`) — a rep's thread would claim the text
+   * went out from their own number when the guest saw the A2P one. Set on
+   * every path that reached a provider: the override, the A2P fallback, and
+   * the Twilio failover (Twilio picks its own sender, so `undefined` there is
+   * the honest answer). Absent when nothing was sent at all.
+   */
+  sentFrom?: string;
 }
 
 export async function voxSend(
@@ -472,6 +484,10 @@ export async function voxSend(
   }
 
   const from = opts?.fromOverride || VOX_FROM;
+  // The number we are attempting from; reassigned by the fallback below so the
+  // caller can tell "sent from the rep's DID" from "sent from the A2P DID with
+  // a prefix". Only reported when a send actually succeeded.
+  let attemptedFrom = from;
   let result = await voxSendOnce(toFormatted, body, from);
 
   // If we tried with an override and Voxtelesys rejected it (likely DID not owned),
@@ -486,6 +502,7 @@ export async function voxSend(
     );
     const prefix = opts.fallbackPrefix || `(From ${opts.fromOverride}) `;
     const fallbackBody = prefix + body;
+    attemptedFrom = VOX_FROM;
     result = await voxSendOnce(toFormatted, fallbackBody, VOX_FROM);
   }
 
@@ -515,7 +532,7 @@ export async function voxSend(
     };
   }
 
-  return { ...result, provider: "vox" };
+  return { ...result, provider: "vox", ...(result.ok ? { sentFrom: attemptedFrom } : {}) };
 }
 
 /**
