@@ -189,3 +189,15 @@ export {
 export * from "./contracts";
 export { EVENT_TYPE_LABEL, LEAD_SOURCE_LABEL, RULE_KIND_CHIP } from "./labels";
 export { rulesKeys } from "./queries";
+export {
+  REQUESTED_REP_STEP_ID,
+  REQUESTED_REP_STEP_LABEL,
+  requestedRepVerdict,
+  sellsAt,
+  type DecisionLike,
+  type DecisionOutcomeLike,
+  type RequestedRepInput,
+  type RequestedRepLike,
+  type RequestedRepOutcome,
+  type RequestedRepVerdict,
+} from "./service/requested-rep";
