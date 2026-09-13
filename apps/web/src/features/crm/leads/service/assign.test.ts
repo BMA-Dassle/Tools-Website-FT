@@ -271,9 +271,22 @@ describe("assignLead", () => {
     });
     const puts = state.requests.filter((q) => q.method === "PUT");
     expect(puts).toHaveLength(1);
-    const body = JSON.parse(puts[0]!.body) as Record<string, unknown>;
-    expect(body.userId).toBe("28267036");
-    expect(body.userAgentId).toBe("28267036");
+    const wire = puts[0]!.body;
+    // `projectPutJson` (PR1) puts the small signed ids back on the wire as JSON
+    // NUMBERS — the shape every proven Office rail sends — while the 17-digit
+    // ids are injected RAW by `serializeWithRawIds`. So the responsible id is
+    // a number here, and the project / person ids are bare digits in the text,
+    // never quoted and never rounded.
+    expect(wire).toContain(`"id":${PROJECT_ID}`);
+    expect(wire).toContain(`"personId":${PERSON_ID}`);
+    expect(wire).not.toContain(`"${PROJECT_ID}"`);
+    const body = JSON.parse(wire) as Record<string, unknown>;
+    expect(body.userId).toBe(28267036);
+    expect(body.userAgentId).toBe(28267036);
+    // Negative control: a naive JSON.parse of the very same bytes rounds the
+    // id to 63000000009561440 — which is why nothing reads this rail that way.
+    expect(String(body.id)).toBe("63000000009561440");
+    expect(String(body.id)).not.toBe(PROJECT_ID);
     expect(body).not.toHaveProperty("bills");
     expect(state.synced).toEqual(["1"]);
     expect(state.activities.map((a) => a.kind)).toEqual(["assign", "bmi"]);
