@@ -3527,3 +3527,31 @@
     display: none;
   }
 }
+
+/* ── B2: Rules screen (crm-shared.js:445-467) ──────────────────────────────
+   The prototype sets the two-column split inline (1.4fr 1fr, 1fr on the
+   phone); a class keeps the phone rule in the media query where it belongs.
+   Drag feedback for the rule rows (arrows are the keyboard fallback). */
+.crm-root .rules-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.crm-root .rule[data-dragging="true"] {
+  opacity: 0.4;
+}
+.crm-root .rule[data-drop="true"] {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.crm-root .rule .rule-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+@media (max-width: 768px) {
+  .crm-root .rules-grid {
+    grid-template-columns: 1fr;
+  }
+}
