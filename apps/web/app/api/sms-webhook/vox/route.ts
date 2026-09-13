@@ -140,6 +140,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "missing message_id or status" });
   }
 
+  // ── Mirror the carrier's verdict onto a CRM text ──────────────────
+  // A rep's thread shows "delivered" / "undelivered" from the same callback
+  // the admin SMS log uses. Done BEFORE the `sms:log` index lookup below,
+  // which returns early when the 90-day index has expired — the Neon row
+  // outlives it, and a thread that silently stopped updating would be worse
+  // than one extra lookup per callback.
+  await patchCrmDeliveryStatus(voxId, payload);
+
   // Resolve the day-key index so we know which sms:log:{date} list
   // holds the original send entry. Without the index we'd have to
   // scan every day's log to find the matching providerMessageId.
@@ -212,6 +220,32 @@ export async function POST(req: NextRequest) {
   await updateVideoRecordIfPresent(voxId, payload);
 
   return NextResponse.json({ ok: true, status });
+}
+
+/**
+ * Patch `crm_sms_messages.delivery_status` when this Vox id is a CRM text
+ * (`src/features/crm/sms`). A no-op — one indexed UPDATE that matches nothing —
+ * for the automated traffic that makes up most of this webhook's volume.
+ *
+ * Never throws: a CRM or Neon problem must not turn into a non-2xx, because
+ * Vox retries those and a retried delivery receipt would re-run the log
+ * rewrite above.
+ */
+async function patchCrmDeliveryStatus(voxId: string, payload: VoxStatusPayload): Promise<void> {
+  try {
+    const { patchDeliveryStatus } = await import("~/features/crm/sms");
+    const detail = payload.error?.code
+      ? `Vox ${payload.status} (${payload.error.code}: ${payload.error.description ?? "no description"})`
+      : null;
+    await patchDeliveryStatus({
+      providerMessageId: voxId,
+      status: payload.status ?? "sent",
+      error: detail,
+      provider: "vox",
+    });
+  } catch (err) {
+    console.warn(`[sms-webhook/vox] CRM delivery patch failed for ${voxId}:`, err);
+  }
 }
 
 /** Look up the video match associated with this Vox messageId and

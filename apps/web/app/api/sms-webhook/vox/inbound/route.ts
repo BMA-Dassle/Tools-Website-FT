@@ -5,6 +5,13 @@ import { classifyInbound } from "~/features/sms/inbound-keywords";
 import { handleInbound } from "~/features/sms/inbound-service";
 import { recordConsentEvent } from "~/features/sms/suppression-db";
 import { enqueueForReview, readReviewQueue } from "~/features/sms/review-queue";
+import {
+  activeRepDids,
+  inboundReplyEffect,
+  noteConsentOnRepDid,
+  routeInbound,
+  unionDids,
+} from "~/features/crm/sms";
 import { voxSend } from "@/lib/sms-retry";
 
 /**
@@ -207,7 +214,7 @@ export async function POST(req: NextRequest) {
   // Parse and classify. `parsed.ok === false` is a finding, not an error
   // — a rejected recipient means the portal is pointed somewhere
   // unexpected, which is exactly what we want written down.
-  const parsed = parseMoPayload(decoded, allowedDids());
+  const parsed = parseMoPayload(decoded, await allowedDids());
   const verdict = parsed.ok
     ? { parsed: true as const, ...classifyInbound(parsed.payload.body) }
     : { parsed: false as const, reason: parsed.reason };
@@ -246,24 +253,29 @@ export async function POST(req: NextRequest) {
     try {
       const result = await handleInbound(parsed.payload, {
         recordConsent: recordConsentEvent,
-        sendReply: async (phoneE164, replyBody) => {
-          const res = await voxSend(phoneE164, replyBody, {
-            // By definition we are texting a number we may have just
-            // suppressed. That one message is what (a)(12) permits.
-            bypassSuppression: true,
-            // The replies carry their own tailored instructions; the
-            // generic footer would be nonsense on "You're opted out".
-            skipFooter: true,
-            // Reply FROM the DID the guest texted, or the conversation
-            // arrives from a stranger.
-            fromOverride: allowedDids()[0],
-            auditSource: "sms-inbound-reply",
-          });
-          return { ok: res.ok };
+        // Reply FROM THE DID THE GUEST TEXTED. This used to be
+        // `allowedDids()[0]` — the A2P number — while the comment claimed
+        // otherwise; harmless while that was the only inbound DID, wrong the
+        // moment rep DIDs join the list above. The rule lives in
+        // `inboundReplyEffect` so it is unit-tested rather than only true here.
+        sendReply: inboundReplyEffect(parsed.payload, voxSend),
+        // The CRM branch. `routeInbound` takes the message when it arrived on
+        // a rep's DID (thread + `crm_sms_messages` + activity, idempotent on
+        // the Vox id) and otherwise parks it exactly where it goes today.
+        // ONE inbound URL, one consent ledger (R8).
+        enqueueReview: async (item) => {
+          const routed = await routeInbound(parsed.payload, item, enqueueForReview);
+          return { added: routed.added };
         },
-        enqueueReview: enqueueForReview,
       });
       outcome = result.outcome;
+      // A STOP or START on a REP's DID also belongs in that rep's thread: a
+      // composer that refuses to send should be able to say why. The consent
+      // ledger above is still the only thing that decides; this is what the
+      // screen shows, and it no-ops for the A2P number.
+      if (result.outcome.startsWith("opted_out") || result.outcome.startsWith("opted_in")) {
+        await noteConsentOnRepDid(parsed.payload, result.outcome.startsWith("opted_out"));
+      }
       console.log(
         `[sms-webhook/vox/mo] ${result.outcome} replied=${result.replied} — ${result.detail}`,
       );
@@ -307,18 +319,31 @@ function handlerEnabled(): boolean {
   return process.env.SMS_INBOUND_HANDLER !== "false";
 }
 
-/** DIDs this endpoint accepts inbound for.
- *
- *  `SMS_A2P_DID` overrides, comma-separated, so re-pointing the number
- *  does not need a deploy. Default is the DID currently attached to the
- *  FastTraxEnt.com Messaging Application. */
-function allowedDids(): string[] {
+/** The A2P DIDs, from env. `SMS_A2P_DID` overrides, comma-separated, so
+ *  re-pointing the number does not need a deploy. Default is the DID currently
+ *  attached to the FastTraxEnt.com Messaging Application. */
+function envDids(): string[] {
   const env = process.env.SMS_A2P_DID || "";
   const fromEnv = env
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
   return fromEnv.length > 0 ? fromEnv : ["+12394412867"];
+}
+
+/** DIDs this endpoint accepts inbound for: the A2P list PLUS every active
+ *  `crm_reps.vox_did` (CRM PR C1).
+ *
+ *  The rep DIDs are unioned HERE, at runtime, and deliberately NOT added to
+ *  `SMS_A2P_DID`: that env list's first entry is the A2P *sender* for all
+ *  automated traffic (`~/features/sms/sender.ts:58-72`), so a rep's number in
+ *  it would start sending e-tickets from a salesperson's phone number. A DID
+ *  the director stores in the roster starts being accepted with no deploy, and
+ *  `activeRepDids` returns `[]` rather than throwing if Neon is unreachable —
+ *  degrading to exactly the old behaviour instead of 500ing a webhook Vox
+ *  would then retry. */
+async function allowedDids(): Promise<string[]> {
+  return unionDids(envDids(), await activeRepDids());
 }
 
 /** GET serves two purposes: a 200 for Vox's endpoint validation when it
@@ -379,7 +404,7 @@ export async function GET(req: NextRequest) {
       hitsToday: hits ? parseInt(hits, 10) : 0,
       rejectedToday: rejected ? parseInt(rejected, 10) : 0,
       lastHit: lastHit || null,
-      allowedDids: allowedDids(),
+      allowedDids: await allowedDids(),
       handlerEnabled: handlerEnabled(),
       /** How the classifier read today's traffic, per action. */
       classified: verdicts || {},
