@@ -612,3 +612,54 @@ export async function findRecentDuplicateLead(input: {
   )) as LeadRowRaw[];
   return rows[0] ? mapLeadRow(rows[0]) : null;
 }
+
+/** One lead identified two ways: by its contract short id, or by its BMI project. */
+export interface LeadContractRef {
+  publicId: string;
+  /** The numeric id, for `crm_activities.lead_id`. */
+  id: string;
+  gfShortId: string | null;
+  bmiProjectId: string | null;
+}
+
+/**
+ * The contracts ↔ leads join, read-only: which CRM lead (if any) a group-event
+ * contract belongs to. Lives here because `crm_leads` belongs to this sub — a
+ * second SELECT of these columns somewhere else is how a column rename becomes
+ * a silent null.
+ *
+ * A contract matches a lead by `gf_short_id` once one exists, and by the BMI
+ * project id before that (a lead is minted long before the contract is sent).
+ * Both lists are short — one page of contracts at a time — so they go in as
+ * arrays rather than a join against a temporary table.
+ */
+export async function listLeadContractRefs(input: {
+  shortIds?: readonly string[];
+  projectIds?: readonly string[];
+}): Promise<LeadContractRef[]> {
+  const shortIds = [...new Set((input.shortIds ?? []).filter(Boolean))];
+  const projectIds = [...new Set((input.projectIds ?? []).filter(Boolean))];
+  if (!isDbConfigured()) return [];
+  if (shortIds.length === 0 && projectIds.length === 0) return [];
+  await ensureLeadsSchema();
+  const q = sql();
+  const rows = (await q.query(
+    `SELECT l.id::text AS id, l.public_id, l.gf_short_id, l.bmi_project_id
+       FROM crm_leads l
+      WHERE l.archived_at IS NULL
+        AND (l.gf_short_id = ANY($1::text[]) OR l.bmi_project_id = ANY($2::text[]))
+      ORDER BY l.id ASC`,
+    [shortIds, projectIds],
+  )) as {
+    id: string;
+    public_id: string;
+    gf_short_id: string | null;
+    bmi_project_id: string | null;
+  }[];
+  return rows.map((r) => ({
+    id: String(r.id),
+    publicId: r.public_id,
+    gfShortId: r.gf_short_id,
+    bmiProjectId: r.bmi_project_id,
+  }));
+}
