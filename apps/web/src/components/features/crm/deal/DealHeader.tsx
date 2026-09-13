@@ -3,6 +3,7 @@
 import {
   IconBolt,
   IconBuilding,
+  IconChevronDown,
   IconClock,
   IconRefresh,
   IconStack2,
@@ -51,7 +52,9 @@ const CENTRE_NAME: Record<LeadView["centre"], string> = {
  * the status / BMI / ref / response strip, the value and days out, the
  * director's Reassign, the BMI action, and the stepper.
  *
- * The status chip is static here; B4's StatusSheet turns it into a button.
+ * The status chip is a BUTTON (crm-shared.js:295 `data-act="status"`): it
+ * opens the same sheet the board's cards do, so a lead can be moved from the
+ * deal without going back to the board — and without a drag (R13).
  */
 export interface DealHeaderProps {
   lead: LeadView;
@@ -59,6 +62,8 @@ export interface DealHeaderProps {
   now: Date;
   isDirector: boolean;
   onReassign: () => void;
+  /** Open the "Change status" sheet. */
+  onChangeStatus: () => void;
   /** Open the edit sheet; `thenMint` = "Complete to create in BMI". */
   onEdit: (thenMint: boolean) => void;
   onMint: () => void;
@@ -71,6 +76,7 @@ export function DealHeader({
   now,
   isDirector,
   onReassign,
+  onChangeStatus,
   onEdit,
   onMint,
   minting,
@@ -148,13 +154,21 @@ export function DealHeader({
           <Pill>{LEAD_SOURCE_LABEL[lead.source]}</Pill>
         </div>
         <div className="hstack" style={{ marginTop: 10 }}>
-          {status ? (
-            <Chip kind={status.kind} st={status.id}>
-              {status.label}
-            </Chip>
-          ) : (
-            <Chip kind="open">{lead.status}</Chip>
-          )}
+          <button
+            type="button"
+            className="btn btn-sm"
+            aria-label={`Change status — currently ${status?.label ?? lead.status}`}
+            onClick={onChangeStatus}
+          >
+            {status ? (
+              <Chip kind={status.kind} st={status.id}>
+                {status.label}
+              </Chip>
+            ) : (
+              <Chip kind="open">{lead.status}</Chip>
+            )}
+            <IconChevronDown {...ICON} />
+          </button>
           {chip.kind === "bmi" ? (
             <Chip bmi title={chip.title}>
               {chip.label}

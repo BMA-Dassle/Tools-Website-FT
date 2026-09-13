@@ -23,7 +23,12 @@ import { ICON } from "../primitives/icon-props";
  * `dealTimeline` / `tlItem` (crm-shared.js:300-311): one `.tl` per activity,
  * newest first, the dot icon by kind, "Guest" / "You" by direction, the body
  * by kind (bubble for a text, subject + preview for an email, outcome for a
- * call, a line for everything else). B4 extends this with the merged view.
+ * call, a line for everything else).
+ *
+ * B4 adds the CONNECTED variant below (`LeadTimeline`): the merged, keyset-
+ * paginated view with "Load older" and today's touch tally. The presentational
+ * `Timeline` stays exactly as it was so a caller with a list in hand — the
+ * deal detail's first page — can still render it without a query.
  */
 const KIND_ICON: Record<string, ComponentType<IconProps>> = {
   sms: IconMessage,

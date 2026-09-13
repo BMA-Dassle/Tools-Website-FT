@@ -19,9 +19,10 @@ import { contactHrefs } from "../leads/model";
  *
  *   B3 (here)  Call / Text / Email hand the lead to the device — `tel:`,
  *              `sms:`, `mailto:` — which is what a rep on a phone wants today
- *              and is honest about what exists. Note and Snooze are DISABLED
- *              with the reason, never faked.
- *   B4         `note` → the Note sheet, `snooze` → the Snooze sheet.
+ *              and is honest about what exists.
+ *   B4 (done)  `note` → the Note sheet, `snooze` → the Snooze sheet. Both are
+ *              in-app sheets, so their targets are `{kind:"sheet"}` and the
+ *              rail dispatches instead of navigating.
  *   C1         `text` → the rep's Vox DID composer (`sms/service/send.ts`).
  *   C2         `email` → the Graph draft-then-send composer.
  *   C3         `call` → 3CX click-to-dial on the rep's extension.
@@ -34,8 +35,16 @@ export const QUICK_ACTION_IDS = ["call", "text", "email", "note", "snooze"] as c
 
 export type QuickActionId = (typeof QUICK_ACTION_IDS)[number];
 
-/** What pressing the button does. `href` is a device hand-off (`tel:` / `sms:` / `mailto:`). */
-export type QuickActionTarget = { kind: "href"; href: string };
+/** The in-app sheets a slot can open (B4 ships Note and Snooze). */
+export type QuickActionSheet = "note" | "snooze";
+
+/**
+ * What pressing the button does: hand the lead to the device (`tel:` / `sms:`
+ * / `mailto:`) or open one of our own sheets.
+ */
+export type QuickActionTarget =
+  | { kind: "href"; href: string }
+  | { kind: "sheet"; sheet: QuickActionSheet };
 
 export interface QuickActionSlot {
   id: QuickActionId;
@@ -53,8 +62,10 @@ export interface QuickActionSlot {
 const href = (value: string | null): QuickActionTarget | null =>
   value ? { kind: "href", href: value } : null;
 
-/** Nothing is wired for this slot yet — the button renders disabled. */
-const notWiredYet = (): null => null;
+const sheet = (which: QuickActionSheet) => (): QuickActionTarget => ({
+  kind: "sheet",
+  sheet: which,
+});
 
 export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
   call: {
@@ -85,16 +96,16 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
     id: "note",
     label: "Note",
     Icon: IconNote,
-    resolve: notWiredYet,
-    disabledTitle: "Arrives with the Pipeline PR",
+    resolve: sheet("note"),
+    disabledTitle: "",
     owner: "B4",
   },
   snooze: {
     id: "snooze",
     label: "Snooze",
     Icon: IconZzz,
-    resolve: notWiredYet,
-    disabledTitle: "Arrives with the Pipeline PR",
+    resolve: sheet("snooze"),
+    disabledTitle: "",
     owner: "B4",
   },
 };

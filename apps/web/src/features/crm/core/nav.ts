@@ -61,7 +61,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     label: null,
     items: [
       { id: "today", label: "My Day", icon: "home", badge: "overdue", ready: true },
-      { id: "pipeline", label: "Pipeline", icon: "kanban", ready: false },
+      { id: "pipeline", label: "Pipeline", icon: "kanban", ready: true },
       {
         id: "queue",
         label: "Lead queue",
@@ -112,7 +112,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 /** The phone's bottom tabs (`direction-b.html:57`). */
 export const PHONE_TABS: readonly NavItem[] = [
   { id: "today", label: "My Day", icon: "home", badge: "overdue", ready: true },
-  { id: "pipeline", label: "Pipeline", icon: "kanban", ready: false },
+  { id: "pipeline", label: "Pipeline", icon: "kanban", ready: true },
   { id: "contracts", label: "Contracts", icon: "file", ready: false },
   { id: "conversations", label: "Messages", icon: "message", ready: false },
   { id: "more", label: "More", icon: "dots", ready: false },

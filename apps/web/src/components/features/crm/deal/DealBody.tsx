@@ -1,6 +1,6 @@
 "use client";
 
-import { IconEdit, IconUsers } from "@tabler/icons-react";
+import { IconEdit, IconFlag, IconNote, IconUsers, IconZzz } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Suspense, lazy, type LazyExoticComponent } from "react";
 import { LEAD_TEST_IDS } from "~/features/crm/leads/contracts";
@@ -13,9 +13,13 @@ import { LoadingState } from "../primitives/States";
 import { postMint } from "../leads/queries";
 import { leadTitle } from "../leads/model";
 import { AssignSheet } from "../queue/AssignSheet";
+import type { QuickActionSheet } from "./actions";
 import { DealHeader } from "./DealHeader";
 import { EditLeadSheet } from "./EditLeadSheet";
+import { NoteSheet } from "./NoteSheet";
 import { QuickActions } from "./QuickActions";
+import { SnoozeSheet } from "./SnoozeSheet";
+import { StatusSheet } from "./StatusSheet";
 import {
   DEAL_TABS,
   DEAL_TAB_IDS,
@@ -104,6 +108,48 @@ export function DealBody({ detail, query, setQuery, refresh }: DealBodyProps) {
       ),
     });
 
+  const changeStatus = () =>
+    openSheet({
+      title: "Change status",
+      icon: <IconFlag {...ICON} />,
+      body: (
+        <StatusSheet
+          lead={lead}
+          onCancel={closeSheet}
+          onDone={() => {
+            closeSheet();
+            refresh();
+          }}
+        />
+      ),
+    });
+
+  const openQuickSheet = (which: QuickActionSheet) =>
+    openSheet({
+      title: which === "note" ? "Add note" : "Snooze follow-up",
+      icon: which === "note" ? <IconNote {...ICON} /> : <IconZzz {...ICON} />,
+      body:
+        which === "note" ? (
+          <NoteSheet
+            lead={lead}
+            onCancel={closeSheet}
+            onDone={() => {
+              closeSheet();
+              refresh();
+            }}
+          />
+        ) : (
+          <SnoozeSheet
+            lead={lead}
+            onCancel={closeSheet}
+            onDone={() => {
+              closeSheet();
+              refresh();
+            }}
+          />
+        ),
+    });
+
   return (
     <div className="stack" style={{ gap: 16 }} data-testid={LEAD_TEST_IDS.deal}>
       <DealHeader
@@ -112,11 +158,12 @@ export function DealBody({ detail, query, setQuery, refresh }: DealBodyProps) {
         now={now}
         isDirector={isDirector}
         onReassign={reassign}
+        onChangeStatus={changeStatus}
         onEdit={edit}
         onMint={() => mint.mutate()}
         minting={mint.isPending}
       />
-      <QuickActions lead={lead} />
+      <QuickActions lead={lead} onSheet={openQuickSheet} />
       <div
         className="deal-tabs"
         role="group"

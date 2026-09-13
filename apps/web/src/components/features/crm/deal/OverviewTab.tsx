@@ -5,7 +5,7 @@ import { useCrmSheet } from "../lib/use-crm-user";
 import { ICON } from "../primitives/icon-props";
 import { DealRail } from "./DealRail";
 import { EditLeadSheet } from "./EditLeadSheet";
-import { Timeline } from "./Timeline";
+import { LeadTimeline } from "./LeadTimeline";
 import type { DealTabProps } from "./tabs";
 
 /**
@@ -48,7 +48,7 @@ export default function OverviewTab({ detail, refresh }: DealTabProps) {
             </div>
           </div>
         ) : null}
-        <Timeline activities={activities} />
+        <LeadTimeline leadPublicId={lead.publicId} initialActivities={activities} />
       </div>
       <div className="stack" style={{ gap: 16 }}>
         <DealRail detail={detail} onEdit={edit} />
