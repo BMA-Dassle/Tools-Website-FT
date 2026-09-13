@@ -44,13 +44,52 @@ describe("quick-action slot registry", () => {
     // where the rep's own DID, the consent check and the message log live.
     // Handing the phone's SMS app the number would send a text the CRM never
     // sees, from a number the guest cannot reply to in the thread.
+    //
+    // And it uses the CONTACT key, because that is how `foldConversations` keys
+    // a person we know (`sms/service/threads.ts`). A `p-<digits>` link would
+    // leave the matching `c-<id>` row unhighlighted and give one conversation
+    // two URLs.
     expect(quickActionsFor(lead).map((a) => [a.slot.id, a.target?.href ?? null])).toEqual([
       ["call", "tel:+12395551234"],
-      ["text", "/admin/crm/conversations/p-12395551234"],
+      ["text", "/admin/crm/conversations/c-95001"],
       ["email", "mailto:crm-test@example.com"],
       ["note", null],
       ["snooze", null],
     ]);
+  });
+
+  it("THE TEXT SLOT IS A ROUTE, NOT AN HREF — an in-app path must not reload the app", () => {
+    // `QuickActions` navigates an `href` with `window.location.assign`, which is
+    // right for `tel:` / `sms:` / `mailto:` and wrong for a CRM path: it throws
+    // away the TanStack cache, re-mints the admin API token, re-runs the SSO
+    // gate and re-mounts the shell, and on a phone the rep loses the drawer.
+    const lead = makeLead({ id: "5003" });
+    const rail = quickActionsFor(lead);
+    const kindOf = (id: string) => rail.find((a) => a.slot.id === id)?.target?.kind ?? null;
+
+    expect(kindOf("text")).toBe("route");
+    expect(kindOf("call")).toBe("href");
+    expect(kindOf("email")).toBe("href");
+  });
+
+  it("falls back to the number when the lead has no contact row yet", () => {
+    const lead = makeLead({
+      id: "5004",
+      contactId: null,
+      guest: {
+        first: "Walk",
+        last: "In",
+        phone: "+12395551234",
+        email: null,
+        company: null,
+        prefers: null,
+      },
+    });
+    const text = quickActionsFor(lead).find((a) => a.slot.id === "text");
+    expect(text?.target).toEqual({
+      kind: "route",
+      href: "/admin/crm/conversations/p-12395551234",
+    });
   });
 
   it("no phone, no email → those three are disabled with the reason, never a dead link", () => {

@@ -8,7 +8,7 @@ import {
 } from "@tabler/icons-react";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import type { LeadView } from "~/features/crm/leads/contracts";
-import { phoneKey } from "~/features/crm/sms/keys";
+import { contactKey, phoneKey } from "~/features/crm/sms/keys";
 import { contactHrefs } from "../leads/model";
 
 /**
@@ -36,8 +36,17 @@ export const QUICK_ACTION_IDS = ["call", "text", "email", "note", "snooze"] as c
 
 export type QuickActionId = (typeof QUICK_ACTION_IDS)[number];
 
-/** What pressing the button does. `href` is a device hand-off (`tel:` / `sms:` / `mailto:`). */
-export type QuickActionTarget = { kind: "href"; href: string };
+/**
+ * What pressing the button does, and HOW to go there:
+ *
+ *   href    a device hand-off — `tel:` / `sms:` / `mailto:`. The browser hands
+ *           it to the dialer or mail client; `window.location.assign` is right.
+ *   route   a CRM path. Must go through the router: a `location.assign` to an
+ *           in-app URL throws away the TanStack cache, re-mints the admin API
+ *           token, re-runs the SSO gate and re-mounts the whole shell — and on
+ *           a phone the rep loses the drawer they were standing in.
+ */
+export type QuickActionTarget = { kind: "href" | "route"; href: string };
 
 export interface QuickActionSlot {
   id: QuickActionId;
@@ -55,8 +64,25 @@ export interface QuickActionSlot {
 const href = (value: string | null): QuickActionTarget | null =>
   value ? { kind: "href", href: value } : null;
 
+/** An in-app CRM path — navigated with the router, never a page load. */
+const route = (value: string | null): QuickActionTarget | null =>
+  value ? { kind: "route", href: value } : null;
+
 /** Nothing is wired for this slot yet — the button renders disabled. */
 const notWiredYet = (): null => null;
+
+/**
+ * THE CONVERSATION THIS DEAL'S GUEST IS: the contact key when we know who they
+ * are, the number otherwise — the same rule `foldConversations` uses to key the
+ * list (`threads.ts`), so the row is actually highlighted when the rep lands.
+ */
+export function conversationKeyFor(lead: LeadView): string | null {
+  // No number, no conversation: the button stays disabled with "No phone on
+  // file" rather than opening a thread whose composer would refuse anyway.
+  if (!lead.guest.phone) return null;
+  const key = lead.contactId ? contactKey(lead.contactId) : phoneKey(lead.guest.phone);
+  return `${CRM_BASE}/conversations/${key}`;
+}
 
 export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
   call: {
@@ -75,8 +101,12 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
     // this person — one composer, one consent check, one place the text is
     // recorded. Deliberately NOT a second in-drawer composer: two of them
     // would be two chances to send a text the other one has not logged.
-    resolve: (lead) =>
-      href(lead.guest.phone ? `${CRM_BASE}/conversations/${phoneKey(lead.guest.phone)}` : null),
+    //
+    // A `route`, not an `href`: this is a CRM path, and the list keys a known
+    // contact as `c-<id>` — so prefer the contact key the deal already knows,
+    // or the same conversation ends up with two URLs and the row the rep
+    // arrived at is never the highlighted one.
+    resolve: (lead) => route(conversationKeyFor(lead)),
     disabledTitle: "No phone on file",
     owner: "C1",
   },
