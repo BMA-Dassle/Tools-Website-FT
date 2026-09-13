@@ -47,8 +47,20 @@ export const BUILDER_BILL_ID = "63000000009561502";
  * and would make the negative control in `office-write.test.ts` pass while
  * proving nothing. …513 is not a multiple of 8: standard parsing turns it into
  * …512, which is exactly the silent failure this whole rail exists to prevent.
+ *
+ * A STRING, and incremented as one. A `BigInt` literal would be the obvious
+ * way to count from here, and `tsc` refuses it below an ES2020 target (this
+ * project's) — but the deeper point is that a 17-digit id has no business
+ * being a JS number of any kind in a file whose whole job is proving they
+ * survive. `rowIdAt` adds to the last four digits and leaves the prefix alone.
  */
-export const BUILDER_PRODUCT_ROW_BASE = 63000000009561513n;
+export const BUILDER_PRODUCT_ROW_BASE = "63000000009561513";
+
+function rowIdAt(offset: number): string {
+  const head = BUILDER_PRODUCT_ROW_BASE.slice(0, -4);
+  const tail = Number(BUILDER_PRODUCT_ROW_BASE.slice(-4)) + offset;
+  return head + String(tail).padStart(4, "0");
+}
 export const BUILDER_PRODUCT_ID = "14838862";
 export const BUILDER_SCHEDULE_ID = "63000000009561540";
 
@@ -115,7 +127,8 @@ interface ProjectState {
   persons: number;
   personId: string | null;
   products: ProductRow[];
-  nextProductRow: bigint;
+  /** How many product rows this project has handed out — the id offset. */
+  productRowsIssued: number;
 }
 
 export const officeProjectState: ProjectState = freshProject();
@@ -128,7 +141,7 @@ function freshProject(): ProjectState {
     persons: 12,
     personId: BUILDER_PERSON_ID,
     products: [],
-    nextProductRow: BUILDER_PRODUCT_ROW_BASE,
+    productRowsIssued: 0,
   };
 }
 
@@ -297,13 +310,13 @@ export const officeBuilderHandlers = [
       name: string | null;
     };
     const row: ProductRow = {
-      id: String(officeProjectState.nextProductRow),
+      id: rowIdAt(officeProjectState.productRowsIssued),
       productId: String(parsed.productId),
       quantity: Number(parsed.quantity),
       pricePerUnit: Number(parsed.pricePerUnit),
       name: parsed.name ?? null,
     };
-    officeProjectState.nextProductRow += 1n;
+    officeProjectState.productRowsIssued += 1;
     officeProjectState.products.push(row);
     return rawJson(productJson(row));
   }),
