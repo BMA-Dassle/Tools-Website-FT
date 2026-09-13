@@ -81,6 +81,9 @@ const LAZY_SCREENS = Object.fromEntries(SCREEN_IDS.map((id) => [id, lazy(SCREENS
 /** Where the topbar's back arrow points for the prototype's "back" screens. */
 const BACK_HREF: Partial<Record<ScreenId, (view: string[]) => string>> = {
   deal: () => hrefFor("pipeline"),
+  // C1: only with a conversation open — on a phone the list is hidden and this
+  // arrow is how a rep gets back to it. An empty string means "no arrow".
+  conversations: (view) => (view[0] ? hrefFor("conversations") : ""),
   account: () => hrefFor("history"),
   goals: () => hrefFor("kpi"),
   availability: (view) => (view[0] ? `${CRM_BASE}/deal/${view[0]}` : hrefFor("pipeline")),

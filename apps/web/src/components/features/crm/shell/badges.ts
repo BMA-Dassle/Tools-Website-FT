@@ -1,9 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
 import type { CrmRole } from "~/features/crm/core/types";
 import type { BadgeKey } from "~/features/crm/core/nav";
-import type { LeadBadgesResponse } from "~/features/crm/leads/contracts";
 import { BADGES_POLL_MS, leadsKeys } from "~/features/crm/leads/queries";
 import type { CrmFetch } from "../lib/crm-fetch";
 import type { BadgeCounts } from "./nav-links";
@@ -23,7 +22,8 @@ export const BADGE_SOURCES: Record<
   overdue: { path: "/leads/badges", field: "overdue" },
   unassigned: { path: "/leads/badges", field: "unassigned" },
   pendingApproval: null,
-  unread: null,
+  /** C1: the rep's own unread texts. `soft` — a message waiting is not an SLA breach. */
+  unread: { path: "/sms/unread", field: "n", soft: true },
 };
 
 /** Every distinct endpoint the table names — one query per path. */
@@ -54,14 +54,37 @@ export function badgeCountsFrom(
   return out;
 }
 
-/** Polls `/leads/badges` while the tab is visible and folds it into the shell's counts. */
+/**
+ * Polls every endpoint `BADGE_SOURCES` names, while the tab is visible, and
+ * folds the payloads into the shell's counts.
+ *
+ * One query PER PATH (not per badge), so two badges fed by `/leads/badges`
+ * cost one request; a PR that adds a badge on a new endpoint adds a query by
+ * filling its line in the table above and nothing else.
+ */
 export function useBadgeCounts(crmFetch: CrmFetch, role: CrmRole): BadgeCounts {
-  const q = useQuery({
-    queryKey: leadsKeys.badges(),
-    queryFn: () => crmFetch<LeadBadgesResponse>("/leads/badges"),
-    refetchInterval: BADGES_POLL_MS,
-    refetchIntervalInBackground: false,
-    staleTime: 15_000,
+  const results = useQueries({
+    queries: BADGE_PATHS.map((path) => ({
+      queryKey: badgeKeyFor(path),
+      queryFn: () => crmFetch<Record<string, unknown>>(path),
+      refetchInterval: BADGES_POLL_MS,
+      refetchIntervalInBackground: false,
+      staleTime: 15_000,
+    })),
   });
-  return badgeCountsFrom({ "/leads/badges": q.data as Record<string, unknown> | undefined }, role);
+  const payloads: Record<string, Record<string, unknown> | undefined> = {};
+  BADGE_PATHS.forEach((path, i) => {
+    payloads[path] = results[i]?.data as Record<string, unknown> | undefined;
+  });
+  return badgeCountsFrom(payloads, role);
+}
+
+/**
+ * The query key for a badge endpoint. `/leads/badges` keeps the leads sub's own
+ * key so a lead mutation's `invalidateQueries(leadsKeys.all)` still refreshes
+ * the badge; anything else gets a stable key of its own.
+ */
+export function badgeKeyFor(path: string): readonly unknown[] {
+  if (path === "/leads/badges") return leadsKeys.badges();
+  return ["crm", "badges", path] as const;
 }
