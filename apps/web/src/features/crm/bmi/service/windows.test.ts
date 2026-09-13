@@ -3,6 +3,7 @@ import {
   BACKFILL_WINDOW_DAYS,
   backfillJobKey,
   backfillWindows,
+  deltaIdempotencyKey,
   deltaJobKey,
   deltaWindow,
   detailSlice,
@@ -203,6 +204,23 @@ describe("delta windows", () => {
     expect(nextBucketStart(now).toISOString()).toBe("2026-09-12T23:35:00.000Z");
     expect(deltaJobKey("headpinznaples", fiveMinuteBucket(now))).toBe(
       "bmi-mirror-delta:headpinznaples:2026-09-12T23:30:00.000Z",
+    );
+  });
+
+  it("deltaIdempotencyKey is the scheduler's door: one key per tenant per bucket", () => {
+    // What the B3 wiring stage's enqueueScheduled(now) calls (§5.7b). Two cron
+    // ticks 90 s apart fall in the same bucket → the same key → one job.
+    expect(deltaIdempotencyKey(now, "headpinznaples")).toBe(
+      "bmi-mirror-delta:headpinznaples:2026-09-12T23:30:00.000Z",
+    );
+    expect(deltaIdempotencyKey(new Date("2026-09-12T23:31:30.000Z"), "headpinznaples")).toBe(
+      deltaIdempotencyKey(now, "headpinznaples"),
+    );
+    expect(deltaIdempotencyKey(new Date("2026-09-12T23:35:00.000Z"), "headpinznaples")).not.toBe(
+      deltaIdempotencyKey(now, "headpinznaples"),
+    );
+    expect(deltaIdempotencyKey(now, "headpinzftmyers")).not.toBe(
+      deltaIdempotencyKey(now, "headpinznaples"),
     );
   });
 
