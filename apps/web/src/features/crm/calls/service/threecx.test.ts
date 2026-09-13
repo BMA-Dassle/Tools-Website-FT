@@ -150,4 +150,11 @@ describe("redactNumbers", () => {
     expect(out.b[0].c).toBe("9027");
     expect(out.d).toBe(5);
   });
+
+  it("keeps a Date instead of blanking it to {}", () => {
+    // A Date has no own enumerable keys; the naive object branch turns it into
+    // `{}` and a probe report loses its timestamps without saying so.
+    const out = redactNumbers({ at: new Date("2026-09-13T18:11:27.302Z") }) as { at: string };
+    expect(out.at).toBe("2026-09-13T18:11:27.302Z");
+  });
 });

@@ -341,6 +341,9 @@ export function redactNumbers(value: unknown): unknown {
   if (typeof value === "string")
     return value.replace(/\d{7,}/g, (m) => `${m.slice(0, 3)}…${m.slice(-2)}`);
   if (Array.isArray(value)) return value.map(redactNumbers);
+  // A Date has no own enumerable keys, so the object branch below would turn it
+  // into `{}` and silently blank a timestamp in a probe report.
+  if (value instanceof Date) return value.toISOString();
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, redactNumbers(v)]),

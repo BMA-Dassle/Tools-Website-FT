@@ -22,6 +22,22 @@ the build scratchpad; `docs/crm/README.md` is the distilled reference. **Nothing
       C2 Graph mail (draft + ImmutableId, subscriptions, webhook) · C3 3CX calls · C4 lane
       availability (QAMF grid) · C5 quote builder (`putProjectFields`, `officeMutatePost`) ·
       C6 collateral + share links · C7 KPI / accountability / goals (Pandora goals sync).
+- [ ] **C3 `feat/crm-calls`** — 3CX click-to-call, journalling, reconcile, dispositions, the
+      Calls screen. Gate: tsc exit 0 / 0 errors; vitest 72 files / 732 passed (1 skipped) over
+      the CRM suites, `test/msw` and the registry+gate pins; eslint `--max-warnings=0` on 52
+      changed files clean; a11y gate ✓; `check-admin-token-leak` ✓ (586 browser-reachable
+      modules). Live evidence, read-only, 2026-09-13:
+      - **3CX probe** — token OK, roles `["App","Reports","system_owners","CallFlowApp","MyPhone"]`;
+        `GET /callcontrol` 200 (99 DNs); `GET /xapi/v1/Users` 200 (50); the call log answers ONLY
+        through the bound `ReportCallLogData/Pbx.GetCallLogData(<12 params>)` — the bare entity set
+        404s and `CallHistoryView` 500s. Endpoints, fields and refusals in `docs/crm/3cx.md`.
+      - **Reconcile dry run** (nothing written): 469 CDR legs over 24 h → **129 calls** (93
+        answered, 36 missed), 24 legs dropped as internal.
+      - **Neon** — `ensureCallsSchema` applied; `listCalls` / `callStats` run (0 rows, new table);
+        `matchNumber("2395551234")` → contact 94; a short number matches nothing.
+      - OWNER ITEMS: generate `CRM_3CX_SECRET` (both public routes are 401 until then, by design);
+        seed each rep's `crm_reps.threecx_extension` (none set, so every call has `rep_id` null);
+        point the 3CX CRM template at production after merge; decision D7 on recordings.
 - [ ] Preview smoke log (URL + build SHA + pass/fail per §6.3 line) goes here per PR.
 
 ## Pit station: "PA busy" frozen-cache fix + cue sync (2026-09-10) — branches `fix/pit-pa-busy-frozen-cache`, `feat/pit-cue-sync`
