@@ -18,6 +18,7 @@
 import { isDbConfigured, sql } from "@ft/db";
 import type { CrmContact } from "../../core/types";
 import { ensureAccountsSchema } from "./accounts-db";
+import { ISO } from "./sql";
 
 let schemaReady: Promise<void> | null = null;
 
@@ -88,7 +89,8 @@ export function mapContactRow(r: ContactRowRaw): CrmContact {
 
 const COLUMNS = `
   c.id::text AS id, c.account_id::text AS account_id, c.first_name, c.last_name, c.phone_e164, c.email, c.email_key,
-  c.bmi_person_id, c.prefers, c.meta, c.created_at::text AS created_at, c.updated_at::text AS updated_at
+  c.bmi_person_id, c.prefers, c.meta,
+  ${ISO("c.created_at")} AS created_at, ${ISO("c.updated_at")} AS updated_at
 `;
 
 export function emailKeyOf(email: string | null | undefined): string | null {

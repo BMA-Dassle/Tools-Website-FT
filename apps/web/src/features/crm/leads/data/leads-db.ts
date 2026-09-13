@@ -26,6 +26,7 @@ import type { CentreCode, EventType, LeadSource, MintStatus, NextAction } from "
 import type { LeadView } from "../contracts";
 import { ensureAccountsSchema } from "./accounts-db";
 import { ensureContactsSchema } from "./contacts-db";
+import { ISO } from "./sql";
 
 let schemaReady: Promise<void> | null = null;
 
@@ -211,9 +212,6 @@ export function mapLeadRow(r: LeadRowRaw): LeadView {
     repName: r.r_display_name ?? null,
   };
 }
-
-/** `TIMESTAMPTZ` → ISO-8601 UTC text, so `new Date()` on the client is exact. */
-const ISO = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
 export const LEAD_SELECT = `
   l.id::text AS id, l.public_id, l.contact_id::text AS contact_id, l.account_id::text AS account_id,

@@ -17,6 +17,7 @@
 
 import { isDbConfigured, sql } from "@ft/db";
 import type { CentreCode, CrmAccount } from "../../core/types";
+import { ISO } from "./sql";
 
 let schemaReady: Promise<void> | null = null;
 
@@ -165,7 +166,8 @@ export function mapAccountRow(r: AccountRowRaw): CrmAccount {
 
 const COLUMNS = `
   a.id::text AS id, a.kind, a.name, a.name_key, a.centre, a.lifetime_cents::text AS lifetime_cents, a.meta,
-  a.archived_at::text AS archived_at, a.created_at::text AS created_at, a.updated_at::text AS updated_at
+  ${ISO("a.archived_at")} AS archived_at,
+  ${ISO("a.created_at")} AS created_at, ${ISO("a.updated_at")} AS updated_at
 `;
 
 export interface AccountUpsertInput {
