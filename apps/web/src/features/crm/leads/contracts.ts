@@ -246,6 +246,10 @@ export const LEAD_TEST_IDS = {
   newLeadSheet: "crm-new-lead-sheet",
   myDay: "crm-my-day",
   myDayColumn: (id: "overdue" | "due" | "new") => "crm-my-day-" + id,
+  /** The two prototype blocks that ship empty and labelled until their PR lands. */
+  myDayTargets: "crm-my-day-targets",
+  myDayLastYear: "crm-my-day-last-year",
+  directorBookedVsLy: "crm-director-booked-vs-ly",
   directorLane: (slug: string) => "crm-lane-" + slug,
   deal: "crm-deal",
   dealHeader: "crm-deal-header",

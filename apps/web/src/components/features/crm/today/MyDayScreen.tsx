@@ -1,6 +1,6 @@
 "use client";
 
-import { IconPlus } from "@tabler/icons-react";
+import { IconHistory, IconPhone, IconPlus, IconTarget } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import type { ScreenProps } from "~/features/crm/core/screens";
@@ -24,7 +24,18 @@ import { DirectorTodayScreen } from "./DirectorTodayScreen";
  * `/admin/crm` — My Day (direction-b.html `today`). A rep's three columns,
  * left to right: Overdue · Due today · New leads; a director gets
  * `DirectorTodayScreen`. Cards open the deal as a drawer (`?deal=`).
+ *
+ * The prototype's My Day has four blocks. Three of them need data or rails
+ * this PR does not own — the weekly done-strip (the accountability PR's
+ * counters and targets), "Same time last year" (`D.lastYearWindow`, the BMI
+ * mirror), and Dial (3CX). They are rendered as EMPTY, LABELLED affordances
+ * rather than omitted, so a rep can tell the difference between "nothing to
+ * show" and "not built yet" — the same honest degradation as the queue's
+ * "No auto-pick yet".
  */
+const TARGETS_PENDING = "Weekly targets arrive with the accountability PR";
+const LAST_YEAR_PENDING = "Arrives with the BMI mirror";
+const DIAL_PENDING = "Dialling arrives with the calls PR";
 export default function MyDayScreen({ query }: ScreenProps) {
   const crmFetch = useCrmFetch();
   const toast = useCrmToast();
@@ -74,9 +85,14 @@ export default function MyDayScreen({ query }: ScreenProps) {
     <>
       {slot
         ? createPortal(
-            <button type="button" className="btn btn-sm" onClick={openNew}>
-              <IconPlus {...ICON} /> <span className="lbl">New lead</span>
-            </button>,
+            <>
+              <button type="button" className="btn btn-sm" onClick={openNew}>
+                <IconPlus {...ICON} /> <span className="lbl">New lead</span>
+              </button>
+              <button type="button" className="btn btn-sm" disabled title={DIAL_PENDING}>
+                <IconPhone {...ICON} /> <span className="lbl">Dial</span>
+              </button>
+            </>,
             slot,
           )
         : null}
@@ -151,10 +167,23 @@ function RepBoard({
         <h2 style={{ fontSize: 18, margin: 0 }}>{view.greeting}</h2>
         <div className="sub muted small">{view.dateLabel} · three columns, left to right</div>
       </div>
+      <div className="done-strip" data-testid={LEAD_TEST_IDS.myDayTargets}>
+        <IconTarget {...ICON} /> {TARGETS_PENDING}
+      </div>
       <div className="mini-board">
         {col("overdue", "Overdue", "lost", view.overdue, "Nothing overdue")}
         {col("due", "Due today", "warn", view.dueToday, "Clear for today")}
         {col("new", "New leads", "open", view.newLeads, "No new leads")}
+      </div>
+      <div className="card" data-testid={LEAD_TEST_IDS.myDayLastYear}>
+        <div className="card-h">
+          <h2>Same time last year</h2>
+        </div>
+        <div className="list">
+          <div className="empty">
+            <IconHistory {...ICON} /> {LAST_YEAR_PENDING}
+          </div>
+        </div>
       </div>
     </div>
   );
