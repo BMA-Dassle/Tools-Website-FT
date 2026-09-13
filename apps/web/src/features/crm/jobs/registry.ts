@@ -56,7 +56,7 @@ export const seedHandler: JobHandler = async () => ({ ok: true, result: await ru
 export const HANDLERS: Record<JobKind, JobHandler> = {
   noop: noopHandler,
   seed: seedHandler,
-  "mint-bmi-project": notImplemented("mint-bmi-project"),
+  "mint-bmi-project": (ctx) => import("~/features/crm/leads").then((m) => m.runLeadBmiJob(ctx)),
   "assign-sweep": assignSweepHandler,
   "sevenshifts-mirror": sevenShiftsMirrorHandler,
   "bmi-mirror-delta": notImplemented("bmi-mirror-delta"),

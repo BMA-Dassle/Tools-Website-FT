@@ -179,7 +179,9 @@ describe("isKnownRoute", () => {
     expect(isKnownRoute("/settings")).toBe(true);
     expect(isKnownRoute("/rules/try?guests=42")).toBe(true);
     expect(isKnownRoute("/roster")).toBe(true);
-    expect(isKnownRoute("/leads")).toBe(false);
+    expect(isKnownRoute("/leads")).toBe(true);
+    expect(isKnownRoute("/leads/queue")).toBe(true);
+    expect(isKnownRoute("/leadsmith")).toBe(false);
     expect(isKnownRoute("/measurements")).toBe(false);
   });
 });

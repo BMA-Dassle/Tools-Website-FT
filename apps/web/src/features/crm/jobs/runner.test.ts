@@ -13,7 +13,7 @@ vi.mock("../core/seed", () => ({
   runSeed: async () => ({ reps: 0, logins: 0, statuses: 0, rules: 0, templates: 0, settings: 0 }),
 }));
 
-const { HANDLERS, NOT_IMPLEMENTED_ERROR } = await import("./registry");
+const { HANDLERS, NOT_IMPLEMENTED_ERROR, notImplemented } = await import("./registry");
 const { drainDueJobs, runJobInline, runLeasedJob } = await import("./runner");
 
 class Clock {
@@ -172,11 +172,16 @@ describe("noop and notImplemented", () => {
   });
 
   it("every kind without a PR → failed with {ok:false, error:'not implemented'}, never done", async () => {
-    // PR1: noop, seed · B2: assign-sweep, sevenshifts-mirror. A PR that fills a
-    // handler adds its kinds here and lowers the count.
-    const IMPLEMENTED = new Set<JobKind>(["noop", "seed", "assign-sweep", "sevenshifts-mirror"]);
-    const pending = (Object.keys(HANDLERS) as JobKind[]).filter((k) => !IMPLEMENTED.has(k));
-    expect(pending.length).toBe(10);
+    // A kind is "without a PR" while its registry line is still the
+    // `notImplemented` stub (same closure source); a PR that ships its
+    // handler drops out of this sweep by construction.
+    const stubSource = String(notImplemented("noop"));
+    const pending = (Object.keys(HANDLERS) as JobKind[]).filter(
+      (k) => k !== "noop" && k !== "seed" && String(HANDLERS[k]) === stubSource,
+    );
+    expect(pending.length).toBeGreaterThan(0);
+    expect(pending).not.toContain("mint-bmi-project"); // B3 shipped it
+>>>>>>> c9071cc81 (feat(crm): a lead is a row in our database before it is anything in BMI)
     for (const kind of pending) {
       const { job, result } = await runJobInline({ kind, actorEmail: "eric@headpinz.com" }, deps());
       expect(job.status, kind).toBe("failed");

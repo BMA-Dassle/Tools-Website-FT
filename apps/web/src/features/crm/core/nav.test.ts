@@ -67,11 +67,13 @@ describe("the nav is the prototype's (direction-b.html:51-57,121)", () => {
     expect(isDirectorOnlyScreen("pipeline")).toBe(false);
   });
 
-  it("ready: true only for the screens whose PR has landed on this branch", () => {
-    // PR1: statuses · B2: rules. A feature PR adds its own id here when it flips its line.
-    const READY = new Set(["statuses", "rules"]);
+  it("ready: true exactly when the screen's loader no longer points at NotBuiltYet (each PR flips its own line)", () => {
     for (const i of [...NAV_GROUPS.flatMap((g) => g.items), ...PHONE_TABS, ...MORE_ITEMS]) {
-      expect(i.ready, i.id).toBe(READY.has(i.id));
+      const loader = String(SCREENS[i.id]);
+      const built = !loader.includes("NotBuiltYet");
+      // `more` is the phone overflow list — the shell owns it, no PR "ships" it.
+      if (i.id === "more") continue;
+      expect(i.ready, `${i.id}: ready flag vs ${loader}`).toBe(built);
     }
   });
 });
