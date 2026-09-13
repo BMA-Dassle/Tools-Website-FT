@@ -271,6 +271,10 @@
     {
       "path": "/api/cron/nfl-schedule-sync",
       "schedule": "20 9 * * *"
+    },
+    {
+      "path": "/api/cron/crm-jobs",
+      "schedule": "*/2 * * * *"
     }
   ],
   "functions": {
