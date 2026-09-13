@@ -76,6 +76,17 @@ beforeEach(() => {
     /SELECT count\(\*\)::int AS n FROM crm_reps/.test(stmt.text) ? [{ n: 7 }] : [];
 });
 
+/**
+ * `vi.resetModules()` per test means every case re-imports and re-transforms
+ * the whole thirty-table module graph, and the aggregator then awaits sixty-odd
+ * statements through the recording stub. On a cold transform cache that is ~4 s
+ * for the first case — inside vitest's 5 s default by less than a second, so
+ * under a full parallel run it tips over and the NEXT case then sees the
+ * statements the timed-out one left behind ("expected 49 to be 30"). The
+ * budget is the harness's, not the schema's: 30 s, explicitly.
+ */
+const SCHEMA_TEST_TIMEOUT_MS = 30_000;
+
 describe("ensureCrmSchema", () => {
   it("creates all 30 tables exactly once across two calls", async () => {
     const { ensureCrmSchema, CRM_TABLES } = await import("./schema");
@@ -87,7 +98,7 @@ describe("ensureCrmSchema", () => {
     expect(new Set(created).size).toBe(30);
     expect([...created].sort()).toEqual([...EXPECTED_TABLES].sort());
     expect([...CRM_TABLES].sort()).toEqual([...EXPECTED_TABLES].sort());
-  });
+  }, SCHEMA_TEST_TIMEOUT_MS);
 
   it("a sub's own ensure before the aggregator does not double its CREATE", async () => {
     const { ensureJobsSchema } = await import("~/features/crm/jobs");
@@ -96,7 +107,7 @@ describe("ensureCrmSchema", () => {
     await ensureCrmSchema();
     expect(createdTables().filter((t) => t === "crm_jobs")).toHaveLength(1);
     expect(createdTables().length).toBe(30);
-  });
+  }, SCHEMA_TEST_TIMEOUT_MS);
 
   it("every table has created_at or is a keyed row (the conventions), and ids are TEXT where BMI ids live", async () => {
     const { ensureCrmSchema } = await import("./schema");
@@ -117,7 +128,7 @@ describe("ensureCrmSchema", () => {
     const jobs = ddl.find((t) => t.includes("crm_jobs ("))!;
     expect(jobs).toContain("idempotency_key TEXT NOT NULL UNIQUE");
     expect(jobs).toContain("max_attempts INTEGER NOT NULL DEFAULT 20");
-  });
+  }, SCHEMA_TEST_TIMEOUT_MS);
 
   it("seeds lazily when crm_reps is empty, and not when it is not", async () => {
     db.respond = (stmt) =>
@@ -133,5 +144,5 @@ describe("ensureCrmSchema", () => {
     const again = await import("./schema");
     await again.ensureCrmSchema();
     expect(seed.calls).toBe(1);
-  });
+  }, SCHEMA_TEST_TIMEOUT_MS);
 });

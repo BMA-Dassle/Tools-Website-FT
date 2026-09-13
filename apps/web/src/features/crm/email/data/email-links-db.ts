@@ -53,17 +53,25 @@ export function ensureEmailSchema(): Promise<void> {
       )
     `;
     await q`CREATE INDEX IF NOT EXISTS crm_email_links_lead ON crm_email_links (lead_id, sent_at DESC)`;
-    // C2 columns (idempotent). See the header for why graph_message_id goes nullable.
-    await q`ALTER TABLE crm_email_links ALTER COLUMN graph_message_id DROP NOT NULL`;
-    await q`ALTER TABLE crm_email_links ADD COLUMN IF NOT EXISTS send_status TEXT NOT NULL DEFAULT 'received'`;
-    await q`ALTER TABLE crm_email_links ADD COLUMN IF NOT EXISTS provider TEXT`;
-    await q`ALTER TABLE crm_email_links ADD COLUMN IF NOT EXISTS send_error TEXT`;
-    await q`ALTER TABLE crm_email_links ADD COLUMN IF NOT EXISTS graph_error TEXT`;
-    await q`ALTER TABLE crm_email_links ADD COLUMN IF NOT EXISTS body TEXT`;
-    await q`ALTER TABLE crm_email_links ADD COLUMN IF NOT EXISTS cc_emails TEXT[]`;
-    await q`ALTER TABLE crm_email_links ADD COLUMN IF NOT EXISTS actor_email TEXT`;
-    await q`ALTER TABLE crm_email_links ADD COLUMN IF NOT EXISTS template_id BIGINT`;
-    await q`ALTER TABLE crm_email_links ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`;
+    // C2's columns, as ONE statement: `ALTER TABLE` takes a comma-separated
+    // action list, so this is a single round trip on every cold start rather
+    // than ten — `ensureCrmSchema` already issues sixty-odd statements before
+    // it gets here. Every action is idempotent, which is what lets the ensure
+    // run unconditionally. See the header for why graph_message_id goes
+    // nullable.
+    await q`
+      ALTER TABLE crm_email_links
+        ALTER COLUMN graph_message_id DROP NOT NULL,
+        ADD COLUMN IF NOT EXISTS send_status TEXT NOT NULL DEFAULT 'received',
+        ADD COLUMN IF NOT EXISTS provider TEXT,
+        ADD COLUMN IF NOT EXISTS send_error TEXT,
+        ADD COLUMN IF NOT EXISTS graph_error TEXT,
+        ADD COLUMN IF NOT EXISTS body TEXT,
+        ADD COLUMN IF NOT EXISTS cc_emails TEXT[],
+        ADD COLUMN IF NOT EXISTS actor_email TEXT,
+        ADD COLUMN IF NOT EXISTS template_id BIGINT,
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `;
     await q`CREATE INDEX IF NOT EXISTS crm_email_links_imid ON crm_email_links (internet_message_id)`;
     await q`CREATE INDEX IF NOT EXISTS crm_email_links_rep ON crm_email_links (rep_id, sent_at DESC)`;
     await q`
