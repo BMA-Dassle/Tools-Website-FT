@@ -146,6 +146,17 @@ function fakes(
         email: ok,
       } as NotifyOutcome;
     },
+    notifyAlreadySent: async ({ projectId }) => {
+      order.push("notifyAlreadySent");
+      const skipped = { ok: true, status: null, skipped: true, reason: "already sent" };
+      return {
+        planner: projectId ? { displayName: "Kelsea", isIndividual: true } : null,
+        queueCard: skipped,
+        plannerCard: skipped,
+        sms: skipped,
+        email: skipped,
+      } as NotifyOutcome;
+    },
     assign: async (input) => {
       order.push("assign");
       assigns.push(input);
@@ -269,13 +280,24 @@ describe("createLead", () => {
     const f = fakes({}, { dup });
     const r = await createLead(INPUT, { source: "web" }, f.deps);
     expect(r.created).toBe(false);
-    expect(f.order).toEqual(["findDuplicate"]);
+    expect(f.order).toEqual(["findDuplicate", "notifyAlreadySent"]);
     expect(r.mint).toMatchObject({
       status: "minted",
       projectId: "63000000009561437",
       projectNumber: "DH3249",
     });
-    expect(r.notify).toBeNull();
+    // The SECOND answer must be indistinguishable from the first: the planner
+    // is the one Pandora actually picked, and every channel is a neutral skip
+    // rather than the "not attempted" that used to read as a failure.
+    expect(r.notify?.planner).toEqual({ displayName: "Kelsea", isIndividual: true });
+    expect(r.notify?.sms).toEqual({
+      ok: true,
+      status: null,
+      skipped: true,
+      reason: "already sent",
+    });
+    expect(f.order).not.toContain("notify");
+    expect(f.order).not.toContain("mint");
   });
 
   it("the engine's pick is assigned with reason 'rule' and its Office name goes to Pandora as agent", async () => {

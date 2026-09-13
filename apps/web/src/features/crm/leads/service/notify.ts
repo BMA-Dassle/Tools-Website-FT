@@ -3,7 +3,10 @@
  *
  *   - the QUEUE card: the same Adaptive Card (`lib/sales-lead-card.ts`) to the
  *     director's chat `CRM_JACOB_TEAMS_CHAT_ID`. The variable is not set yet
- *     (owner item) — the card is SKIPPED with a logged reason, never a throw;
+ *     (owner item) — the card is SKIPPED with a logged reason, never a throw.
+ *     When the lead has no BMI project the card goes out WITHOUT its buttons:
+ *     they resolve against `salescard:{projectID}`, which exists only once the
+ *     project does (`withoutCardActions`);
  *   - the planner card + the guest's SMS / email EXACTLY as
  *     `/api/sales-lead/submit` has always done them: planner resolved from
  *     Pandora's `assignedAgent.name`, copy from `lib/sales-lead-copy.ts`,
@@ -18,6 +21,7 @@
  * a phone call or a walk-in gets the internal cards, not an automated text.
  */
 
+import { BMI_ID_FIELDS, parseWithRawIds } from "@ft/db";
 import redis from "@/lib/redis";
 import { appendPrivateNote } from "@/lib/bmi-office-notes";
 import { canonicalizePhone } from "@/lib/participant-contact";
@@ -89,6 +93,7 @@ export interface NotifyDeps {
   sendEmail: typeof sendEmail;
   sendCard: typeof sendAdaptiveCardToChannel;
   redisSet: (key: string, value: string, ttlSeconds: number) => Promise<unknown>;
+  redisGet: (key: string) => Promise<string | null>;
   appendPrivateNote: typeof appendPrivateNote;
   queueChatId: () => string | undefined;
   now: () => Date;
@@ -100,11 +105,15 @@ export function defaultNotifyDeps(): NotifyDeps {
     sendEmail,
     sendCard: sendAdaptiveCardToChannel,
     redisSet: (key, value, ttl) => redis.set(key, value, "EX", ttl),
+    redisGet: (key) => redis.get(key),
     appendPrivateNote,
     queueChatId: () => process.env[QUEUE_CHAT_ENV]?.trim() || undefined,
     now: () => new Date(),
   };
 }
+
+/** The Redis key the Teams buttons read; written only once a project exists. */
+export const salesCardKey = (projectId: string) => `salescard:${projectId}`;
 
 /** Why the queue card would be skipped, or null when it can be sent. */
 export function queueCardSkipReason(chatId: string | undefined): string | null {
@@ -117,6 +126,43 @@ const SKIP = (reason: string): ChannelOutcome => ({
   skipped: true,
   reason,
 });
+
+/** The reason every channel carries on a resubmit inside the dedupe window. */
+export const ALREADY_SENT = "already sent";
+
+/**
+ * A resubmit inside the 15-minute dedupe window (`createLead` short-circuits
+ * on an already-minted row): nothing is sent a second time, but the guest must
+ * see the SAME planner they were given the first time. Defaulting to Guest
+ * Services here named the wrong person for a lead Pandora had routed to a
+ * named planner. The planner comes back out of the card state the first
+ * submission wrote; if that is gone we return null and let the caller say what
+ * it always says rather than guess a name.
+ */
+export async function notifyAlreadySent(
+  input: { lead: LeadView; projectId: string | null },
+  deps: NotifyDeps = defaultNotifyDeps(),
+): Promise<NotifyOutcome> {
+  const skipped = SKIP(ALREADY_SENT);
+  let planner: NotifyOutcome["planner"] = null;
+  try {
+    const raw = input.projectId ? await deps.redisGet(salesCardKey(input.projectId)) : null;
+    if (raw) {
+      // R1: the state was written by us with quoted ids, but this is a rail
+      // that carries `projectID` — read it the way every Pandora read is read.
+      const state = parseWithRawIds<SalesLeadState>(raw, [...BMI_ID_FIELDS, "projectID"]);
+      const p = state?.planner;
+      if (p?.displayName) planner = { displayName: p.displayName, isIndividual: !!p.isIndividual };
+    }
+  } catch (err) {
+    console.error("[crm] could not read the planner for a duplicate submission", {
+      lead_id: input.lead.id,
+      project_id: input.projectId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return { planner, queueCard: skipped, plannerCard: skipped, sms: skipped, email: skipped };
+}
 
 function settled<T extends ChannelOutcome>(r: PromiseSettledResult<T>): ChannelOutcome {
   if (r.status === "fulfilled") return r.value;
@@ -182,7 +228,7 @@ async function run(input: NotifyInput, deps: NotifyDeps): Promise<NotifyOutcome>
   const projectNumber = minted ? mint.projectNumber : lead.publicId;
   const queuePlanner = planner ?? resolvePlanner("", center);
   const state = stateFor(input, queuePlanner, center, projectID, projectNumber, now);
-  const stateKey = `salescard:${projectID}`;
+  const stateKey = salesCardKey(projectID);
 
   if (minted) await deps.redisSet(stateKey, JSON.stringify(state), STATE_TTL_SECONDS);
 
@@ -225,7 +271,9 @@ async function run(input: NotifyInput, deps: NotifyDeps): Promise<NotifyOutcome>
     minted && planner
       ? postCard(planner.teamsChatId, state, deps)
       : Promise.resolve(SKIP("no BMI project yet")),
-    queueSkip ? Promise.resolve(SKIP(queueSkip)) : postCard(queueChatId!, state, deps),
+    queueSkip
+      ? Promise.resolve(SKIP(queueSkip))
+      : postCard(queueChatId!, state, deps, { readOnly: !minted }),
   ]);
   const sms = settled(smsR);
   const email = settled(emailR);
@@ -293,13 +341,30 @@ async function sendGuestEmail(
   return { ok: r.ok, status: r.status, ...(r.error ? { error: r.error } : {}) };
 }
 
+/**
+ * The card without its `Action.Execute` buttons.
+ *
+ * `sales_lead_ack` / `sales_lead_contacted` resolve against
+ * `salescard:{projectID}` — which is written only once the project exists, and
+ * whose `projectID` for an un-minted lead is the lead's public id. A button on
+ * that card could never resolve, so the un-minted queue card ships read-only.
+ */
+export function withoutCardActions(card: Record<string, unknown>): Record<string, unknown> {
+  const body = Array.isArray(card.body) ? (card.body as Array<Record<string, unknown>>) : [];
+  const rest: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(card)) if (k !== "actions" && k !== "body") rest[k] = v;
+  return { ...rest, body: body.filter((b) => b?.type !== "ActionSet") };
+}
+
 async function postCard(
   chatId: string,
   state: SalesLeadState,
   deps: NotifyDeps,
+  opts: { readOnly?: boolean } = {},
 ): Promise<ChannelOutcome> {
   try {
-    const resp = await deps.sendCard(chatId, buildSalesLeadCardForState(state), {
+    const card = buildSalesLeadCardForState(state);
+    const resp = await deps.sendCard(chatId, opts.readOnly ? withoutCardActions(card) : card, {
       summaryText: buildSalesLeadSummary(state),
     });
     return { ok: true, activityId: resp.id };

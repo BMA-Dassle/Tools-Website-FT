@@ -29,7 +29,7 @@ import { emailKeyOf, upsertContact } from "../data/contacts-db";
 import { findRecentDuplicateLead, getLead, insertLead } from "../data/leads-db";
 import { assignLead, type AssignResult } from "./assign";
 import { NEEDS_EMAIL_OR_TIME, mintLead, type MintOutcome } from "./mint";
-import { notifyNewLead, summarizeNotify, type NotifyOutcome } from "./notify";
+import { notifyAlreadySent, notifyNewLead, summarizeNotify, type NotifyOutcome } from "./notify";
 import { suggestFor, type SuggestResult } from "./suggest";
 
 export interface CreateLeadInput {
@@ -92,6 +92,8 @@ export interface CreateLeadDeps {
   suggest: typeof suggestFor;
   mintLead: typeof mintLead;
   notify: typeof notifyNewLead;
+  /** The no-op fan-out for a resubmit we have already answered once. */
+  notifyAlreadySent: typeof notifyAlreadySent;
   assign: typeof assignLead;
   now: () => Date;
 }
@@ -107,6 +109,7 @@ export function defaultCreateLeadDeps(): CreateLeadDeps {
     suggest: suggestFor,
     mintLead,
     notify: notifyNewLead,
+    notifyAlreadySent,
     assign: assignLead,
     now: () => new Date(),
   };
@@ -149,6 +152,9 @@ export async function createLead(
     eventDate: input.eventDate,
   });
   if (dup && dup.mintStatus === "minted") {
+    // Nothing is sent twice — but the answer must be indistinguishable from
+    // the first one, planner included, or the guest's second success screen
+    // names a different person than their first (and their text).
     return {
       lead: dup,
       created: false,
@@ -159,7 +165,7 @@ export async function createLead(
         personId: dup.bmi.personId,
         assignedAgent: null,
       },
-      notify: null,
+      notify: await deps.notifyAlreadySent({ lead: dup, projectId: dup.bmi.projectId }),
       suggestion: { suggestion: null, trace: [] },
       assignment: null,
     };
