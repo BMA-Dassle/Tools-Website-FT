@@ -4,17 +4,15 @@ import { IconRefresh } from "@tabler/icons-react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { AVAILABILITY_TEST_IDS } from "~/features/crm/availability/contracts";
+import { availabilityKeys } from "~/features/crm/availability/queries";
+import { boundsFor, lanesNeeded, ticksBetween } from "~/features/crm/availability/service/engine";
 import {
   DEFAULT_CENTRE,
   DEFAULT_DURATION_MIN,
   DEFAULT_GUESTS,
   DEFAULT_START_MIN,
-  boundsFor,
-  lanesNeeded,
-  ticksBetween,
-} from "~/features/crm/availability";
-import { AVAILABILITY_TEST_IDS } from "~/features/crm/availability/contracts";
-import { availabilityKeys } from "~/features/crm/availability/queries";
+} from "~/features/crm/availability/service/request";
 import { CENTRES } from "~/features/crm/core/centres";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import { fDate, todayEasternYmd } from "~/features/crm/core/dates";
