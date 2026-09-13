@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { isAdminApiRequest } from "@/lib/admin-request-auth";
 import { writeAudit } from "~/features/crm/core/data/audit-db";
 import { apiError, gateNotFound, json } from "~/features/crm/core/http";
-import { crmUserFromRequest } from "~/features/crm/core/identity";
+import { crmUserFromRequest, isDirector } from "~/features/crm/core/identity";
 import {
   BLOB_NOT_CONFIGURED,
   CollateralUploadError,
@@ -10,6 +10,7 @@ import {
   blobConfigured,
   collateralTypeFromName,
   createCollateral,
+  deleteCollateralFile,
   normaliseTags,
   parseTagInput,
   titleFromFilename,
@@ -27,16 +28,29 @@ import { isCentreCode } from "~/features/crm/core/centres";
  * multipart body cannot survive that: the stream is consumed, and
  * `req.formData()` afterwards gets nothing. So this handler runs the SAME
  * chain by hand, in the same order, from the same exports — credential →
- * session → service → audit — and takes its credential from the header only
- * (`crmFetch` always sends `x-admin-token`; a file upload has no JSON body to
- * carry one). The refusal shapes are byte-identical to `withCrmRoute`'s:
- * `gateNotFound()` for a bad credential, `apiError(401|403, "session")` for a
- * bad session.
+ * session → DIRECTOR → service → audit — and takes its credential from the
+ * header only (`crmFetch` always sends `x-admin-token`; a file upload has no
+ * JSON body to carry one). The refusal shapes are byte-identical to
+ * `withCrmRoute`'s: `gateNotFound()` for a bad credential, `apiError(401|403,
+ * "session")` for a bad session, `apiError(403, "director_only")` for a rep.
+ * `route.test.ts` drives every one of those, because a hand-rolled chain that
+ * nothing tests is a chain that drifts.
+ *
+ * DIRECTOR-ONLY, like every other write on this screen. Reps share; directors
+ * curate (`collateral/[id]/route.ts` says the same). Hiding the Upload button
+ * from a rep is a UI claim; this is what backs it — otherwise any session with
+ * `sales` could put an arbitrary file into the library every other rep then
+ * sends to guests.
  *
  * WITHOUT A BLOB TOKEN (brief C6): `blob_not_configured` comes back BEFORE the
  * body is read, so a deployment with no store never buffers 25 MB to refuse
  * it, and the screen keeps "Add by URL" as the way in. The token is read by
  * name only — never logged, never echoed.
+ *
+ * ORDERING AND THE ORPHAN (R2). `crm_collateral.blob_url` is NOT NULL, so the
+ * bytes must exist before the row can. When the insert then fails, the object
+ * we just stored is deleted again (`deleteCollateralFile`) rather than left
+ * public, unreferenced and billable.
  */
 
 export const runtime = "nodejs";
@@ -66,6 +80,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!(await isAdminApiRequest(req))) return gateNotFound();
   const who = await crmUserFromRequest();
   if (!who.ok) return apiError(who.status, "session");
+  if (!isDirector(who.user)) return apiError(403, "director_only");
 
   if (!blobConfigured()) return apiError(503, BLOB_NOT_CONFIGURED);
 
@@ -79,8 +94,10 @@ export async function POST(req: NextRequest): Promise<Response> {
   const raw = form.get("file");
   const file = raw instanceof File ? raw : null;
 
+  let stored: string | null = null;
   try {
     const uploaded = await uploadCollateralFile(file);
+    stored = uploaded.url;
     const name = file?.name ?? "file";
     const centre = field(form, "centre");
     const item = await createCollateral({
@@ -96,6 +113,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       validUntil: ymd(form, "validUntil"),
       uploadedBy: who.user.email,
     });
+    stored = null;
     await writeAudit({
       entity: "collateral",
       entityId: item.id,
@@ -105,11 +123,15 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
     return json({ ok: true, item });
   } catch (err) {
+    // The bytes are stored but the row is not: delete the object rather than
+    // leave a public orphan nothing points at.
+    if (stored) await deleteCollateralFile(stored);
     if (err instanceof CollateralUploadError) {
       return apiError(UPLOAD_STATUS[err.code] ?? 400, err.code);
     }
     console.error("[crm] collateral upload failed", {
       actor_email: who.user.email,
+      blob_cleaned_up: Boolean(stored),
       error: err instanceof Error ? err.message : String(err),
     });
     return apiError(500, "unexpected");

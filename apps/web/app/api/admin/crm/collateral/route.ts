@@ -15,9 +15,15 @@ import { CollateralCreateSchema, CollateralListQuery } from "~/features/crm/coll
  * /api/admin/crm/collateral (wire contract: `collateral/contracts.ts`)
  *   GET   ?centre&tag&q&archived&expired&cursor&limit
  *         → `{ok, items, nextCursor, tags, blobConfigured}`
- *   POST  the metadata row for a file that is ALREADY at a public URL —
- *         either one `POST /collateral/upload` just stored, or one a director
- *         pasted. → `{ok, item}`
+ *   POST  DIRECTOR — the metadata row for a file that is ALREADY at a public
+ *         URL, one a director pasted. → `{ok, item}`
+ *
+ * WHY THE POST IS DIRECTOR-GATED. Reps share; directors curate — the same rule
+ * `collateral/[id]` and `collateral/upload` enforce. An ungated create would
+ * let any `sales` session put an arbitrary https URL into the shared library
+ * that every other rep then sends to guests, while editing and archiving that
+ * same row were refused: the screen hides the button, and this is what makes
+ * the hiding true.
  *
  * Keyset pagination, `limit ≤ 200` (R10): `nextCursor` is an opaque
  * `created_at|id` and there is no OFFSET anywhere.
@@ -56,26 +62,30 @@ export const GET = withCrmRoute(CollateralListQuery, async ({ input }) => {
   };
 });
 
-export const POST = withCrmRoute(CollateralCreateSchema, async ({ input, user }) => {
-  const item = await createCollateral({
-    title: input.title,
-    centre: input.centre ?? null,
-    type: input.type ?? collateralTypeFromUrl(input.blobUrl),
-    blobUrl: input.blobUrl,
-    blobPathname: input.blobPathname ?? null,
-    contentType: input.contentType ?? null,
-    sizeBytes: input.sizeBytes ?? null,
-    tags: normaliseTags(input.tags ?? []),
-    validFrom: input.validFrom ?? null,
-    validUntil: input.validUntil ?? null,
-    uploadedBy: user.email,
-  });
-  await writeAudit({
-    entity: "collateral",
-    entityId: item.id,
-    action: "create",
-    actorEmail: user.email,
-    after: item,
-  });
-  return { item };
-});
+export const POST = withCrmRoute(
+  CollateralCreateSchema,
+  async ({ input, user }) => {
+    const item = await createCollateral({
+      title: input.title,
+      centre: input.centre ?? null,
+      type: input.type ?? collateralTypeFromUrl(input.blobUrl),
+      blobUrl: input.blobUrl,
+      blobPathname: input.blobPathname ?? null,
+      contentType: input.contentType ?? null,
+      sizeBytes: input.sizeBytes ?? null,
+      tags: normaliseTags(input.tags ?? []),
+      validFrom: input.validFrom ?? null,
+      validUntil: input.validUntil ?? null,
+      uploadedBy: user.email,
+    });
+    await writeAudit({
+      entity: "collateral",
+      entityId: item.id,
+      action: "create",
+      actorEmail: user.email,
+      after: item,
+    });
+    return { item };
+  },
+  { director: true },
+);
