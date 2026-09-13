@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  _allRaceProducts,
   combineTrackVariants,
   filterProducts,
   getRaceProductById,
   isQualifiedForTier,
   isRelevantMembership,
+  priceOnDate,
   productsForSchedule,
   qualifiedTierForCategory,
+  singleRaceProductsOnTrack,
   tierFromMemberships,
+  type RaceProduct,
 } from "./race-products";
 
 describe("getRaceProductById", () => {
@@ -71,6 +75,102 @@ describe("productsForSchedule", () => {
     const ps = productsForSchedule("weekend", "new");
     expect(ps.some((p) => p.tier === "pro")).toBe(false);
     expect(ps.some((p) => p.tier === "intermediate")).toBe(true);
+  });
+});
+
+// A one-off exception date opens a product outside its standing schedule
+// (RaceProduct.alsoOnDates). 2026-09-11 (Fri) opened ADULT Pro for one night —
+// BMI had the heats all along, only the catalog was closed.
+describe("one-off exception dates (alsoOnDates)", () => {
+  const PRO_NIGHT = "2026-09-11"; // Friday → "weekend" schedule
+  const OTHER_FRIDAY = "2026-09-18";
+
+  it("weekend + existing has no Pro on an ordinary Friday", () => {
+    for (const date of [undefined, OTHER_FRIDAY]) {
+      const ps = productsForSchedule("weekend", "existing", date);
+      expect(ps.some((p) => p.tier === "pro")).toBe(false);
+    }
+  });
+
+  it("opens adult Pro Red + Blue on the exception date only", () => {
+    const ps = productsForSchedule("weekend", "existing", PRO_NIGHT);
+    const pro = ps.filter((p) => p.tier === "pro");
+    expect(pro.map((p) => p.productId).sort()).toEqual(["43733371", "43733839"]);
+    expect(pro.every((p) => p.category === "adult")).toBe(true);
+  });
+
+  it("leaves junior Pro closed on the exception date (owner: adults only)", () => {
+    const ps = productsForSchedule("weekend", "existing", PRO_NIGHT);
+    expect(ps.some((p) => p.tier === "pro" && p.category === "junior")).toBe(false);
+  });
+
+  it("does not disturb the rest of the weekend catalog", () => {
+    const plain = productsForSchedule("weekend", "existing");
+    const night = productsForSchedule("weekend", "existing", PRO_NIGHT);
+    const added = night.filter((p) => !plain.includes(p));
+    expect(added).toHaveLength(2);
+    expect(added.every((p) => p.tier === "pro")).toBe(true);
+  });
+
+  // The whole reason alsoOnDates flags the EXISTING entry instead of adding a
+  // duplicate one: getRaceProductById resolves the CHARGE price by productId
+  // alone, so two entries sharing an id would make the charged price depend on
+  // array order. Displayed price must equal charged price.
+  it("keeps one catalog entry per BMI productId, so the charge price is unambiguous", () => {
+    const ids = _allRaceProducts().map((p) => p.productId);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of ["43733371", "43733839"]) {
+      expect(getRaceProductById(id)?.price).toBe(20.99);
+    }
+  });
+
+  // The first cut shipped Pro at the WEEKDAY $20.99 on a weekend night, sitting
+  // below Starter and Intermediate at $26.99 on the same page.
+  it("prices exception-date Pro on the weekend ladder, not the weekday one", () => {
+    const ps = productsForSchedule("weekend", "existing", PRO_NIGHT);
+    const pro = ps.filter((p) => p.tier === "pro");
+    expect(pro).toHaveLength(2);
+    expect(pro.every((p) => p.price === 26.99)).toBe(true);
+    // ...and never undercuts the tiers below it on that night.
+    const adultSingles = ps.filter((p) => p.category === "adult" && !p.packType && p.track);
+    expect(Math.min(...adultSingles.map((p) => p.price))).toBe(26.99);
+  });
+
+  it("leaves the weekday price alone on a weekday", () => {
+    const ps = productsForSchedule("weekday", "existing", "2026-09-14");
+    // Singles only — the Pro Weekday 3-Pack is also tier "pro" and prices as a
+    // pack total, not a per-heat rate.
+    const pro = ps.filter(
+      (p) => p.tier === "pro" && p.category === "adult" && !p.packType && p.track,
+    );
+    expect(pro).toHaveLength(2);
+    expect(pro.every((p) => p.price === 20.99)).toBe(true);
+    // The registry entry itself is never mutated by a previous resolution.
+    expect(getRaceProductById("43733371")?.price).toBe(20.99);
+  });
+
+  it("priceOnDate resolves the same number the cards show — combined card too", () => {
+    const pro = productsForSchedule("weekend", "existing", PRO_NIGHT).filter(
+      (p) => p.tier === "pro",
+    );
+    const combined = combineTrackVariants(pro);
+    expect(combined).toHaveLength(1);
+    const card = combined[0];
+    expect(card.productId.startsWith("m:")).toBe(true);
+    expect(card.price).toBe(26.99);
+    // The charge re-resolves from the id, so the reconstructed product must
+    // agree with the card — this is the displayed-vs-charged guarantee.
+    const reconstructed = getRaceProductById(card.productId);
+    expect(reconstructed).not.toBeNull();
+    expect(priceOnDate(reconstructed as RaceProduct, PRO_NIGHT)).toBe(26.99);
+    expect(priceOnDate(reconstructed as RaceProduct, OTHER_FRIDAY)).toBe(20.99);
+  });
+
+  it("adds Pro to the cross-tier union on the exception date only", () => {
+    const plain = singleRaceProductsOnTrack("Blue", "weekend", "existing");
+    const night = singleRaceProductsOnTrack("Blue", "weekend", "existing", PRO_NIGHT);
+    expect(plain.some((p) => p.tier === "pro")).toBe(false);
+    expect(night.some((p) => p.tier === "pro" && p.productId === "43733371")).toBe(true);
   });
 });
 

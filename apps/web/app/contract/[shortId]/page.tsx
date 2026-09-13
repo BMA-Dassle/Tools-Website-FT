@@ -6,6 +6,7 @@ import {
   appendAuditLog,
   getContractVersions,
   diffSnapshots,
+  extractContractSnapshot,
   type ContractVersion,
 } from "@/lib/group-function-db";
 import ContractClient from "./ContractClient";
@@ -69,14 +70,22 @@ export default async function ContractPage(props: {
   // Fetch contract versions for history display
   const versions = await getContractVersions(quote.id).catch(() => [] as ContractVersion[]);
 
-  // Compute diffs between the two most recent versions for the "What Changed" card
+  // "What Changed" card: the newest snapshot is the contract as it stood BEFORE the change
+  // the guest is being asked to re-confirm, so it is diffed against the LIVE row — never
+  // against the snapshot below it, which renders the previous revision (see
+  // diffVersionsAgainstLive; event 3370, 2026-09-11).
   let latestDiffs: Array<{ field: string; label: string; before: string; after: string }> = [];
   let latestChanges: string[] = [];
-  if (versions.length >= 2) {
-    const prev = versions[versions.length - 2];
-    const curr = versions[versions.length - 1];
-    latestDiffs = diffSnapshots(prev.snapshot, curr.snapshot);
-    latestChanges = curr.changes || [];
+  if (versions.length >= 1) {
+    const latest = versions[versions.length - 1];
+    latestDiffs = diffSnapshots(latest.snapshot, extractContractSnapshot(quote));
+    latestChanges = latest.changes || [];
+    if (quote.deposit_paid_at) {
+      // `deposit_due_cents` is an internal figure the dispatch cron flips to the FULL total
+      // inside 96h (`fullPaymentRequired`). A guest who has already paid reads that as
+      // "my deposit just tripled" — show her Total / Tax / Balance / Products, not this.
+      latestDiffs = latestDiffs.filter((d) => d.field !== "deposit_due_cents");
+    }
   }
 
   // Existing DR-14 doc: DB first, else probe Blob for uploads that predate
@@ -138,6 +147,7 @@ export default async function ContractPage(props: {
           total: number;
         }>,
         depositPaidAt: quote.deposit_paid_at,
+        balancePaidAt: quote.balance_paid_at,
         giftCardGan: quote.square_gift_card_gan,
         status: quote.status,
         isTaxExempt: quote.is_tax_exempt,

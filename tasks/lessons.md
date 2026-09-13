@@ -1,5 +1,43 @@
 # Lessons Learned
 
+## A catalog split by price is not a catalog split by availability — and the BMI race SKUs are not day-restricted (2026-09-11)
+
+**Ask.** Owner, 5 PM Friday: "Allow pro races for tonight only." Pro is a weekday/Mega product;
+`scheduleForDate` puts Fri/Sat/Sun on the `"weekend"` schedule, and the weekend block in
+`race-products.ts` carries an explicit `// ── Weekend (no Pro on weekends) ──` marker, so the wizard
+had no Pro card to show.
+
+**The instinct was to go asking BMI for a weekend Pro page. BMI was never the blocker.** A read-only
+`/availability` probe, controls first, showed Pro Blue with 26 heats / 234 spots and Pro Red 27 / 324
+still ahead **that evening**, on the same returning-racer page the weekend Intermediate products
+already use. The $0 build products (`adult:pro:Red` / `:Blue`) returned the same grids — they are
+schedule-agnostic by design and always were. The only closed door was our own catalog.
+
+**Then the owner corrected the framing: "Don't we use the same SKU regardless of day?"** Correct, and
+the probe proves it in both directions — the *weekend* Intermediate SKU returns 40 heats on a
+**Monday**. The registry's weekday/weekend entries are two SKUs because BMI prices them differently
+($20.99 vs $26.99), NOT because either is restricted to those days. I had read a price split as an
+availability split and gone looking for a product that never needed to exist.
+
+**Rules:**
+
+- **Probe the vendor before theorising about the vendor.** "The weekend catalog has no Pro" is a fact
+  about our code. Whether Pro heats RUN that night is a fact about BMI, and it is one HTTP call away.
+  Controls first — the weekend Intermediate product on the same date — so an empty result is a real
+  empty and not a broken probe.
+- **Never put the same BMI productId on two catalog entries.** `getRaceProductById` resolves the
+  CHARGE price at checkout by productId alone (`RACE_PRODUCTS.find`), so two entries sharing an id
+  make the charged price depend on array order — a card showing $26.99 while Square takes $20.99.
+  This is why a schedule exception is `alsoOnDates` on the EXISTING entry, never a duplicate under
+  the other schedule. A registry test now asserts productIds are unique.
+- **A dated exception beats a flag for "tonight only".** `alsoOnDates: ["2026-09-11"]` lapses by
+  itself at midnight — there is no switch anyone has to remember to flip back, which is exactly the
+  failure mode the kill-switch-only flag rule exists to avoid.
+- **When a product is offered outside its own schedule, the cross-tier fan-outs must key off the
+  DATE's schedule, not the product's.** An exception product still carries `schedule: "weekday"`, but
+  the heats sharing its track that night are the weekend ones. Identical for every normal product —
+  it was selected by the date's schedule to begin with — so deriving from the date is strictly safer.
+
 ## Before proposing a migration for a fact you want, go and check whether we already record it (2026-09-10)
 
 **Incident.** Asked to sort Track Ops by "longest waiting since last race", I presented the owner a
@@ -5763,3 +5801,101 @@ Pandora's official scores, not the snapshot.
    every passing) exposed the bug in one query: `best_ms > best_lap_ms`. Repair:
    `scripts/backfill-race-lap-results-final-lap.mjs` (best laps from the feed, positions/laps
    from Pandora scores; dry-run default).
+
+## A "paid" latch is not a "settled" answer — a re-price makes it lie (2026-09-11)
+
+**Incident.** Event 3370 (LPG Emergency Physicians, HPFM, starting that same evening) added food
+twice after signing. Reservation admin read **Balance remaining: $199.63** and offered a PAY BALANCE
+button; the button opened `/contract/8ab08d62/pay`, which answered **"You're all set! Your balance is
+paid in full — Paid $2,042.88, Balance due $0.00."** The contract page's What Changed card agreed
+with it: **"Balance: $1,328.85 → $0.00."** The guest was being asked to re-sign for money the site
+told her twice she did not owe. The audit log has the staff `balance_pay_view` at 2:48 PM on an
+event starting at 6:00.
+
+**Cause 1 — the latch.** `balance_paid_at` is set by the 72h balance charge and **nothing clears it
+when an event is later re-priced**. The pay page's `payable` gate excluded `resign_required`
+(correctly — `/api/group-function/balance-pay` rejects that status outright), and the fallback then
+read `balance_paid_at || balance_cents <= 0` and landed on "paid". The panel below it never read the
+row at all: it printed `totalCents` as "Paid" and a hardcoded `$0.00` as "Balance due".
+
+**Do not clear the latch.** `resign-settle` reads it as `wasPaidInFull` to decide whether to charge
+the delta at signature or hand the balance to the 72h cron; clearing it would have sent an event
+hours from its start time down the cron path. The latch is a correct record of "a balance charge
+happened". It is simply not the answer to "is anything owed".
+
+**Cause 2 — the snapshot is one revision behind.** A `contract_versions` row stores
+`extractContractSnapshot(existing)` taken **before** `updateGfQuoteDetails` writes the change, while
+the row's `changes` array describes that pending change. Diffing the two newest snapshots therefore
+renders the PREVIOUS revision, and the newest change — the one being re-confirmed — never renders at
+all. Both the guest card and admin version history had it. The correct pairing for row N is
+`snapshot[N] → (snapshot[N+1] ?? live)`; that also picks up writes which never made a version of
+their own (the balance charge zeroing `balance_cents`), which is what a reader wants.
+
+**Cause 3 — hardcoded acknowledgements.** The sign step and the signed PDF both asserted "I agree to
+make a 50% deposit" and "the remaining balance will be automatically charged 72 hours prior" for a
+guest already 90% paid, re-confirming a difference charged at signature, on an event starting that
+evening. The PDF is the record of what she signed.
+
+**Rules:**
+
+- **Amount due = `total_cents - collected_cents`. Always.** Never a timestamp, never
+  `deposit_due_cents` (the 96h dispatch flip inflates it to the full total), never `balance_cents`
+  alone as a proxy for "settled". The codebase already states this rule in `resign-settle` and
+  `depositPaidCents` — every surface has to obey it, not only the one that charges.
+- **A latch answers "did X happen once", never "is X still true".** Any `*_paid_at` / `*_sent_at`
+  read as current state is a bug waiting for the next re-price. Grep its readers before trusting one,
+  and fix the readers rather than clearing the latch — something load-bearing is usually reading it.
+- **A status a write API refuses needs its own screen, not a fallthrough.** `resign_required` fell
+  through to "paid" because it was neither payable nor obviously closed. When a gate rejects a
+  status, the UI for that status is a deliberate state — here, "re-confirm your contract".
+- **Never print a money figure the row cannot produce.** `Paid: {totalCents}` and a literal `$0.00`
+  due are why the page could be confidently wrong. Derive both from the row, always.
+- **If a snapshot is written before the change it describes, say so at the write site and pair it at
+  the read site.** Shared helper `diffVersionsAgainstLive` now owns the pairing so the guest card and
+  admin history cannot drift apart again.
+- **An acknowledgement checkbox and the PDF line recording it must derive from the same facts as the
+  charge.** A contract asserting terms the guest never saw is worse than a blank one.
+
+**Fixed:** `fix/resign-balance-display` — pay-page state machine (plus a `resign` state), What
+Changed pairing (guest + admin via one helper), products diff reduced to the lines that moved,
+sign-step re-sign copy, PDF `paymentAgreementLines`. Regression tests build their fixtures from
+3370's real version rows and include a CONTROL test pinning the old broken diff. No money path
+changed.
+
+## A default stamped at prefill outranks the truth learned later (2026-09-11)
+
+**Report:** "they fill out the waivers and everything but then on a junior race when they click add
+junior it doesn't list previous names and won't let you create a new one. Only on junior did we
+notice."
+
+**Cause:** kiosk check-in's roster prefill (`party-prefill.ts`) minted every booked person with
+`category: "adult"` — the comment said the people step "re-derives minors exactly as it does for
+hand-added guests". It does, but ONLY for people who walk the "Set up" step (no account or lapsed
+waiver). A junior who arrived READY — account plus a live waiver, the exact case the report
+describes — never went through Set up, so the stamp stuck. `resolveRaceClass` trusts an explicit
+`category` over a birthdate, so at "Who's racing?" the junior race filtered to zero eligible racers,
+"Add a Junior racer" sent the guest back to a party that already had the kid, and adding them again
+was refused as a duplicate (correctly). Adults were never affected because the wrong default
+happened to be "adult" — which is why it was only noticed on junior races.
+
+**Rules:**
+
+- **Never stamp a guessed value into a field that a resolver treats as authoritative.** If a field
+  means "known fact" (`category`, `isMinor`, a tier), leave it `undefined` when you don't know it and
+  let the resolver derive from evidence (`dobIso`). A placeholder that reads as a fact will win every
+  later comparison.
+- **"The next step corrects it" is only true if EVERY path reaches the next step.** Enumerate who
+  skips it. Here the ready-on-arrival guest — the happy path — was the one who skipped.
+- **Carry the evidence you already have.** The waiver read (`GET /bmi/person`) already returned the
+  birthdate; we threw it away and kept only the boolean. When a read yields more than the one bit
+  you asked for, plumb the rest if a downstream step is guessing at it.
+- **Unknown class must not dead-end.** `category.ts` already said `null` means "avoid a wrong
+  hard-block"; the picker hard-blocked anyway. A guest-facing filter that can go to zero needs a
+  path forward for the unknown case (offer them; the server allows null and auto-fill never
+  guesses).
+
+**Fixed:** `fix/checkin-junior-class-prefill` — `readRacerWaiver` returns `{ valid, dobIso }`
+(`checkRacerWaiverValid` is a wrapper, same fail-closed rules), the bindable roster row carries
+`dobIso`, prefill derives `category` via `resolveRaceClass` (unset when unknown) and keeps the date,
+the voucher-receipt chips carry it too, and the "Who's racing?" picker offers unknown-class racers.
+Kiosk 1.35.1. Not live-verified.

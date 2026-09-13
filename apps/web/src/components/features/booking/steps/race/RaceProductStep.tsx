@@ -244,7 +244,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
 
     const products = useMemo(() => {
       const schedule = scheduleForDate(item.date as string);
-      const all = productsForSchedule(schedule, racerType);
+      const all = productsForSchedule(schedule, racerType, item.date as string);
       const filtered = filterProducts(all, {
         racerType,
         adultCount: category === "adult" ? racerCount : 0,
@@ -266,9 +266,11 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     // hid the pitch. Derived from the EXISTING-racer catalog because the
     // new-racer set is Starter-only by construction.
     const tiersOfferedToday = useMemo(() => {
-      const all = productsForSchedule(scheduleForDate(item.date as string), "existing").filter(
-        (p) => p.category === category && (!p.packType || p.packType === "none"),
-      );
+      const all = productsForSchedule(
+        scheduleForDate(item.date as string),
+        "existing",
+        item.date as string,
+      ).filter((p) => p.category === category && (!p.packType || p.packType === "none"));
       return [...new Set(all.map((p) => p.tier))].sort((a, b) => TIER_ORDER[a] - TIER_ORDER[b]);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [item.date]);

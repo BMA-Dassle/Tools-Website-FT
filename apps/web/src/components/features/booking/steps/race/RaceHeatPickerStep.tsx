@@ -29,6 +29,7 @@ import {
   heatsConflict,
 } from "~/features/booking/service/conflict";
 import { evaluateRaceRestrictions } from "~/features/booking/service/race-restriction-rules";
+import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import { raceSimConflictTrack } from "~/features/race-sims/scheduling";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
@@ -406,7 +407,10 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     }, [product]);
     const crossTierBlocks = useCrossTierBlocks({
       tracks: crossTierTracks,
-      schedule: product?.schedule ?? "weekday",
+      // The DATE's schedule, not the product's: a product offered on a one-off
+      // exception date (RaceProduct.alsoOnDates) still carries its own
+      // schedule, and its cross-tier siblings are the ones running that night.
+      schedule: item.date ? scheduleForDate(item.date) : (product?.schedule ?? "weekday"),
       racerType: product?.racerType ?? "existing",
       date: item.date ?? null,
       center: session.center ?? "fort-myers",

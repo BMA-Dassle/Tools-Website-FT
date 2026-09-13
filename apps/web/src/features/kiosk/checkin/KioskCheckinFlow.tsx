@@ -1589,7 +1589,14 @@ function RaceAssignScreen(props: {
         const chosen = seatOf.size;
         const freeSeat = group.slots.find((s) => !assignMap[s.slotKey]);
         // Hard class gate — a junior race never offers an adult (category.ts).
-        const eligible = party.filter((m) => resolveRaceClass(m) === head.category);
+        // UNKNOWN class (no birthdate anywhere) is offered, not hidden: hiding
+        // them made a dead end — "Add a Junior racer" led back to a party that
+        // already had the kid, and re-adding was refused as a duplicate. The
+        // server accepts a null class and auto-fill never guesses one.
+        const eligible = party.filter((m) => {
+          const cls = resolveRaceClass(m);
+          return cls === null || cls === head.category;
+        });
         return (
           <div key={head.slotKey} className="k-glass p-[28px]">
             <div className="flex items-baseline justify-between gap-[16px]">

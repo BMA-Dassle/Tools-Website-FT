@@ -50,7 +50,61 @@ export interface RaceProduct {
    *  track label to the BMI product that books heats on that track. The
    *  parent entry's productId/pageId still drives the UI card. */
   trackProducts?: Record<string, { productId: string; pageId: string }>;
+  /**
+   * One-off center-local dates (`YYYY-MM-DD`) on which this product is ALSO
+   * offered, on top of its normal `schedule` — owner-authorised exceptions to
+   * the standing schedule (e.g. Pro opened for a single Friday night).
+   *
+   * Deliberately a flag on the EXISTING entry rather than a duplicate entry
+   * under the other schedule: the BMI SKUs are not day-restricted (verified
+   * 2026-09-11 — the "weekend" Intermediate SKU returns heats on a Monday and
+   * the "weekday" Pro SKU returns heats on a Friday), so a second entry would
+   * reuse the same productId — and `getRaceProductById`, which resolves the
+   * CHARGE price at checkout, keys on productId alone. Two entries sharing an
+   * id make that lookup order-dependent, i.e. a displayed price that doesn't
+   * match the charged one. One entry, one price, one id.
+   *
+   * Absent = schedule-only, the normal case. Dates are matched exactly, so an
+   * exception expires on its own once the date passes — nothing to switch off.
+   */
+  alsoOnDates?: string[];
+  /**
+   * Price charged on an `alsoOnDates` date, when it differs from this entry's
+   * normal `price`. A product borrowed from another schedule keeps that
+   * schedule's price otherwise, which is rarely what's wanted: weekend singles
+   * cost more than weekday ones, so a weekday Pro entry opened on a Friday
+   * would undercut the Starter and Intermediate cards sitting beside it.
+   *
+   * Read it through `priceOnDate`, never directly — that is the one resolver
+   * the product cards and `raceItemChargeLines` (the charge, and the cart
+   * estimate that mirrors it) both go through, so displayed and charged cannot
+   * drift apart.
+   */
+  alsoOnDatePrice?: number;
 }
+
+/**
+ * Dates on which ADULT Pro is opened on a weekend, against the standing
+ * "no Pro on weekends" rule (see the weekend block below).
+ *
+ * 2026-09-11 (Fri) — owner, same day. BMI already runs the heats: probed live
+ * that afternoon, Pro Blue had 26 heats / 234 spots and Pro Red 27 / 324 still
+ * ahead, so the only thing missing was the catalog entry. Junior Pro was left
+ * closed (owner's call); Sat 9/12 and Sun 9/13 stay closed.
+ *
+ * Each date expires on its own at midnight — a past date here is inert, so old
+ * entries are safe to leave but should be pruned when the list is next touched.
+ */
+const WEEKEND_PRO_EXCEPTION_DATES = ["2026-09-11"];
+
+/**
+ * What adult Pro costs on those dates. The entries these ride on are the
+ * WEEKDAY ones ($20.99), but the night is a weekend night and every other
+ * single race on the grid is weekend-priced — the first cut shipped Pro at
+ * $20.99 and it sat on the page *below* Starter and Intermediate at $26.99.
+ * Owner: match the weekend ladder.
+ */
+const WEEKEND_PRO_EXCEPTION_PRICE = 26.99;
 
 const RACE_PRODUCTS: RaceProduct[] = [
   // ════════════════════════════════════════════════════════════════════════
@@ -339,6 +393,8 @@ const RACE_PRODUCTS: RaceProduct[] = [
     category: "adult",
     track: "Blue",
     price: 20.99,
+    alsoOnDates: WEEKEND_PRO_EXCEPTION_DATES,
+    alsoOnDatePrice: WEEKEND_PRO_EXCEPTION_PRICE,
   },
   {
     schedule: "weekday",
@@ -350,6 +406,8 @@ const RACE_PRODUCTS: RaceProduct[] = [
     category: "adult",
     track: "Red",
     price: 20.99,
+    alsoOnDates: WEEKEND_PRO_EXCEPTION_DATES,
+    alsoOnDatePrice: WEEKEND_PRO_EXCEPTION_PRICE,
   },
   {
     schedule: "weekday",
@@ -385,7 +443,9 @@ const RACE_PRODUCTS: RaceProduct[] = [
     price: 15.99,
   },
 
-  // ── Weekend (no Pro on weekends) ──
+  // ── Weekend (no Pro on weekends — except the dates in
+  //    WEEKEND_PRO_EXCEPTION_DATES, which open the weekday adult Pro entries
+  //    above for one night at their weekday price) ──
   {
     schedule: "weekend",
     racerType: "existing",
@@ -871,8 +931,47 @@ export function bmiBookingTarget(
 export function productsForSchedule(
   schedule: import("./race-pricing").Schedule,
   racerType: RacerType,
+  dateYmd?: string | null,
 ): RaceProduct[] {
-  return RACE_PRODUCTS.filter((p) => p.schedule === schedule && p.racerType === racerType);
+  return RACE_PRODUCTS.filter(
+    (p) => p.racerType === racerType && (p.schedule === schedule || offeredOnDate(p, dateYmd)),
+  ).map((p) => asOfDate(p, dateYmd));
+}
+
+/** True when `dateYmd` is one of this product's one-off exception dates — i.e.
+ *  it's offered today despite belonging to another schedule. Without a date the
+ *  answer is always false, so a caller that can't supply one simply sees the
+ *  standing schedule (the safe default: an exception never leaks). */
+function offeredOnDate(p: RaceProduct, dateYmd?: string | null): boolean {
+  return !!dateYmd && !!p.alsoOnDates?.includes(dateYmd);
+}
+
+/**
+ * What this product costs on `dateYmd` — its `alsoOnDatePrice` on an exception
+ * date, its normal `price` otherwise.
+ *
+ * THE single price resolver. The product cards read it (via the selectors
+ * below, which hand back the resolved price already applied) and
+ * `raceItemChargeLines` reads it at charge time; the cart's estimate is that
+ * same function, so displayed and charged cannot drift. Anything that prices a
+ * race from the registry goes through here rather than touching `.price`.
+ *
+ * Works on a COMBINED (`m:`) product too — `combineTrackVariants` and
+ * `reconstructCombined` both spread the representative entry, so the exception
+ * fields ride along onto the merged Red+Blue card the customer actually picks.
+ */
+export function priceOnDate(product: RaceProduct, dateYmd?: string | null): number {
+  return offeredOnDate(product, dateYmd) && product.alsoOnDatePrice != null
+    ? product.alsoOnDatePrice
+    : product.price;
+}
+
+/** A product as it should be presented on `dateYmd` — exception price applied.
+ *  Returns the original object untouched when nothing changes, so identity is
+ *  preserved for every product on a normal day. */
+function asOfDate(p: RaceProduct, dateYmd?: string | null): RaceProduct {
+  const price = priceOnDate(p, dateYmd);
+  return price === p.price ? p : { ...p, price };
 }
 
 /**
@@ -887,10 +986,15 @@ export function singleRaceProductsOnTrack(
   track: string,
   schedule: import("./race-pricing").Schedule,
   racerType: RacerType,
+  dateYmd?: string | null,
 ): RaceProduct[] {
   return RACE_PRODUCTS.filter(
-    (p) => p.track === track && p.schedule === schedule && p.racerType === racerType && !p.packType,
-  );
+    (p) =>
+      p.track === track &&
+      p.racerType === racerType &&
+      !p.packType &&
+      (p.schedule === schedule || offeredOnDate(p, dateYmd)),
+  ).map((p) => asOfDate(p, dateYmd));
 }
 
 /**
@@ -902,8 +1006,9 @@ export function juniorProductsOnTrack(
   track: string,
   schedule: import("./race-pricing").Schedule,
   racerType: RacerType,
+  dateYmd?: string | null,
 ): RaceProduct[] {
-  return singleRaceProductsOnTrack(track, schedule, racerType).filter(
+  return singleRaceProductsOnTrack(track, schedule, racerType, dateYmd).filter(
     (p) => p.category === "junior",
   );
 }

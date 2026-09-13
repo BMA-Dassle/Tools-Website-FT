@@ -33,8 +33,36 @@ const FASTTRAX_RACING_LOCATION_ID = "LAB52GY480CJF";
  * record reads cleanly — see pandoraPatchBirthdate).
  */
 export async function checkRacerWaiverValid(personId: string): Promise<boolean> {
-  if (!personId) return false;
+  return (await readRacerWaiver(personId)).valid;
+}
+
+/** One person's waiver verdict plus the birthdate the same GET carries. */
+export interface RacerWaiverRead {
+  valid: boolean;
+  /** "YYYY-MM-DD" from Pandora's person record; null when it has none or the
+   *  record was unreadable. Check-in derives the racer's CLASS (junior vs
+   *  adult) from it for people who arrive already ready — they never walk
+   *  the "Set up" step that learns it for everyone else (2026-09-11: a ready
+   *  junior was stamped adult, so the junior race had nobody to pick). */
+  dobIso: string | null;
+}
+
+/** ISO date from whatever Pandora hands back ("2016-03-04T00:00:00" → "2016-03-04"). */
+function dobIsoOf(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+  return m ? m[1] : null;
+}
+
+/** Same fail-closed rules as checkRacerWaiverValid — only the shape is richer. */
+export async function readRacerWaiver(personId: string): Promise<RacerWaiverRead> {
+  const none: RacerWaiverRead = { valid: false, dobIso: null };
+  if (!personId) return none;
   const key = process.env.SWAGGER_ADMIN_KEY || "";
+  const ours = async (dobIso: string | null): Promise<RacerWaiverRead> => ({
+    valid: await hasUnexpiredCapturedWaiver(personId).catch(() => false),
+    dobIso,
+  });
   try {
     const res = await fetch(
       `${PANDORA_BASE}/bmi/person/${FASTTRAX_RACING_LOCATION_ID}/${personId}?picture=false&allRelated=false`,
@@ -47,7 +75,7 @@ export async function checkRacerWaiverValid(personId: string): Promise<boolean> 
     const data = (await res.json().catch(() => null)) as {
       success?: boolean;
       error?: string;
-      data?: { waiverExpiry?: string | null };
+      data?: { waiverExpiry?: string | null; birthdate?: string | null };
     } | null;
     if (!res.ok || !data?.success || !data.data) {
       // Unreadable ≠ unsigned. Name it so a null-birthdate person is findable
@@ -69,10 +97,11 @@ export async function checkRacerWaiverValid(personId: string): Promise<boolean> 
        * Still fails closed on no evidence: a person with nothing in Pandora AND
        * nothing in Neon is refused, which is the rule that guards the karts.
        */
-      return await hasUnexpiredCapturedWaiver(personId).catch(() => false);
+      return ours(null);
     }
+    const dobIso = dobIsoOf(data.data.birthdate);
     const expiry = data.data.waiverExpiry ? new Date(data.data.waiverExpiry) : null;
-    if (expiry && expiry.getTime() > Date.now()) return true;
+    if (expiry && expiry.getTime() > Date.now()) return { valid: true, dobIso };
     /**
      * BMI SAYS NO — ASK OUR OWN RECORD BEFORE BELIEVING IT.
      *
@@ -91,9 +120,9 @@ export async function checkRacerWaiverValid(personId: string): Promise<boolean> 
         `[checkin-waiver] person ${personId} has no BMI waiver yet but WE hold a current ` +
           `signature — counting it (the vendor push is still in flight).`,
       );
-      return true;
+      return { valid: true, dobIso };
     }
-    return false;
+    return { valid: false, dobIso };
   } catch (err) {
     console.warn(
       `[checkin-waiver] person ${personId} lookup FAILED (${
@@ -101,7 +130,7 @@ export async function checkRacerWaiverValid(personId: string): Promise<boolean> 
       }) — falling back to our own record`,
     );
     // Vendor unreachable is exactly when our own record matters most.
-    return await hasUnexpiredCapturedWaiver(personId).catch(() => false);
+    return ours(null);
   }
 }
 
@@ -112,8 +141,16 @@ export async function checkRacerWaiverValid(personId: string): Promise<boolean> 
 export async function checkRacerWaivers(
   personIds: Array<string | null | undefined>,
 ): Promise<Map<string, boolean>> {
+  const reads = await readRacerWaivers(personIds);
+  return new Map([...reads].map(([id, r]) => [id, r.valid]));
+}
+
+/** Like checkRacerWaivers, keeping the birthdate each read carried. */
+export async function readRacerWaivers(
+  personIds: Array<string | null | undefined>,
+): Promise<Map<string, RacerWaiverRead>> {
   const ids = [...new Set(personIds.filter((id): id is string => !!id))];
-  const out = new Map<string, boolean>();
-  await Promise.all(ids.map(async (id) => out.set(id, await checkRacerWaiverValid(id))));
+  const out = new Map<string, RacerWaiverRead>();
+  await Promise.all(ids.map(async (id) => out.set(id, await readRacerWaiver(id))));
   return out;
 }

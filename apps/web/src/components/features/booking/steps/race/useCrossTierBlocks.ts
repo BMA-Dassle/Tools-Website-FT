@@ -49,7 +49,7 @@ export function useCrossTierBlocks(args: {
   const fetches = useMemo(
     () =>
       tracks.flatMap((track) =>
-        singleRaceProductsOnTrack(track, schedule, racerType).map((p) => ({
+        singleRaceProductsOnTrack(track, schedule, racerType, date).map((p) => ({
           productId: p.productId,
           pageId: p.pageId,
           track: track as string,
@@ -58,8 +58,10 @@ export function useCrossTierBlocks(args: {
         })),
       ),
     // Serialize tracks so a same-content array from a fresh render doesn't refetch.
+    // `date` is a dep because a one-off exception date can add a product to the
+    // union (see RaceProduct.alsoOnDates).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tracks.join("|"), schedule, racerType],
+    [tracks.join("|"), schedule, racerType, date],
   );
 
   const queries = useQueries({

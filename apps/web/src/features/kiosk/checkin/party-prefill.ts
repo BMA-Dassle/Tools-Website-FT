@@ -12,6 +12,7 @@
 import type { PartyMember } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import type { CheckinPartyMember } from "./types";
+import { resolveRaceClass } from "./category";
 import { isNicknameVariant, normalizeName } from "./roster-merge";
 
 function fullNameOf(firstName: string, lastName?: string): string {
@@ -38,9 +39,14 @@ function memberIds(p: { bmiPersonId?: string; pandoraPersonId?: string }): strin
 
 /**
  * The roster members NOT already on the party, converted to PartyMembers
- * ready for `addPartyMember`. Category defaults to adult — the original
- * booking doesn't carry DOBs, and the waiver/people step re-derives minors
- * exactly as it does for hand-added guests.
+ * ready for `addPartyMember`. Race class comes from the row's birthdate (the
+ * waiver read carries it) and is left UNSET when there is none — the people
+ * step re-derives it for anyone who walks "Set up", but a racer who arrives
+ * READY never does, and `resolveRaceClass` trusts an explicit category over
+ * everything. The old blanket `category: "adult"` therefore stamped every
+ * ready junior as an adult: the junior race listed nobody, "Add a Junior
+ * racer" led back to a party that already had them, and re-adding was refused
+ * as a duplicate (2026-09-11).
  */
 export function prefillPartyMembers(
   party: PartyMember[],
@@ -77,7 +83,8 @@ export function prefillPartyMembers(
         firstName: r.firstName,
         lastName: r.lastName || undefined,
         isNewRacer: false,
-        category: "adult",
+        category: resolveRaceClass({ dobIso: r.dobIso }) ?? undefined,
+        ...(r.dobIso ? { dobIso: r.dobIso } : {}),
         ...(r.bmiPersonId ? { bmiPersonId: r.bmiPersonId } : {}),
         waiverValid: r.waiverValid,
       }),

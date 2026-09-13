@@ -26,6 +26,10 @@ interface BalancePayQuote {
   totalCents: number;
   depositDueCents: number;
   balanceCents: number;
+  /** Money actually collected so far — what the "paid" panel reports, never total_cents. */
+  collectedCents: number;
+  /** total − collected. The truth about what is owed; balance_paid_at is not. */
+  outstandingCents: number;
   balancePaidAt: string | null;
   plannerFirst: string | null;
   plannerEmail: string | null;
@@ -34,7 +38,7 @@ interface BalancePayQuote {
   hasSavedCard: boolean;
   declineMessage: string | null;
   declinedAt: string | null;
-  state: "pay" | "paid" | "contract" | "closed";
+  state: "pay" | "resign" | "paid" | "contract" | "closed";
 }
 
 const fmtDollars = (cents: number) =>
@@ -48,6 +52,14 @@ export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) 
   const [declineMessage, setDeclineMessage] = useState<string | null>(quote.declineMessage);
   const [paid, setPaid] = useState(quote.state === "paid");
   const [paidLast4, setPaidLast4] = useState<string | null>(null);
+
+  // The "paid" panel is reached two ways: server-rendered as already settled, or flipped
+  // here right after a successful charge — in which case the server props are stale by
+  // exactly the balance just collected (balance-pay charges `balance_cents`). Fold that in
+  // so the receipt never reports the pre-payment figures.
+  const justPaidCents = paid && quote.state !== "paid" ? quote.balanceCents : 0;
+  const paidCents = quote.collectedCents + justPaidCents;
+  const dueCents = Math.max(0, quote.outstandingCents - justPaidCents);
   const squareLoaded = useRef(false);
   const cardRef = useRef<{
     tokenize: () => Promise<{
@@ -185,6 +197,59 @@ export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) 
               View &amp; Sign Contract
             </Link>
           </>
+        ) : quote.state === "resign" ? (
+          <>
+            {/* The event was re-priced after it was paid. The difference is collected by
+                resign-settle when the guest re-confirms — /api/group-function/balance-pay
+                rejects this status outright, so never show a payment form here. */}
+            <div className="mb-5 flex items-start gap-3 rounded-xl bg-amber-500/10 p-4 ring-1 ring-amber-400/20">
+              <IconAlertTriangle className="mt-0.5 h-6 w-6 flex-shrink-0 text-amber-400" />
+              <div>
+                <p className="font-bold text-amber-300">Your event was updated</p>
+                <p className="text-sm text-gray-300">
+                  {quote.outstandingCents > 0 ? (
+                    <>
+                      Please review and re-confirm your contract — the{" "}
+                      <span className="font-semibold text-white">
+                        {fmtDollars(quote.outstandingCents)}
+                      </span>{" "}
+                      difference is collected there
+                      {quote.hasSavedCard && quote.savedCardLast4
+                        ? `, on your card ending ${quote.savedCardLast4}`
+                        : ""}
+                      .
+                    </>
+                  ) : (
+                    <>Please review and re-confirm your contract — no further payment is due.</>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="mb-5 rounded-xl bg-white/5 p-4 text-sm text-gray-300">
+              <div className="flex justify-between py-1">
+                <span>Updated event total</span>
+                <span className="font-semibold text-white">{fmtDollars(quote.totalCents)}</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>Already paid</span>
+                <span className="font-semibold text-emerald-400">
+                  {fmtDollars(quote.collectedCents)}
+                </span>
+              </div>
+              <div className="flex justify-between border-t border-white/10 py-1 text-base">
+                <span className="flex items-center gap-1.5">
+                  <IconReceipt className="h-4 w-4 text-cyan-400" /> Difference
+                </span>
+                <span className="font-bold text-white">{fmtDollars(quote.outstandingCents)}</span>
+              </div>
+            </div>
+            <Link
+              href={`/contract/${quote.contractShortId}`}
+              className="block w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-4 text-center text-lg font-bold text-white shadow-lg shadow-cyan-500/20"
+            >
+              Review &amp; Re-Confirm
+            </Link>
+          </>
         ) : quote.state === "closed" ? (
           <p className="text-sm text-gray-300">
             This event isn&apos;t accepting online payments right now. Please{" "}
@@ -214,15 +279,16 @@ export default function BalancePayClient({ quote }: { quote: BalancePayQuote }) 
                 <span>Event total</span>
                 <span className="font-semibold text-white">{fmtDollars(quote.totalCents)}</span>
               </div>
+              {/* Real collected money, and a balance derived from it. Reporting total_cents
+                  as "paid" and a hardcoded $0.00 due told a repriced guest she owed nothing
+                  (event 3370, 2026-09-11) — these must always come from the row. */}
               <div className="flex justify-between py-1">
                 <span>Paid</span>
-                <span className="font-semibold text-emerald-400">
-                  {fmtDollars(quote.totalCents)}
-                </span>
+                <span className="font-semibold text-emerald-400">{fmtDollars(paidCents)}</span>
               </div>
               <div className="flex justify-between border-t border-white/10 py-1">
                 <span>Balance due</span>
-                <span className="font-semibold text-white">$0.00</span>
+                <span className="font-semibold text-white">{fmtDollars(dueCents)}</span>
               </div>
             </div>
             <p className="mt-5 text-center text-sm text-gray-400">

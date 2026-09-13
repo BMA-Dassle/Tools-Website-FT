@@ -5,7 +5,12 @@ vi.mock("@/lib/waiver-signature-store", () => ({
   hasUnexpiredCapturedWaiver: (id: string) => store.hasUnexpiredCapturedWaiver(id),
 }));
 
-import { checkRacerWaiverValid, checkRacerWaivers } from "./waiver";
+import {
+  checkRacerWaiverValid,
+  checkRacerWaivers,
+  readRacerWaiver,
+  readRacerWaivers,
+} from "./waiver";
 
 /**
  * The null-birthdate 500 (proven live 2026-08-07).
@@ -103,6 +108,70 @@ describe("checkRacerWaiverValid", () => {
     vi.stubGlobal("fetch", f);
     await expect(checkRacerWaiverValid("")).resolves.toBe(false);
     expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe("readRacerWaiver — the birthdate rides along with the verdict", () => {
+  // Check-in needs the racer's CLASS for people who arrive already ready and so
+  // never walk "Set up" — this same GET is the only read that sees them.
+  const okWithDob = (waiverExpiry: string | null, birthdate: string | null) => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ success: true, data: { waiverExpiry, birthdate } }),
+  });
+
+  it("returns the date-only ISO from Pandora's timestamp on a live waiver", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => okWithDob("2027-08-08T13:00:00.000Z", "2016-03-04T00:00:00")),
+    );
+    await expect(readRacerWaiver("58096162")).resolves.toEqual({
+      valid: true,
+      dobIso: "2016-03-04",
+    });
+  });
+
+  it("keeps the birthdate even when the waiver is NOT valid", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => okWithDob(null, "2016-03-04")),
+    );
+    await expect(readRacerWaiver("58096162")).resolves.toEqual({
+      valid: false,
+      dobIso: "2016-03-04",
+    });
+  });
+
+  it("is null when the record has no birthdate, is unreadable, or the id is empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => okWithDob("2027-08-08T13:00:00.000Z", null)),
+    );
+    await expect(readRacerWaiver("58096162")).resolves.toEqual({ valid: true, dobIso: null });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => err500),
+    );
+    await expect(readRacerWaiver("63000000007642347")).resolves.toEqual({
+      valid: false,
+      dobIso: null,
+    });
+    await expect(readRacerWaiver("")).resolves.toEqual({ valid: false, dobIso: null });
+  });
+
+  it("readRacerWaivers maps each id like checkRacerWaivers, with the read attached", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("63000000007642347")
+          ? err500
+          : okWithDob("2027-08-08T13:00:00.000Z", "2016-03-04"),
+      ),
+    );
+    const out = await readRacerWaivers(["58096162", "63000000007642347", null]);
+    expect(out.get("58096162")).toEqual({ valid: true, dobIso: "2016-03-04" });
+    expect(out.get("63000000007642347")).toEqual({ valid: false, dobIso: null });
+    expect(out.size).toBe(2);
   });
 });
 

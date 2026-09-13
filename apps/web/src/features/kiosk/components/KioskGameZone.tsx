@@ -95,6 +95,17 @@ const VOUCHER_REFUSAL_KEY: Record<string, Parameters<Translate>[0]> = {
   used: "gamezone.voucher.err.used",
   rate_limited: "gamezone.voucher.err.generic",
   storage: "gamezone.voucher.err.generic",
+  // Groupon-issued. This endpoint is issuer-routed, so every GrouponRefusal can
+  // land here too — and the three below had no entry at all, which meant a real
+  // Groupon verdict ("Groupon isn't answering", "we don't have that deal set
+  // up") fell through the map and rendered as "something went wrong", the exact
+  // dead end the comment above says this table exists to prevent.
+  // These reuse the code-entry screen's Groupon copy rather than restating it:
+  // it is the same voucher and the same refusal, already EN+ES, and the two
+  // screens must never word it differently.
+  already_redeemed: "codeEntry.groupon.err.alreadyRedeemed",
+  unavailable: "codeEntry.groupon.err.unavailable",
+  unmapped: "codeEntry.groupon.err.unmapped",
 };
 
 /** A recoverable dispenser fault the flow holds on until staff resume. */
