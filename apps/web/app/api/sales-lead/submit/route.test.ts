@@ -59,6 +59,10 @@ const formBody = (over: Record<string, unknown> = {}) => ({
   preferredContactMethod: "text",
   bestTimeToCall: "Afternoon",
   packagePrefill: undefined,
+  // B7: the form ALWAYS sends this key now — `""` for "First available" and
+  // whenever the control is hidden (a kids birthday, or a centre with no
+  // planners). Every test below therefore runs against the real body.
+  requestedPlanner: "",
   ...over,
 });
 
@@ -210,7 +214,8 @@ describe("POST /api/sales-lead/submit", () => {
   });
 
   it("a body without the planner key at all is unchanged — the five pages before this PR", async () => {
-    const res = await post(BODY);
+    // `undefined` is dropped by JSON.stringify, so this posts the pre-B7 body.
+    const res = await post(formBody({ kind: "group", requestedPlanner: undefined }));
     expect(res.status).toBe(200);
     expect((bag.calls[0] as [Record<string, unknown>])[0].requestedPlannerSlug).toBeNull();
   });
