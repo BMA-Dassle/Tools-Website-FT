@@ -291,6 +291,26 @@ export async function markLinkSent(
   return rows[0] ? mapEmailLinkRow(rows[0]) : null;
 }
 
+/**
+ * Graph took the draft but `/send` did not answer — the message may or may not
+ * have gone. The row stays `pending` (never `failed`, which the UI reads as
+ * "nothing left", and never `sent`, which would be a lie) with the Graph
+ * complaint recorded, and `email-send-retry` re-reads before it retries.
+ */
+export async function markLinkPending(id: string, graphError: string): Promise<EmailLink | null> {
+  if (!isDbConfigured()) return null;
+  await ensureEmailSchema();
+  const q = sql();
+  const rows = (await q.query(
+    `UPDATE crm_email_links
+        SET send_status = 'pending', send_error = $2, graph_error = $2, updated_at = NOW()
+      WHERE id = $1::bigint
+      RETURNING ${COLUMNS}`,
+    [id, graphError.slice(0, 2000)],
+  )) as EmailLinkRowRaw[];
+  return rows[0] ? mapEmailLinkRow(rows[0]) : null;
+}
+
 export async function markLinkFailed(
   id: string,
   error: string,

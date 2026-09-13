@@ -12,10 +12,33 @@ const bag = vi.hoisted(() => ({
   reps: [] as { email: string | null }[],
   ensure: vi.fn(),
   getMessage: vi.fn(),
+  sendDraft: vi.fn(),
   link: vi.fn(),
+  linkRow: null as Record<string, unknown> | null,
+  sent: [] as { id: string; provider: string; sentAt?: Date }[],
+  failed: [] as { id: string; error: string }[],
 }));
 
 vi.mock("../../reps", () => ({ listReps: vi.fn(async () => bag.reps) }));
+vi.mock("../data/email-links-db", () => ({
+  // `./subscriptions` binds these at module scope, so the factory has to carry
+  // them or importing `./jobs` throws.
+  GRAPH_FOLDERS: ["inbox", "sentitems"] as const,
+  findSubscriptionById: vi.fn(async () => null),
+  listSubscriptions: vi.fn(async () => []),
+  recordSubscription: vi.fn(async () => undefined),
+  recordSubscriptionError: vi.fn(async () => undefined),
+  upsertSubscriptionRow: vi.fn(async () => null),
+  getLink: vi.fn(async () => bag.linkRow),
+  markLinkSent: vi.fn(async (id: string, provider: string, opts: { sentAt?: Date } = {}) => {
+    bag.sent.push({ id, provider, sentAt: opts.sentAt });
+    return null;
+  }),
+  markLinkFailed: vi.fn(async (id: string, error: string) => {
+    bag.failed.push({ id, error });
+    return null;
+  }),
+}));
 vi.mock("./subscriptions", async () => {
   const actual = await vi.importActual<typeof import("./subscriptions")>("./subscriptions");
   return { ...actual, ensureSubscriptions: bag.ensure };
@@ -24,8 +47,10 @@ vi.mock("./webhook", () => ({ linkGraphMessage: bag.link }));
 
 const { GraphError } = await import("./graph-client");
 const {
+  emailSendRetryIdempotencyKey,
   graphFetchIdempotencyKey,
   graphRenewIdempotencyKey,
+  runEmailSendRetryJob,
   runGraphFetchMessageJob,
   runGraphRenewJob,
   subscribedMailboxes,
@@ -33,7 +58,7 @@ const {
 
 vi.mock("./graph-client", async () => {
   const actual = await vi.importActual<typeof import("./graph-client")>("./graph-client");
-  return { ...actual, getMessage: bag.getMessage };
+  return { ...actual, getMessage: bag.getMessage, sendDraft: bag.sendDraft };
 });
 
 const ENV = { ...process.env };
@@ -59,7 +84,11 @@ beforeEach(() => {
   bag.reps = [];
   bag.ensure.mockReset();
   bag.getMessage.mockReset();
+  bag.sendDraft.mockReset();
   bag.link.mockReset();
+  bag.linkRow = { id: "500", sendStatus: "pending", graphError: "no answer" };
+  bag.sent.length = 0;
+  bag.failed.length = 0;
 });
 afterEach(() => {
   process.env = { ...ENV };
@@ -164,6 +193,71 @@ describe("graph-fetch-message", () => {
     bag.getMessage.mockRejectedValue(new GraphError(503, "x", "down", ""));
     const retry = await runGraphFetchMessageJob(ctx({ mailbox: "a@b.com", messageId: "AA" }));
     expect(retry).toEqual({ ok: false, error: "down" });
+  });
+});
+
+/**
+ * The lane that exists so a `/send` failure never becomes a second email. The
+ * whole value of this handler is the RE-READ: `/send` can fail after Graph has
+ * already queued the message, so "retry the send" without asking first is how
+ * a guest receives it twice.
+ */
+describe("email-send-retry", () => {
+  const payload = { linkId: "500", mailbox: "Kelsea@HeadPinz.com", messageId: "AAMk1" };
+
+  it("keys one retry per link row", () => {
+    expect(emailSendRetryIdempotencyKey("500")).toBe("email-send-retry:500");
+  });
+
+  it("RE-READS first and re-sends only a message still sitting in Drafts", async () => {
+    graphOn();
+    bag.getMessage.mockResolvedValue({ id: "AAMk1", isDraft: true });
+    const r = await runEmailSendRetryJob(ctx(payload));
+    expect(bag.getMessage).toHaveBeenCalledWith("Kelsea@HeadPinz.com", "AAMk1");
+    expect(bag.sendDraft).toHaveBeenCalledWith("Kelsea@HeadPinz.com", "AAMk1");
+    expect(bag.sent).toMatchObject([{ id: "500", provider: "graph" }]);
+    expect(r).toMatchObject({ ok: true });
+  });
+
+  it("does NOT re-send a message that already left, and records Graph's own sent time", async () => {
+    graphOn();
+    bag.getMessage.mockResolvedValue({
+      id: "AAMk1",
+      isDraft: false,
+      sentDateTime: "2026-09-13T18:44:10Z",
+    });
+    const r = await runEmailSendRetryJob(ctx(payload));
+    expect(bag.sendDraft).not.toHaveBeenCalled();
+    expect(bag.sent[0].sentAt?.toISOString()).toBe("2026-09-13T18:44:10.000Z");
+    expect(r).toMatchObject({ ok: true, result: { outcome: "already_sent" } });
+  });
+
+  it("does nothing at all when the row is already marked sent", async () => {
+    graphOn();
+    bag.linkRow = { id: "500", sendStatus: "sent", graphError: null };
+    const r = await runEmailSendRetryJob(ctx(payload));
+    expect(bag.getMessage).not.toHaveBeenCalled();
+    expect(r).toEqual({ ok: true, result: { linkId: "500", already: "sent" } });
+  });
+
+  it("parks a draft that is gone and marks the row failed; anything else retries", async () => {
+    graphOn();
+    bag.getMessage.mockRejectedValue(new GraphError(404, "ErrorItemNotFound", "gone", ""));
+    expect(await runEmailSendRetryJob(ctx(payload))).toMatchObject({ ok: false, park: true });
+    expect(bag.failed).toEqual([{ id: "500", error: "gone" }]);
+    bag.getMessage.mockRejectedValue(new GraphError(503, "x", "down", ""));
+    expect(await runEmailSendRetryJob(ctx(payload))).toEqual({ ok: false, error: "down" });
+  });
+
+  it("parks a payload it cannot act on, and an unconfigured Graph", async () => {
+    graphOn();
+    expect(await runEmailSendRetryJob(ctx({ linkId: "500" }))).toMatchObject({ park: true });
+    process.env = { ...ENV };
+    expect(await runEmailSendRetryJob(ctx(payload))).toMatchObject({
+      ok: false,
+      park: true,
+      error: "CRM_GRAPH_* not configured",
+    });
   });
 });
 

@@ -18,10 +18,14 @@ const bag = vi.hoisted(() => {
   const links: Record<string, unknown>[] = [];
   return {
     links,
+    /** Every rail, in the order it ran — R2's ordering is asserted from this. */
+    order: [] as string[],
     inserted: [] as Record<string, unknown>[],
     setIds: [] as { id: string; graphId: string }[],
     sent: [] as { id: string; provider: string; graphError: string | null }[],
+    pending: [] as { id: string; graphError: string }[],
     failed: [] as { id: string; error: string }[],
+    retries: [] as Record<string, unknown>[],
     activities: [] as Record<string, unknown>[],
     touch: { recorded: false },
     patched: [] as { id: string; patch: Record<string, unknown> }[],
@@ -63,6 +67,10 @@ vi.mock("../data/email-links-db", () => {
   });
   return {
     insertOutboundLink: vi.fn(async (input: Record<string, unknown>) => {
+      // R2's ordering is a REAL assertion only if both rails record into the
+      // same array: with only the Graph mock pushing, `["graph"]` would hold
+      // whether the insert ran first, last, or not at all.
+      bag.order.push("neon");
       bag.inserted.push(input);
       return row({ toEmails: input.toEmails, ccEmails: input.ccEmails });
     }),
@@ -80,6 +88,10 @@ vi.mock("../data/email-links-db", () => {
         });
       },
     ),
+    markLinkPending: vi.fn(async (id: string, graphError: string) => {
+      bag.pending.push({ id, graphError });
+      return row({ sendStatus: "pending", sendError: graphError, graphError });
+    }),
     markLinkFailed: vi.fn(async (id: string, error: string) => {
       bag.failed.push({ id, error });
       return row({ sendStatus: "failed", sendError: error });
@@ -245,10 +257,21 @@ function graphTokenHandler(token: string) {
 
 const mswModule = await import("msw");
 
+/** `defaultSendDeps.enqueueRetry` would reach Neon; every test uses this. */
+const testDeps = () => ({
+  ...defaultSendDeps,
+  enqueueRetry: async (input: Record<string, unknown>) => {
+    bag.retries.push(input);
+  },
+});
+
 beforeEach(() => {
   process.env = { ...ENV };
   resetGraphTokenCache();
   resetGraphReadinessCache();
+  bag.order.length = 0;
+  bag.pending.length = 0;
+  bag.retries.length = 0;
   bag.inserted.length = 0;
   bag.setIds.length = 0;
   bag.sent.length = 0;
@@ -268,15 +291,14 @@ afterEach(() => {
 describe("the Graph rail", () => {
   it("writes Neon BEFORE it touches Graph, then stores the IMMUTABLE id", async () => {
     graphOn();
-    const order: string[] = [];
     const deps = {
-      ...defaultSendDeps,
+      ...testDeps(),
       randomToken: () => "01J7QA",
       createDraft: async (
         mailbox: string,
         draft: Parameters<typeof defaultSendDeps.createDraft>[1],
       ) => {
-        order.push("graph");
+        bag.order.push("graph");
         return defaultSendDeps.createDraft(mailbox, draft);
       },
     };
@@ -291,7 +313,7 @@ describe("the Graph rail", () => {
       actorEmail: "kelsea@headpinz.com",
       internetMessageId: "<CRM-L-1042-01J7QA@headpinz.com>",
     });
-    expect(order).toEqual(["graph"]);
+    expect(bag.order).toEqual(["neon", "graph"]);
     // `Prefer: IdType="ImmutableId"` is what makes the fixture answer with the
     // SENT id rather than the draft id — the header is doing real work here.
     expect(bag.setIds).toEqual([{ id: "500", graphId: GRAPH_SENT_ID }]);
@@ -324,7 +346,7 @@ describe("the Graph rail", () => {
           rep: rep({ slug: "gs", email: "guestservices@headpinz.com" }),
         }),
       },
-      defaultSendDeps,
+      testDeps(),
     );
     expect(body).toBeTruthy();
     expect(body!.internetMessageHeaders).toEqual([{ name: "X-HP-Lead", value: "L-1042" }]);
@@ -336,7 +358,7 @@ describe("the Graph rail", () => {
     graphOn();
     const seen: string[] = [];
     server.events.on("request:start", ({ request }) => seen.push(request.url));
-    await sendCrmEmail(input(), defaultSendDeps);
+    await sendCrmEmail(input(), testDeps());
     expect(seen.some((u) => /sendMail/i.test(u))).toBe(false);
     expect(seen.some((u) => /\/messages\/[^/]+\/send$/.test(u))).toBe(true);
   });
@@ -344,7 +366,7 @@ describe("the Graph rail", () => {
   it("records the activity and advances assigned → contacted on the first touch", async () => {
     graphOn();
     bag.touch.recorded = true;
-    const res = await sendCrmEmail(input(), defaultSendDeps);
+    const res = await sendCrmEmail(input(), testDeps());
     expect(res.firstTouchRecorded).toBe(true);
     expect(bag.activities[0]).toMatchObject({
       kind: "email",
@@ -359,8 +381,74 @@ describe("the Graph rail", () => {
   it("leaves a status that is not `assigned` alone", async () => {
     graphOn();
     bag.touch.recorded = true;
-    await sendCrmEmail({ ...input(), lead: lead({ status: "quote" }) }, defaultSendDeps);
+    await sendCrmEmail({ ...input(), lead: lead({ status: "quote" }) }, testDeps());
     expect(bag.patched).toEqual([]);
+  });
+});
+
+/**
+ * A FAILURE AFTER THE DRAFT EXISTS IS NOT A FALLBACK. Graph has the message;
+ * SendGrid would make it two. These cases are the reason `createDraft` and
+ * `sendDraft` sit in separate try blocks.
+ */
+describe("a /send that fails after Graph accepted the draft", () => {
+  const failSend = (status: number, code: string) => {
+    server.use(
+      mswModule.http.post("https://graph.microsoft.com/v1.0/users/:mailbox/messages/:id/send", () =>
+        mswModule.HttpResponse.json({ error: { code, message: "no answer" } }, { status }),
+      ),
+    );
+  };
+
+  it("does NOT call SendGrid on a 503 — the guest must not get a second copy", async () => {
+    graphOn();
+    failSend(503, "ServiceUnavailable");
+    const res = await sendCrmEmail(input(), testDeps());
+    expect(bag.sendGridCalls).toHaveLength(0);
+    expect(bag.sent).toHaveLength(0);
+    expect(res.fellBack).toBe(false);
+    expect(res.sendPending).toBe(true);
+  });
+
+  it("leaves the row pending with the Graph error, never failed and never sent", async () => {
+    graphOn();
+    failSend(429, "TooManyRequests");
+    const res = await sendCrmEmail(input(), testDeps());
+    expect(bag.pending).toEqual([{ id: "500", graphError: "no answer" }]);
+    expect(bag.failed).toHaveLength(0);
+    expect(res.message.sendStatus).toBe("pending");
+    // The draft id we stored is still the one the retry will re-read.
+    expect(bag.setIds).toEqual([{ id: "500", graphId: GRAPH_SENT_ID }]);
+  });
+
+  it("hands the orphan to email-send-retry under a key per link row", async () => {
+    graphOn();
+    failSend(503, "ServiceUnavailable");
+    await sendCrmEmail(input(), testDeps());
+    expect(bag.retries).toEqual([
+      {
+        linkId: "500",
+        mailbox: "kelsea@headpinz.com",
+        messageId: GRAPH_SENT_ID,
+        error: "no answer",
+      },
+    ]);
+  });
+
+  it("records the activity as not-sent and never counts it as a first touch", async () => {
+    graphOn();
+    bag.touch.recorded = true;
+    failSend(503, "ServiceUnavailable");
+    const res = await sendCrmEmail(input(), testDeps());
+    expect(bag.activities[0]).toMatchObject({ outcome: "failed" });
+    expect(bag.patched).toEqual([]);
+    expect(res.firstTouchRecorded).toBe(false);
+  });
+
+  it("still answers the composer rather than throwing — the message may yet go", async () => {
+    graphOn();
+    failSend(503, "ServiceUnavailable");
+    await expect(sendCrmEmail(input(), testDeps())).resolves.toMatchObject({ sendPending: true });
   });
 });
 
@@ -369,7 +457,7 @@ describe("the SendGrid fallback", () => {
     delete process.env.CRM_GRAPH_TENANT_ID;
     delete process.env.CRM_GRAPH_CLIENT_ID;
     delete process.env.CRM_GRAPH_CLIENT_SECRET;
-    const res = await sendCrmEmail(input(), defaultSendDeps);
+    const res = await sendCrmEmail(input(), testDeps());
     expect(res.fellBack).toBe(true);
     expect(bag.sendGridCalls).toHaveLength(1);
     // from AND replyTo are the rep, never noreply@ (brief C2).
@@ -389,7 +477,7 @@ describe("the SendGrid fallback", () => {
   it("is the whole rail when the CRM_EMAIL kill switch is the string 'false'", async () => {
     graphOn();
     process.env.CRM_EMAIL = "false";
-    const res = await sendCrmEmail(input(), defaultSendDeps);
+    const res = await sendCrmEmail(input(), testDeps());
     expect(res.fellBack).toBe(true);
     expect(res.graphError).toMatch(/CRM_EMAIL kill switch/);
     expect(bag.sendGridCalls).toHaveLength(1);
@@ -405,12 +493,15 @@ describe("the SendGrid fallback", () => {
     graphOn(["Mail.Read", "Mail.Send"]);
     const seen: string[] = [];
     server.events.on("request:start", ({ request }) => seen.push(request.url));
-    const res = await sendCrmEmail(input(), defaultSendDeps);
+    const res = await sendCrmEmail(input(), testDeps());
     expect(res.fellBack).toBe(true);
     expect(res.graphError).toContain("Mail.ReadWrite");
     expect(seen.some((u) => /graph\.microsoft\.com/.test(u))).toBe(false);
     expect(bag.sendGridCalls).toHaveLength(1);
-    expect(bag.sent).toEqual([{ id: "500", provider: "sendgrid", graphError: res.graphError }]);
+    // The ROW keeps the whole sentence (a director reads it); the RESPONSE
+    // carries the leading clause only (C2-9).
+    expect(bag.sent[0].graphError).toContain('"HeadPinz Sales CRM" app registration.');
+    expect(res.graphError!.length).toBeLessThan(bag.sent[0].graphError!.length);
   });
 
   it("catches a Graph 5xx and records WHY on the row", async () => {
@@ -426,7 +517,7 @@ describe("the SendGrid fallback", () => {
         ),
       ),
     );
-    const res = await sendCrmEmail(input(), defaultSendDeps);
+    const res = await sendCrmEmail(input(), testDeps());
     expect(res.fellBack).toBe(true);
     expect(res.graphError).toBe("down");
     expect(bag.sent).toEqual([{ id: "500", provider: "sendgrid", graphError: "down" }]);
@@ -443,7 +534,7 @@ describe("the SendGrid fallback", () => {
         ),
       ),
     );
-    const res = await sendCrmEmail(input(), defaultSendDeps);
+    const res = await sendCrmEmail(input(), testDeps());
     expect(res.fellBack).toBe(true);
     expect(bag.sent[0].provider).toBe("sendgrid");
   });
@@ -459,7 +550,7 @@ describe("the SendGrid fallback", () => {
         ),
       ),
     );
-    await expect(sendCrmEmail(input(), defaultSendDeps)).rejects.toThrow("bad recipient");
+    await expect(sendCrmEmail(input(), testDeps())).rejects.toThrow("bad recipient");
     expect(bag.sendGridCalls).toHaveLength(0);
     expect(bag.failed).toEqual([{ id: "500", error: "bad recipient" }]);
     // The failure is still a diary entry, and it never counts as a first touch.
@@ -470,9 +561,7 @@ describe("the SendGrid fallback", () => {
   it("marks the row failed when SendGrid refuses too", async () => {
     delete process.env.CRM_GRAPH_TENANT_ID;
     bag.sendGrid = { ok: false, status: 401, error: "SENDGRID_API_KEY missing" };
-    await expect(sendCrmEmail(input(), defaultSendDeps)).rejects.toThrow(
-      "SENDGRID_API_KEY missing",
-    );
+    await expect(sendCrmEmail(input(), testDeps())).rejects.toThrow("SENDGRID_API_KEY missing");
     expect(bag.failed).toEqual([{ id: "500", error: "SENDGRID_API_KEY missing" }]);
   });
 });
@@ -483,7 +572,7 @@ describe("guards", () => {
     await expect(
       sendCrmEmail(
         { ...input(), lead: lead({ guest: { ...lead().guest, email: null } }) },
-        defaultSendDeps,
+        testDeps(),
       ),
     ).rejects.toThrow("no_recipient");
     expect(bag.inserted).toHaveLength(0);

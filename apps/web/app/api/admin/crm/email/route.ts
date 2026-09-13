@@ -87,6 +87,7 @@ export const POST = withCrmRoute(EmailSendSchema, async ({ input, user }) => {
         to: result.message.toEmails,
         cc: result.message.ccEmails,
         fell_back: result.fellBack,
+        send_pending: result.sendPending,
       },
     });
     return {
@@ -94,6 +95,7 @@ export const POST = withCrmRoute(EmailSendSchema, async ({ input, user }) => {
       fellBack: result.fellBack,
       graphError: result.graphError,
       firstTouchRecorded: result.firstTouchRecorded,
+      sendPending: result.sendPending,
     };
   } catch (err) {
     if (err instanceof NoRecipientError) throw new CrmHttpError(400, "no_recipient");
