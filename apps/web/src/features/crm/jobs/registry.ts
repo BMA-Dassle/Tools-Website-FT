@@ -62,8 +62,9 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   "sevenshifts-mirror": sevenShiftsMirrorHandler,
   "bmi-mirror-delta": bmiMirrorDeltaHandler,
   "bmi-mirror-backfill": bmiMirrorBackfillHandler,
-  "graph-renew": notImplemented("graph-renew"),
-  "graph-fetch-message": notImplemented("graph-fetch-message"),
+  "graph-renew": (ctx) => import("~/features/crm/email").then((m) => m.runGraphRenewJob(ctx)),
+  "graph-fetch-message": (ctx) =>
+    import("~/features/crm/email").then((m) => m.runGraphFetchMessageJob(ctx)),
   "threecx-reconcile": notImplemented("threecx-reconcile"),
   "share-link-expire": notImplemented("share-link-expire"),
   "email-send-retry": notImplemented("email-send-retry"),
