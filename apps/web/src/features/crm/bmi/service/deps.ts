@@ -33,7 +33,7 @@ import {
   officeLiveReservations,
   officePerson,
   officeProject,
-  tenantResourceIds,
+  tenantFacts,
 } from "../transport";
 import type {
   MirrorRow,
@@ -117,10 +117,11 @@ export const officeReader: OfficeReader = {
     // Names from the shared 2 h lookup cache; resource ids from the tenant's
     // OWN metadata (`resourceNames` merges the Fort Myers constants into every
     // tenant and would send Naples 120 ids, past IIS's query-string limit).
-    const [meta, fromMetadata] = await Promise.all([
+    const [meta, facts] = await Promise.all([
       getMetadataLookups(clientKey),
-      tenantResourceIds(clientKey),
+      tenantFacts(clientKey),
     ]);
+    const fromMetadata = facts.resourceIds;
     const custom = Object.keys(meta.stateNames).filter((id) => Number(id) > 0);
     // Union with the curated list daily-events queries: it carries the pseudo
     // resource "-1" (FastTrax) that the metadata blob does not list (probed
@@ -128,7 +129,9 @@ export const officeReader: OfficeReader = {
     const resourceIds = [...new Set([...fromMetadata, ...(RESOURCE_IDS[clientKey] ?? [])])];
     return {
       stateNames: meta.stateNames,
-      userNames: meta.userNames,
+      // The shared lookup's curated names win; the tenant's own `username`
+      // fills the gaps it cannot (every Naples staff id — see `tenantFacts`).
+      userNames: { ...facts.userNames, ...meta.userNames },
       productNames: meta.productNames,
       resourceIds,
       stateIds: [...new Set([...BUILTIN_PROJECT_STATES, ...custom])],
