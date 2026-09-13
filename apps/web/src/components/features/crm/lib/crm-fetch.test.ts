@@ -182,6 +182,8 @@ describe("isKnownRoute", () => {
     expect(isKnownRoute("/leads")).toBe(true);
     expect(isKnownRoute("/leads/queue")).toBe(true);
     expect(isKnownRoute("/leadsmith")).toBe(false);
+    expect(isKnownRoute("/availability?centre=HPFM")).toBe(true);
+    expect(isKnownRoute("/heats?centre=FT")).toBe(true);
     expect(isKnownRoute("/measurements")).toBe(false);
   });
 });
