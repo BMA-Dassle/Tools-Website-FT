@@ -136,12 +136,11 @@ export function RequestBar({
         />
       </div>
 
+      {/* Read-only: a <label> here would have no control to name. */}
       <div className="field avail-field">
-        <label id="avail-lanes-label">Lanes</label>
+        <span className="avail-caption">Lanes</span>
         <Pill>
-          <span aria-labelledby="avail-lanes-label">
-            {need} for {guests} guests (6 per lane)
-          </span>
+          {need} for {guests} guests (6 per lane)
         </Pill>
       </div>
     </div>
