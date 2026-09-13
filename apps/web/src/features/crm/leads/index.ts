@@ -44,6 +44,7 @@ export {
   listUnassignedLeads,
   listDueLeads,
   listAssignedAwaitingTouch,
+  listLeadsByProjectIds,
   countUnassignedLeads,
   countLeadsInStatus,
   volumeByRepMonth,
