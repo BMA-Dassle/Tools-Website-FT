@@ -4,6 +4,7 @@ import { useQueries } from "@tanstack/react-query";
 import type { CrmRole } from "~/features/crm/core/types";
 import type { BadgeKey } from "~/features/crm/core/nav";
 import { BADGES_POLL_MS, leadsKeys } from "~/features/crm/leads/queries";
+import { smsKeys } from "~/features/crm/sms/queries";
 import type { CrmFetch } from "../lib/crm-fetch";
 import type { BadgeCounts } from "./nav-links";
 
@@ -80,11 +81,20 @@ export function useBadgeCounts(crmFetch: CrmFetch, role: CrmRole): BadgeCounts {
 }
 
 /**
- * The query key for a badge endpoint. `/leads/badges` keeps the leads sub's own
- * key so a lead mutation's `invalidateQueries(leadsKeys.all)` still refreshes
- * the badge; anything else gets a stable key of its own.
+ * The query key for a badge endpoint — the OWNING SUB'S key wherever there is
+ * one, so that sub's own `invalidateQueries` reaches the badge.
+ *
+ *   `/leads/badges` → `leadsKeys.badges()`, under `["crm","leads"]`, so a lead
+ *                     mutation refreshes it.
+ *   `/sms/unread`   → `smsKeys.unread()`, under `["crm","sms"]`, so reading a
+ *                     conversation (which invalidates `smsKeys.all`) clears the
+ *                     Messages badge immediately instead of leaving a stale
+ *                     count up for the rest of the 60 s poll.
+ *
+ * Anything else gets a stable key of its own.
  */
 export function badgeKeyFor(path: string): readonly unknown[] {
   if (path === "/leads/badges") return leadsKeys.badges();
+  if (path === "/sms/unread") return smsKeys.unread();
   return ["crm", "badges", path] as const;
 }
