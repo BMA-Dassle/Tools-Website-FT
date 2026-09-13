@@ -21,7 +21,8 @@ check-in window, (3) a staff press that says "ready to pull".
 - [x] Gates: vitest 524 files / 7733 tests green (same 6 env-only failures as the fast-lane branch:
       next-auth / @auth/core not installed locally); tsc 54 errors = the pre-existing baseline, none
       in touched files; eslint 0 errors on every changed file.
-- [ ] Not committed (owner to review), not live-verified. Open question for the owner: the desk's own Called box still flashes green
+- [x] Committed 62674a2d and MERGED to main 2026-09-13 (fast-forward, no PR), together with the
+      fast-lane commit 9c7c41b7 beneath it. Not live-verified. Open question for the owner: the desk's own Called box still flashes green
       only on a complete grid; should it take the same three triggers?
 
 ## Employee perks — 7shifts-verified, web + kiosk (2026-09-13) — PLAN v2, owner decisions in, awaiting GO
