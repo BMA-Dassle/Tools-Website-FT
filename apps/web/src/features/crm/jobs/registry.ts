@@ -63,7 +63,8 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   "bmi-mirror-backfill": notImplemented("bmi-mirror-backfill"),
   "graph-renew": notImplemented("graph-renew"),
   "graph-fetch-message": notImplemented("graph-fetch-message"),
-  "threecx-reconcile": notImplemented("threecx-reconcile"),
+  "threecx-reconcile": (ctx) =>
+    import("~/features/crm/calls").then((m) => m.runThreecxReconcileJob(ctx)),
   "share-link-expire": notImplemented("share-link-expire"),
   "email-send-retry": notImplemented("email-send-retry"),
   "sms-send-retry": notImplemented("sms-send-retry"),
