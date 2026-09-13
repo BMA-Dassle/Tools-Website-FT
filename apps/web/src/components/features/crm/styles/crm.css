@@ -3555,3 +3555,18 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Per-board column widths.
+   The prototype set these inline (`direction-b.html:110`), which beats the
+   phone rules above on specificity AND on the cascade: a queue board kept its
+   300px columns at 390px and lost `scroll-snap-type`. Declared here, above the
+   phone breakpoint only, so `.board { grid-auto-columns: 86% }` still wins on
+   a phone. */
+@media (min-width: 769px) {
+  .crm-root .board.queue-board {
+    grid-auto-columns: 300px;
+  }
+  .crm-root .board.lane-board {
+    grid-auto-columns: 260px;
+  }
+}

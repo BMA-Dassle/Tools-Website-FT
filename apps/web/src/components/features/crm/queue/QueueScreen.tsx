@@ -164,7 +164,7 @@ export default function QueueScreen({ query }: ScreenProps) {
       {q.data ? (
         <div className="board-wrap" data-testid={LEAD_TEST_IDS.queue}>
           <div className="board-scroll" style={{ padding: 0 }}>
-            <div className="board" style={{ gridAutoColumns: 300 }}>
+            <div className="board queue-board">
               <BoardColumn
                 testId={LEAD_TEST_IDS.queueUnassigned}
                 header={
