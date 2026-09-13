@@ -13,7 +13,7 @@ vi.mock("../core/seed", () => ({
   runSeed: async () => ({ reps: 0, logins: 0, statuses: 0, rules: 0, templates: 0, settings: 0 }),
 }));
 
-const { HANDLERS, NOT_IMPLEMENTED_ERROR } = await import("./registry");
+const { HANDLERS, NOT_IMPLEMENTED_ERROR, notImplemented } = await import("./registry");
 const { drainDueJobs, runJobInline, runLeasedJob } = await import("./runner");
 
 class Clock {
@@ -172,11 +172,17 @@ describe("noop and notImplemented", () => {
   });
 
   it("every kind without a PR → failed with {ok:false, error:'not implemented'}, never done", async () => {
-    // PR1: noop, seed · B2: assign-sweep, sevenshifts-mirror. A PR that fills a
-    // handler adds its kinds here and lowers the count.
-    const IMPLEMENTED = new Set<JobKind>(["noop", "seed", "assign-sweep", "sevenshifts-mirror"]);
-    const pending = (Object.keys(HANDLERS) as JobKind[]).filter((k) => !IMPLEMENTED.has(k));
-    expect(pending.length).toBe(10);
+    // PR-agnostic: a kind is "without a PR" while its registry line is still
+    // the `notImplemented(kind)` stub (same arrow source), so a feature PR that
+    // replaces its own line does not have to edit this count. Sanity-bound the
+    // set so a registry where everything (or nothing) is stubbed still fails.
+    const stub = notImplemented("noop").toString();
+    const kinds = Object.keys(HANDLERS) as JobKind[];
+    const pending = kinds.filter((k) => HANDLERS[k].toString() === stub);
+    expect(pending).not.toContain("noop");
+    expect(pending).not.toContain("seed");
+    expect(pending.length).toBeGreaterThan(0);
+    expect(pending.length).toBeLessThan(kinds.length - 1);
     for (const kind of pending) {
       const { job, result } = await runJobInline({ kind, actorEmail: "eric@headpinz.com" }, deps());
       expect(job.status, kind).toBe("failed");

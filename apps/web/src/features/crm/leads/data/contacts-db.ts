@@ -1,9 +1,17 @@
 /**
  * `crm_contacts` — a person we can reach (brief §3.8). `bmi_person_id` is TEXT
- * (17-digit Office ids). DDL only in PR1; B3 adds the writers.
+ * (17-digit Office ids). DDL from PR1; B1 adds the upsert the BMI mirror links
+ * hosts through and the account's contact list; B3 adds the lead-side writers.
+ *
+ * MATCH ORDER for a mirrored host: `bmi_person_id` (exact) → `phone_e164` →
+ * `email_key`; a new row otherwise. A match by phone or email BACKFILLS the
+ * person id it lacked, so the next run matches on the id. Names and the
+ * account link are filled in only where the row is empty — a rep's manual
+ * edit is never overwritten by a sync.
  */
 
-import { sql } from "@ft/db";
+import { isDbConfigured, sql } from "@ft/db";
+import type { CrmContact } from "../../core/types";
 import { ensureAccountsSchema } from "./accounts-db";
 
 let schemaReady: Promise<void> | null = null;
@@ -30,6 +38,146 @@ export function ensureContactsSchema(): Promise<void> {
     `;
     await q`CREATE INDEX IF NOT EXISTS crm_contacts_phone ON crm_contacts (phone_e164)`;
     await q`CREATE INDEX IF NOT EXISTS crm_contacts_email ON crm_contacts (email_key)`;
+    // B1: the mirror matches on the Office person id first.
+    await q`CREATE INDEX IF NOT EXISTS crm_contacts_bmi_person ON crm_contacts (bmi_person_id)`;
+    await q`CREATE INDEX IF NOT EXISTS crm_contacts_account ON crm_contacts (account_id)`;
   })();
   return schemaReady;
+}
+
+export interface ContactRowRaw {
+  id: string;
+  account_id: string | null;
+  first_name: string;
+  last_name: string;
+  phone_e164: string | null;
+  email: string | null;
+  email_key: string | null;
+  bmi_person_id: string | null;
+  prefers: string | null;
+  meta: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+const PREFERS = new Set(["text", "call", "email"]);
+
+export function mapContactRow(r: ContactRowRaw): CrmContact {
+  return {
+    id: String(r.id),
+    accountId: r.account_id === null || r.account_id === undefined ? null : String(r.account_id),
+    firstName: r.first_name ?? "",
+    lastName: r.last_name ?? "",
+    phoneE164: r.phone_e164 ?? null,
+    email: r.email ?? null,
+    bmiPersonId: r.bmi_person_id ?? null,
+    prefers: r.prefers && PREFERS.has(r.prefers) ? (r.prefers as CrmContact["prefers"]) : null,
+    meta:
+      r.meta && typeof r.meta === "object" && !Array.isArray(r.meta)
+        ? (r.meta as Record<string, unknown>)
+        : null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+const COLUMNS = `
+  c.id::text AS id, c.account_id::text AS account_id, c.first_name, c.last_name, c.phone_e164, c.email, c.email_key,
+  c.bmi_person_id, c.prefers, c.meta, c.created_at::text AS created_at, c.updated_at::text AS updated_at
+`;
+
+export interface ContactUpsertInput {
+  firstName: string;
+  lastName: string;
+  phoneE164: string | null;
+  email: string | null;
+  emailKey: string | null;
+  bmiPersonId: string | null;
+  accountId: string | null;
+}
+
+/**
+ * Find-or-create a host from a mirrored Office person. Returns the row and
+ * whether it was created. Never throws for a person with nothing to match on
+ * beyond a name — that still gets a row keyed by the person id.
+ */
+export async function upsertContactFromBmi(
+  input: ContactUpsertInput,
+): Promise<{ contact: CrmContact; created: boolean }> {
+  if (!isDbConfigured()) throw new Error("DATABASE_URL is not set");
+  await ensureContactsSchema();
+  const q = sql();
+  const found = (await q.query(
+    `SELECT ${COLUMNS},
+            CASE WHEN $1::text IS NOT NULL AND c.bmi_person_id = $1 THEN 0
+                 WHEN $2::text IS NOT NULL AND c.phone_e164 = $2 THEN 1
+                 WHEN $3::text IS NOT NULL AND c.email_key = $3 THEN 2
+                 ELSE 9 END AS rank
+       FROM crm_contacts c
+      WHERE ($1::text IS NOT NULL AND c.bmi_person_id = $1)
+         OR ($2::text IS NOT NULL AND c.phone_e164 = $2)
+         OR ($3::text IS NOT NULL AND c.email_key = $3)
+      ORDER BY rank ASC, c.id ASC
+      LIMIT 1`,
+    [input.bmiPersonId, input.phoneE164, input.emailKey],
+  )) as (ContactRowRaw & { rank: number })[];
+
+  if (found[0]) {
+    const rows = (await q.query(
+      `UPDATE crm_contacts c
+          SET bmi_person_id = COALESCE(c.bmi_person_id, $2),
+              phone_e164 = COALESCE(c.phone_e164, $3),
+              email = COALESCE(c.email, $4),
+              email_key = COALESCE(c.email_key, $5),
+              first_name = CASE WHEN c.first_name = '' THEN $6 ELSE c.first_name END,
+              last_name = CASE WHEN c.last_name = '' THEN $7 ELSE c.last_name END,
+              account_id = COALESCE(c.account_id, $8::bigint),
+              updated_at = NOW()
+        WHERE c.id = $1::bigint
+        RETURNING ${COLUMNS}`,
+      [
+        found[0].id,
+        input.bmiPersonId,
+        input.phoneE164,
+        input.email,
+        input.emailKey,
+        input.firstName,
+        input.lastName,
+        input.accountId,
+      ],
+    )) as ContactRowRaw[];
+    return { contact: mapContactRow(rows[0] ?? found[0]), created: false };
+  }
+
+  const rows = (await q.query(
+    `INSERT INTO crm_contacts AS c (account_id, first_name, last_name, phone_e164, email, email_key, bmi_person_id, meta)
+     VALUES ($1::bigint, $2, $3, $4, $5, $6, $7, $8::jsonb)
+     RETURNING ${COLUMNS}`,
+    [
+      input.accountId,
+      input.firstName,
+      input.lastName,
+      input.phoneE164,
+      input.email,
+      input.emailKey,
+      input.bmiPersonId,
+      JSON.stringify({ source: "bmi-mirror" }),
+    ],
+  )) as ContactRowRaw[];
+  if (!rows[0]) throw new Error("crm_contacts: insert returned no row");
+  return { contact: mapContactRow(rows[0]), created: true };
+}
+
+export async function listContactsForAccount(accountId: string, limit = 50): Promise<CrmContact[]> {
+  if (!isDbConfigured() || !/^\d+$/.test(accountId)) return [];
+  await ensureContactsSchema();
+  const q = sql();
+  const rows = (await q.query(
+    `SELECT ${COLUMNS} FROM crm_contacts c
+      WHERE c.account_id = $1::bigint
+      ORDER BY c.updated_at DESC, c.id ASC
+      LIMIT $2`,
+    [accountId, Math.min(Math.max(limit, 1), 200)],
+  )) as ContactRowRaw[];
+  return rows.map(mapContactRow);
 }

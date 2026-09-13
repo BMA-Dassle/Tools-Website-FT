@@ -189,3 +189,121 @@ export const ADMIN_NAV_GROUP_ID = "admin";
 
 /** Screens a rep may not open; the shell shows `TEST_IDS.notForRole` instead. */
 export const DIRECTOR_ONLY_SCREENS: readonly ScreenId[] = ["queue", "rules", "statuses", "goals"];
+
+// ---------------------------------------------------------------------------
+// B1 — the BMI mirror: History & Accounts, "This time last year"
+// ---------------------------------------------------------------------------
+
+/** The rep chip on a mirrored event, joined from `responsible_user_id`. */
+export interface MirrorRep {
+  slug: string;
+  firstName: string;
+  initials: string;
+}
+
+/** One mirrored Office project as the History / Account screens see it. Ids are strings. */
+export interface MirrorEvent {
+  projectId: string;
+  clientKey: string;
+  /** Null when the Fort Myers split could not be decided (no schedule). */
+  centre: CentreCode | null;
+  /** Office reference ("H2311"). */
+  number: string | null;
+  name: string | null;
+  /** YYYY-MM-DD */
+  eventDate: string | null;
+  eventStart: string | null;
+  persons: number | null;
+  stateId: string | null;
+  stateName: string | null;
+  /** `"-10"` = an online booking (kept in the mirror, hidden by the screens). */
+  kindId: string | null;
+  responsibleUserId: string | null;
+  responsibleName: string | null;
+  rep: MirrorRep | null;
+  totalValueCents: number | null;
+  balanceCents: number | null;
+  personName: string | null;
+  personPhone: string | null;
+  personEmail: string | null;
+  accountId: string | null;
+  contactId: string | null;
+  syncedAt: string;
+}
+
+export interface HistoryAccount {
+  id: string;
+  kind: "business" | "household";
+  name: string;
+  centre: CentreCode | null;
+  lifetimeCents: number;
+  eventCount: number;
+  lastEventDate: string | null;
+  contactNames: string[];
+}
+
+export interface HistoryContact {
+  id: string;
+  firstName: string;
+  lastName: string;
+  phoneE164: string | null;
+  email: string | null;
+  bmiPersonId: string | null;
+}
+
+export interface SyncRunSummary {
+  id: string;
+  clientKey: string;
+  kind: string;
+  windowFrom: string | null;
+  windowUntil: string | null;
+  rowsSeen: number | null;
+  rowsUpserted: number | null;
+  ok: boolean;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface MirrorStatus {
+  /** Every row, online bookings included. */
+  projects: number;
+  /** Rows that are group events (`kind_id <> '-10'`). */
+  groupEvents: number;
+  /** Most recent sync runs, newest first. */
+  runs: SyncRunSummary[];
+}
+
+/** GET /history?q=&limit=&accountsCursor=&eventsCursor= */
+export type HistoryResponse = ApiOk<{
+  q: string;
+  accounts: HistoryAccount[];
+  accountsNextCursor: string | null;
+  /** Empty unless `q` was given. */
+  events: MirrorEvent[];
+  eventsNextCursor: string | null;
+  mirror: MirrorStatus;
+}>;
+
+/** GET /accounts/[id]?limit=&cursor= */
+export type AccountResponse = ApiOk<{
+  account: HistoryAccount;
+  contacts: HistoryContact[];
+  events: MirrorEvent[];
+  eventsNextCursor: string | null;
+}>;
+
+/** GET /last-year?clientKey=&limit=&cursor= */
+export type LastYearResponse = ApiOk<{
+  /** Inclusive ET calendar days, one year back. */
+  window: { from: string; till: string };
+  items: MirrorEvent[];
+  nextCursor: string | null;
+}>;
+
+/** The `payload` for `POST /jobs/run {kind:"bmi-mirror-backfill"}`. */
+export interface BackfillJobPayload {
+  clientKey: OfficeClientKey;
+  from: string;
+  until: string;
+}

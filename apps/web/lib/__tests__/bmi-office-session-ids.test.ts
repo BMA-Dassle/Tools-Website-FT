@@ -141,4 +141,23 @@ describe("x-session-id across production Office callers", () => {
     expect(src).toContain('officeReadSessionId("events", clientKey)');
     expect(src).toContain("sessionId: randomUUID()");
   });
+
+  it("officeGet's optional sessionTag is a stable caller name, routed through the helper", () => {
+    // The CRM mirror backfill reads with its own tag ("crm-backfill") so BMI can
+    // attribute its load; the tag must still become `{tag}-{clientKey}` via
+    // officeReadSessionId — a tag that reached the header raw, or a clock, would
+    // reopen the 2026-08-25 leak under a new name.
+    const src = readFileSync(
+      join(WEB_ROOT, "src/features/daily-events/data/bmi-office.ts"),
+      "utf8",
+    );
+    const sig =
+      /export function officeGet<T>\(\s*clientKey: string,\s*endpoint: string,\s*sessionTag\?: string,?\s*\)/;
+    expect(src).toMatch(sig);
+    expect(src).toContain("officeReadSessionId(sessionTag, clientKey)");
+    expect(src).not.toMatch(/"x-session-id":\s*sessionTag/);
+    expect(officeReadSessionId("crm-backfill", "headpinznaples")).toBe(
+      "crm-backfill-headpinznaples",
+    );
+  });
 });
