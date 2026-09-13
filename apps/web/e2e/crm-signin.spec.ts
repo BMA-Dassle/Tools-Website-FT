@@ -2,11 +2,20 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { E2E } from "../playwright.config";
+import { ACTIVITY_TEST_IDS } from "../src/features/crm/activities/contracts";
 import {
   ADMIN_NAV_GROUP_ID,
   DIRECTOR_ONLY_SCREENS,
   TEST_IDS,
 } from "../src/features/crm/core/contracts";
+import { LEAD_TEST_IDS } from "../src/features/crm/leads/contracts";
+import { PIPELINE_TEST_IDS } from "../src/features/crm/statuses/contracts";
+import {
+  clearPipelineFixture,
+  seedPipelineFixture,
+  timelineLeadOf,
+  type FixtureLead,
+} from "./crm-pipeline-fixture";
 
 /**
  * THE CRM SIGN-IN PROOF (brief §3.10). The `admin-sso.spec.ts` sweep also
@@ -224,11 +233,24 @@ async function signInTo(page: Page, pathname: string) {
   await page.waitForLoadState("networkidle");
 }
 
-test.beforeAll(() => {
+/**
+ * The cards B4's board screenshots are OF. Seeded once for the whole file and
+ * removed in `afterAll`, marker-deleted so a crashed run cleans itself up on
+ * the next one rather than leaving a lead on somebody's real pipeline.
+ */
+let fixtureLeads: FixtureLead[] = [];
+
+test.beforeAll(async () => {
+  if (!enabled) return;
   expect(TOKEN.length, "ADMIN_CAMERA_TOKEN must be present in .env.local").toBeGreaterThan(16);
+  expect(E2E.databaseUrl.length, "DATABASE_URL must be present in .env.local").toBeGreaterThan(16);
+  fixtureLeads = await seedPipelineFixture(E2E.databaseUrl);
+  expect(fixtureLeads.length).toBeGreaterThan(0);
 });
 
 test.afterAll(async ({ request }) => {
+  if (!enabled) return;
+  await clearPipelineFixture(E2E.databaseUrl).catch(() => undefined);
   // Harmless housekeeping on the mock Entra: no __grant was issued, so there
   // is nothing to undo, but a reset keeps a re-run from inheriting state.
   await request.post(`${E2E.mockEntraOrigin}/__reset`).catch(() => undefined);
@@ -278,6 +300,72 @@ test.describe.serial("eric — sales-director", () => {
     await expect(page.locator(byTestId(TEST_IDS.statusesTable))).toContainText("Contract sent");
     expect(countOf(await documentBytes(page), TOKEN)).toBe(0);
     await shoot(page, "director-statuses");
+  });
+
+  /**
+   * B4. The board is the one screen whose whole point is what is ON it, so the
+   * fixture puts cards in every column first and takes them away in `afterAll`
+   * (`crm-pipeline-fixture.ts`). Without that, `crm_leads` is empty and a
+   * screenshot proves only that the screen mounted.
+   *
+   * What is asserted, beyond `shoot()`'s layout rules: the seven columns (five
+   * on-board statuses plus the synthetic Booked and Closed), at least one card,
+   * and — the R13 rule — that every card carries a real "Change status" button,
+   * because a board a rep can only use with a mouse is not finished.
+   */
+  test("/admin/crm/pipeline — the board, its columns, and a non-drag way to move every card", async () => {
+    await page.goto("/admin/crm/pipeline", { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    expect(new URL(page.url()).pathname).toBe("/admin/crm/pipeline");
+    await expect(page.locator(byTestId(TEST_IDS.screen("pipeline")))).toBeVisible();
+
+    const board = page.locator(byTestId(PIPELINE_TEST_IDS.board));
+    await expect(board).toBeVisible();
+    for (const id of ["assigned", "contacted", "waiting", "quote", "contract", "won", "closed"]) {
+      await expect(page.locator(byTestId(PIPELINE_TEST_IDS.column(id))), id).toBeVisible();
+    }
+
+    const cards = board.locator('[data-testid^="crm-pipeline-card-"]');
+    const cardCount = await cards.count();
+    expect(cardCount, "the fixture put cards on the board").toBeGreaterThan(0);
+    // R13: drag is never the only path. One button per card, reachable by Tab.
+    const changeStatus = board.getByRole("button", { name: /^Change status of / });
+    expect(await changeStatus.count(), "every card needs a Change status button").toBe(cardCount);
+
+    expect(countOf(await documentBytes(page), TOKEN)).toBe(0);
+    await shoot(page, "director-pipeline");
+  });
+
+  test("/admin/crm/pipeline — the deal drawer over the board", async () => {
+    const publicId = timelineLeadOf(fixtureLeads)!;
+    await page.goto(`/admin/crm/pipeline?deal=${encodeURIComponent(publicId)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForLoadState("networkidle");
+    await expect(page.locator(byTestId(LEAD_TEST_IDS.deal))).toBeVisible();
+
+    // B4's other half. The fixture gives this lead a past, so the assertion is
+    // about ROWS, not about a card that rendered its empty state: the five
+    // seeded activities, newest first, with the most recent call at the top.
+    const timeline = page.locator(byTestId(ACTIVITY_TEST_IDS.timeline));
+    await expect(timeline).toBeVisible();
+    const items = timeline.locator(".tl");
+    await expect(items).toHaveCount(5);
+    await expect(items.first()).toContainText("Outbound call");
+    await expect(timeline).toContainText("Quote sent");
+    // The touch tally, which is the accountability rule made visible: the
+    // seeded call is today and outbound, so it counts once.
+    await expect(timeline).toContainText("Today: call");
+
+    // The status chip is a BUTTON here, not a label — the deal's own non-drag
+    // path to the same transition the board's cards use.
+    await expect(page.getByRole("button", { name: /^Change status — currently / })).toBeVisible();
+    // The two quick actions B4 registered are LIVE, not disabled placeholders.
+    for (const label of ["Note", "Snooze"]) {
+      await expect(page.getByRole("button", { name: label, exact: true })).toBeEnabled();
+    }
+    expect(countOf(await documentBytes(page), TOKEN)).toBe(0);
+    await shoot(page, "director-deal");
   });
 
   test("/admin/crm/history — one scroller, the content column (the 2026-09-13 report)", async () => {

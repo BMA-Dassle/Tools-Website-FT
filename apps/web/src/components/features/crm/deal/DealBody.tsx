@@ -1,6 +1,6 @@
 "use client";
 
-import { IconEdit, IconUsers } from "@tabler/icons-react";
+import { IconEdit, IconFlag, IconUsers } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Suspense, lazy, type LazyExoticComponent } from "react";
 import { LEAD_TEST_IDS } from "~/features/crm/leads/contracts";
@@ -16,6 +16,7 @@ import { AssignSheet } from "../queue/AssignSheet";
 import { DealHeader } from "./DealHeader";
 import { EditLeadSheet } from "./EditLeadSheet";
 import { QuickActions } from "./QuickActions";
+import { StatusSheet } from "./StatusSheet";
 import {
   DEAL_TABS,
   DEAL_TAB_IDS,
@@ -104,6 +105,22 @@ export function DealBody({ detail, query, setQuery, refresh }: DealBodyProps) {
       ),
     });
 
+  const changeStatus = () =>
+    openSheet({
+      title: "Change status",
+      icon: <IconFlag {...ICON} />,
+      body: (
+        <StatusSheet
+          lead={lead}
+          onCancel={closeSheet}
+          onDone={() => {
+            closeSheet();
+            refresh();
+          }}
+        />
+      ),
+    });
+
   return (
     <div className="stack" style={{ gap: 16 }} data-testid={LEAD_TEST_IDS.deal}>
       <DealHeader
@@ -112,6 +129,7 @@ export function DealBody({ detail, query, setQuery, refresh }: DealBodyProps) {
         now={now}
         isDirector={isDirector}
         onReassign={reassign}
+        onChangeStatus={changeStatus}
         onEdit={edit}
         onMint={() => mint.mutate()}
         minting={mint.isPending}

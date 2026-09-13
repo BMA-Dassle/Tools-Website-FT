@@ -7,6 +7,7 @@ import {
   type TablerIcon,
 } from "@tabler/icons-react";
 import type { ComponentType } from "react";
+import { ACTIVITY_TEST_IDS } from "~/features/crm/activities/contracts";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import type { LeadView } from "~/features/crm/leads/contracts";
 import { contactKey, phoneKey } from "~/features/crm/sms/keys";
@@ -22,9 +23,11 @@ import { leadName } from "../leads/model";
  *
  *   B3 (here)  Call / Text / Email hand the lead to the device — `tel:`,
  *              `sms:`, `mailto:` — which is what a rep on a phone wants today
- *              and is honest about what exists. Note and Snooze are DISABLED
- *              with the reason, never faked.
- *   B4         `note` → the Note sheet, `snooze` → the Snooze sheet.
+ *              and is honest about what exists.
+ *   B4 (done)  `note` → the Note sheet, `snooze` → the Snooze sheet. Both are
+ *              in-app sheets, so they are `{kind:"sheet"}` targets with a key
+ *              in `QUICK_ACTION_SHEETS` — one line each, exactly as this
+ *              registry was built for, and no second dispatch mechanism.
  *   C1         `text` → the rep's Vox DID composer (`sms/service/send.ts`).
  *   C2 (done)  `email` → the Graph draft-then-send composer, opened as a
  *              SHEET rather than handing the guest to the device's mail app:
@@ -34,6 +37,16 @@ import { leadName } from "../leads/model";
  *
  * `resolve` returning null disables the button and shows `disabledTitle`; a
  * slot never silently does nothing.
+ *
+ * A SLOT HAS TWO WAYS TO ACT, and this file is where they are declared so the
+ * four PRs above never have to touch `QuickActions.tsx`. `{kind:"href"}` hands
+ * the lead to the device; `{kind:"sheet"}` opens the slot's own sheet INSIDE
+ * the CRM, which is what every real rail needs — a `mailto:` or `sms:` send
+ * never reaches Neon, never records first touch and never carries the header
+ * a reply is matched by. The sheet itself is registered in
+ * `QUICK_ACTION_SHEETS` and lazily loaded, so a PR ships its rail by adding
+ * ONE key here and ONE `resolve` line, and two PRs building in parallel do not
+ * collide.
  */
 
 export const QUICK_ACTION_IDS = ["call", "text", "email", "note", "snooze"] as const;
@@ -103,8 +116,14 @@ const route = (value: string | null): QuickActionTarget | null =>
 const sheet = (id: QuickActionId, when: boolean): QuickActionTarget | null =>
   when ? { kind: "sheet", id } : null;
 
-/** Nothing is wired for this slot yet — the button renders disabled. */
-const notWiredYet = (): null => null;
+/**
+ * This slot opens its own sheet; the lead never leaves the CRM.
+ *
+ * (A slot with nothing wired yet returns null from `resolve` and renders
+ * disabled with its `disabledTitle` — C1/C2/C3 replace `href(...)` with their
+ * own `ownSheet(...)` when their composer lands.)
+ */
+const ownSheet = (id: QuickActionId) => (): QuickActionTarget => ({ kind: "sheet", id });
 
 /**
  * THE CONVERSATION THIS DEAL'S GUEST IS: the contact key when we know who they
@@ -157,16 +176,18 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
     id: "note",
     label: "Note",
     Icon: IconNote,
-    resolve: notWiredYet,
-    disabledTitle: "Arrives with the Pipeline PR",
+    resolve: ownSheet("note"),
+    // Never reached — a note needs nothing from the guest's record — but the
+    // slot keeps a reason so the shape stays uniform and the test can pin it.
+    disabledTitle: "Notes are unavailable on this lead",
     owner: "B4",
   },
   snooze: {
     id: "snooze",
     label: "Snooze",
     Icon: IconZzz,
-    resolve: notWiredYet,
-    disabledTitle: "Arrives with the Pipeline PR",
+    resolve: ownSheet("snooze"),
+    disabledTitle: "This lead has no follow-up to move",
     owner: "B4",
   },
 };
@@ -174,12 +195,16 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
 /**
  * The sheets a `{kind:"sheet"}` target opens — ONE LINE PER SLOT, like
  * `core/screens.ts` and `deal/tabs.ts`, so a channel PR adds its own key and
- * nothing else in this file changes. Pre-populated only where a PR has shipped
- * one; B4 (`note`, `snooze`) each add exactly their own key next.
+ * nothing else in this file changes.
  *
  * A slot whose `resolve` returns `{kind:"sheet"}` with no entry here renders
  * disabled, which is a bug rather than a state, so `actions.test.ts` pins that
  * the two agree.
+ *
+ * The titles are the prototype's (crm-shared.js:267, :276, :278). B4's two
+ * take their test ids from `activities/contracts.ts`, so the sheet a Playwright
+ * run looks for and the sheet the timeline writes to are named by the same
+ * constant.
  *
  * C1's `text` is deliberately NOT here: it is a `route` to the guest's
  * Conversations thread, so there is one composer, one consent check and one
@@ -199,6 +224,19 @@ export const QUICK_ACTION_SHEETS: Partial<Record<QuickActionId, QuickActionSheet
     wide: true,
     testId: "crm-email-sheet",
     load: () => import("../conversations/email/EmailSheet"),
+  },
+  // B4: both are in-app sheets, one key each.
+  note: {
+    title: () => "Add note",
+    wide: false,
+    testId: ACTIVITY_TEST_IDS.noteSheet,
+    load: () => import("./NoteSheet"),
+  },
+  snooze: {
+    title: () => "Snooze follow-up",
+    wide: false,
+    testId: ACTIVITY_TEST_IDS.snoozeSheet,
+    load: () => import("./SnoozeSheet"),
   },
 };
 

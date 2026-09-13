@@ -30,7 +30,7 @@ export type ScreenLoader = () => Promise<{ default: ScreenComponent }>;
 
 export const SCREENS: Record<ScreenId, ScreenLoader> = {
   today: () => import("~/components/features/crm/today/MyDayScreen"),
-  pipeline: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  pipeline: () => import("~/components/features/crm/pipeline/PipelineScreen"),
   queue: () => import("~/components/features/crm/queue/QueueScreen"),
   deal: () => import("~/components/features/crm/deal/DealScreen"),
   contracts: () => import("~/components/features/crm/contracts/ContractsScreen"),

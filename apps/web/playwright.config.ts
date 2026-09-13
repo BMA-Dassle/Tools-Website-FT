@@ -117,6 +117,13 @@ export const E2E = {
   mockEntraOrigin: `http://localhost:${MOCK_ENTRA_PORT}`,
   /** The value that must appear ZERO times in a v2 board's bytes. */
   adminCameraToken: appEnv.ADMIN_CAMERA_TOKEN || "",
+  /**
+   * The SAME Neon the server under test reads. Exposed so a suite can put rows
+   * in front of a screen that has none of its own (`e2e/crm-pipeline-fixture.ts`
+   * seeds a board and removes it again) — the runner process has no `.env.local`
+   * of its own, only what is parsed here.
+   */
+  databaseUrl: appEnv.DATABASE_URL || "",
   adminEmbedSecret: appEnv.ADMIN_EMBED_SECRET || LOCAL_EMBED_SECRET,
   salesApiKey: (appEnv.SALES_API_KEYS || "").split(",")[0]?.trim() || LOCAL_SALES_API_KEY,
   diagSecret: LOCAL_DIAG_SECRET,
