@@ -103,7 +103,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: ADMIN_NAV_GROUP_ID,
     label: "Admin",
     items: [
-      { id: "rules", label: "Assignment rules", icon: "bolt", director: true, ready: false },
+      { id: "rules", label: "Assignment rules", icon: "bolt", director: true, ready: true },
       { id: "statuses", label: "Statuses & BMI", icon: "settings", director: true, ready: true },
     ],
   },
@@ -129,7 +129,7 @@ export const MORE_ITEMS: readonly NavItem[] = [
   { id: "accountability", label: "Accountability", icon: "target", ready: false },
   { id: "kpi", label: "KPI dashboard", icon: "chart", ready: false },
   { id: "goals", label: "Goals", icon: "target", director: true, ready: false },
-  { id: "rules", label: "Assignment rules (admin)", icon: "bolt", director: true, ready: false },
+  { id: "rules", label: "Assignment rules (admin)", icon: "bolt", director: true, ready: true },
   {
     id: "statuses",
     label: "Statuses & BMI (admin)",

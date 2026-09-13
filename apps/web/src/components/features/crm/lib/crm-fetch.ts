@@ -75,7 +75,14 @@ export const SIGNED_OUT_MESSAGE = "Signed out — your last change was not saved
  * the page gate does — so the client treats it like a 401. A JSON 404 envelope
  * on any path is a real not-found.
  */
-export const KNOWN_ROUTES = ["/me", "/settings", "/statuses", "/jobs"] as const;
+export const KNOWN_ROUTES = [
+  "/me",
+  "/settings",
+  "/statuses",
+  "/jobs",
+  "/rules",
+  "/roster",
+] as const;
 
 export function isKnownRoute(path: string): boolean {
   const bare = path.split("?")[0] ?? "";

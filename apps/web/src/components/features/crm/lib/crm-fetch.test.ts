@@ -177,6 +177,8 @@ describe("isKnownRoute", () => {
     expect(isKnownRoute("/statuses/office-states?centre=HPN")).toBe(true);
     expect(isKnownRoute("/jobs/run")).toBe(true);
     expect(isKnownRoute("/settings")).toBe(true);
+    expect(isKnownRoute("/rules/try?guests=42")).toBe(true);
+    expect(isKnownRoute("/roster")).toBe(true);
     expect(isKnownRoute("/leads")).toBe(false);
     expect(isKnownRoute("/measurements")).toBe(false);
   });
