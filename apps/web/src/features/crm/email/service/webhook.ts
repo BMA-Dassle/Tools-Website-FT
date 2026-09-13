@@ -123,7 +123,14 @@ export async function handleNotification(
   }
 
   const fromResource = parseResource(note.resource);
-  const mailbox = fromResource.mailbox ?? sub.mailbox;
+  // THE SUBSCRIPTION ROW WINS ON THE MAILBOX. Graph's `resource` names the
+  // mailbox by DIRECTORY OID (`Users/8ee44408-…/Messages/AAMk…`), not by SMTP
+  // address. Taking it from there would store a GUID in `crm_email_links
+  // .mailbox` and — far worse — make `directionOf` compare an email address
+  // with a GUID, so every Sent Items copy would be filed as INBOUND and
+  // matched against the rep's own address. `sub.mailbox` is the address WE
+  // minted the subscription for; the resource is only ever used for the id.
+  const mailbox = sub.mailbox || fromResource.mailbox;
   const messageId = fromResource.messageId ?? note.resourceData?.id ?? null;
   if (!mailbox || !messageId) return { status: "ignored", reason: "no_resource" };
 

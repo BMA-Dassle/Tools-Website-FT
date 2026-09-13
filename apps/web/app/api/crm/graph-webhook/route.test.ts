@@ -21,11 +21,18 @@ const bag = vi.hoisted(() => ({
     | ((mailbox: string, messageId: string, error: string) => Promise<void>),
 }));
 
+/**
+ * `GRAPH_FETCH_MESSAGE_KIND` and `graphFetchIdempotencyKey` are deliberately
+ * NOT stubbed: the route imports them from the sub's pure `contracts` module,
+ * so the key asserted below is the SHIPPED one (which lowercases the mailbox).
+ * A stub here would have been asserting itself.
+ */
 vi.mock("~/features/crm/email", () => ({
   clientStateMatches: (a: string, b: string | null | undefined) => a === b,
-  defaultWebhookDeps: { findSubscription: async () => null, fetchMessage: async () => ({}) },
-  GRAPH_FETCH_MESSAGE_KIND: "graph-fetch-message",
-  graphFetchIdempotencyKey: (m: string, id: string) => `graph-fetch-message:${m}:${id}`,
+  defaultWebhookDeps: {
+    findSubscription: vi.fn(async () => null),
+    fetchMessage: async () => ({}),
+  },
   handleNotification: vi.fn(
     async (
       note: unknown,
@@ -49,7 +56,7 @@ vi.mock("~/features/crm/jobs", () => ({
   },
 }));
 
-const { GET, POST } = await import("./route");
+const { GET, POST, MAX_NOTIFICATIONS_PER_POST } = await import("./route");
 
 const URL_BASE = "https://headpinz.com/api/crm/graph-webhook";
 
@@ -122,10 +129,27 @@ describe("notifications", () => {
     expect(bag.enqueued).toEqual([
       {
         kind: "graph-fetch-message",
-        idempotencyKey: "graph-fetch-message:Kelsea@HeadPinz.com:AAMk1",
+        idempotencyKey: "graph-fetch-message:kelsea@headpinz.com:AAMk1",
         payload: { mailbox: "Kelsea@HeadPinz.com", messageId: "AAMk1", error: "Graph 503" },
         createdBy: "graph-webhook",
       },
     ]);
+  });
+
+  /**
+   * The route is the one guest-reachable surface with no credential to check.
+   * An uncapped `value` is a free amplifier: one POST, thousands of Neon round
+   * trips (and, with a valid state, a 20 s Graph fetch each) inside a 30 s
+   * function. Graph itself never batches anywhere near the cap.
+   */
+  it("caps the batch instead of doing unbounded work for a stranger", async () => {
+    const value = Array.from({ length: MAX_NOTIFICATIONS_PER_POST + 25 }, (_, i) => ({
+      subscriptionId: "s",
+      clientState: "x",
+      resourceData: { id: `AA${i}` },
+    }));
+    const res = await POST(post(URL_BASE, { value }));
+    expect(res.status).toBe(202);
+    expect(bag.handled).toHaveLength(MAX_NOTIFICATIONS_PER_POST);
   });
 });
