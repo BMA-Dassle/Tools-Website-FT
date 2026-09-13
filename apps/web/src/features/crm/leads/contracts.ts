@@ -63,16 +63,31 @@ export interface LeadGuest {
 }
 
 /**
+ * The planner the guest asked for on the public form (B7), joined from
+ * `crm_reps` through `crm_leads.requested_rep_id`. It is carried whether or
+ * not the rules honoured it — the queue card and the deal header read
+ * "Guest asked for Kelsea" either way.
+ */
+export interface LeadRequestedRep {
+  id: string;
+  slug: string;
+  firstName: string;
+  displayName: string;
+}
+
+/**
  * `CrmLead` plus what every list and card needs without a second round trip:
  * the guest (joined from crm_contacts / crm_accounts), the assignee's slug and
- * name (joined from crm_reps), and `kids` (B3's own column on crm_leads — the
- * flag that sends a birthday to Pandora as "Child Birthday", R2 in the rules).
+ * name (joined from crm_reps), `kids` (B3's own column on crm_leads — the
+ * flag that sends a birthday to Pandora as "Child Birthday", R2 in the rules)
+ * and `requestedRep` (B7's column — who the guest asked for).
  */
 export interface LeadView extends CrmLead {
   kids: boolean;
   guest: LeadGuest;
   repSlug: string | null;
   repName: string | null;
+  requestedRep: LeadRequestedRep | null;
 }
 
 export type AssignmentReason = "manual" | "auto" | "reassign" | "rule" | "release";

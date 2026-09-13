@@ -77,6 +77,10 @@ const RAW = {
   a_name: "Gulf Coast Logistics",
   r_slug: null,
   r_display_name: null,
+  requested_rep_id: "1",
+  rq_slug: "kelsea",
+  rq_first_name: "Kelsea",
+  rq_display_name: "Kelsea Kosco",
 };
 
 describe("insertLead", () => {

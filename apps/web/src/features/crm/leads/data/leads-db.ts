@@ -88,6 +88,10 @@ export function ensureLeadsSchema(): Promise<void> {
     `;
     // B3: the kids flag (mint policy + rule R2). Own sub, ADD COLUMN IF NOT EXISTS only.
     await q`ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS kids BOOLEAN NOT NULL DEFAULT FALSE`;
+    // B7: the planner the guest asked for on the public form. A real column —
+    // the queue, the deal header and the rule trace all read it, so it does not
+    // live buried in `capture_payload` (owner, 2026-09-13 14:05).
+    await q`ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS requested_rep_id BIGINT REFERENCES crm_reps(id)`;
   })();
   return schemaReady;
 }
@@ -145,6 +149,10 @@ export interface LeadRowRaw {
   a_name: string | null;
   r_slug: string | null;
   r_display_name: string | null;
+  requested_rep_id: string | null;
+  rq_slug: string | null;
+  rq_first_name: string | null;
+  rq_display_name: string | null;
 }
 
 const MINT_STATUSES = new Set<MintStatus>(["none", "pending", "minted", "failed"]);
@@ -210,6 +218,15 @@ export function mapLeadRow(r: LeadRowRaw): LeadView {
     },
     repSlug: r.r_slug ?? null,
     repName: r.r_display_name ?? null,
+    requestedRep:
+      r.requested_rep_id && r.rq_slug
+        ? {
+            id: String(r.requested_rep_id),
+            slug: r.rq_slug,
+            firstName: r.rq_first_name ?? r.rq_slug,
+            displayName: r.rq_display_name ?? r.rq_first_name ?? r.rq_slug,
+          }
+        : null,
   };
 }
 
@@ -228,7 +245,9 @@ export const LEAD_SELECT = `
   ${ISO("l.created_at")} AS created_at, ${ISO("l.updated_at")} AS updated_at, ${ISO("l.archived_at")} AS archived_at,
   c.first_name AS c_first_name, c.last_name AS c_last_name, c.phone_e164 AS c_phone_e164,
   c.email AS c_email, c.prefers AS c_prefers,
-  a.name AS a_name, r.slug AS r_slug, r.display_name AS r_display_name
+  a.name AS a_name, r.slug AS r_slug, r.display_name AS r_display_name,
+  l.requested_rep_id::text AS requested_rep_id,
+  rq.slug AS rq_slug, rq.first_name AS rq_first_name, rq.display_name AS rq_display_name
 `;
 
 export const LEAD_FROM = `
@@ -236,6 +255,7 @@ export const LEAD_FROM = `
   LEFT JOIN crm_contacts c ON c.id = l.contact_id
   LEFT JOIN crm_accounts a ON a.id = l.account_id
   LEFT JOIN crm_reps r ON r.id = l.assigned_rep_id
+  LEFT JOIN crm_reps rq ON rq.id = l.requested_rep_id
 `;
 
 /** `L-123` or `123` → `123`; anything else → null. */
@@ -264,6 +284,8 @@ export interface NewLeadRow {
   mintError: string | null;
   capturePayload: Record<string, unknown>;
   createdBy: string | null;
+  /** B7: `crm_reps.id` of the planner the guest asked for; null = First available. */
+  requestedRepId?: string | null;
 }
 
 /** INSERT with `public_id = 'L-' || id` minted in the same statement. Returns the id. */
@@ -275,9 +297,9 @@ export async function insertLead(row: NewLeadRow): Promise<string> {
     `WITH n AS (SELECT nextval(pg_get_serial_sequence('crm_leads', 'id')) AS id)
      INSERT INTO crm_leads (id, public_id, contact_id, account_id, centre, event_date, event_time, guests,
                             event_type, source, is_prospect, kids, notes, mint_status, mint_error,
-                            capture_payload, created_by)
+                            capture_payload, created_by, requested_rep_id)
      SELECT n.id, 'L-' || n.id::text, $1::bigint, $2::bigint, $3, $4::date, $5::time, $6::int,
-            $7, $8, $9::boolean, $10::boolean, $11, $12, $13, $14::jsonb, $15
+            $7, $8, $9::boolean, $10::boolean, $11, $12, $13, $14::jsonb, $15, $16::bigint
        FROM n
      RETURNING id::text AS id`,
     [
@@ -296,6 +318,7 @@ export async function insertLead(row: NewLeadRow): Promise<string> {
       row.mintError,
       JSON.stringify(row.capturePayload ?? {}),
       row.createdBy,
+      row.requestedRepId ?? null,
     ],
   )) as { id: string }[];
   if (!rows[0]) throw new Error("crm_leads: insert returned no row");
@@ -315,6 +338,7 @@ export const LEAD_PATCHABLE = {
   valueCents: "value_cents",
   statusId: "status_id",
   assignedRepId: "assigned_rep_id",
+  requestedRepId: "requested_rep_id",
   assignedAt: "assigned_at",
   heldForRepId: "held_for_rep_id",
   firstTouchAt: "first_touch_at",
