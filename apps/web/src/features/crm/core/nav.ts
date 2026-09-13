@@ -70,7 +70,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         badge: "unassigned",
         ready: true,
       },
-      { id: "contracts", label: "Contracts", icon: "file", badge: "pendingApproval", ready: false },
+      { id: "contracts", label: "Contracts", icon: "file", badge: "pendingApproval", ready: true },
       { id: "events", label: "Events", icon: "calendar", ready: true },
       {
         id: "conversations",
@@ -113,7 +113,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 export const PHONE_TABS: readonly NavItem[] = [
   { id: "today", label: "My Day", icon: "home", badge: "overdue", ready: true },
   { id: "pipeline", label: "Pipeline", icon: "kanban", ready: false },
-  { id: "contracts", label: "Contracts", icon: "file", ready: false },
+  { id: "contracts", label: "Contracts", icon: "file", ready: true },
   { id: "conversations", label: "Messages", icon: "message", ready: true },
   { id: "more", label: "More", icon: "dots", ready: false },
 ];

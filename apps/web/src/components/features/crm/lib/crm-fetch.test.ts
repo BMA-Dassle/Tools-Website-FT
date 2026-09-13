@@ -181,6 +181,8 @@ describe("isKnownRoute", () => {
     expect(isKnownRoute("/roster")).toBe(true);
     expect(isKnownRoute("/leads")).toBe(true);
     expect(isKnownRoute("/leads/queue")).toBe(true);
+    expect(isKnownRoute("/contracts")).toBe(true);
+    expect(isKnownRoute("/contracts/7Hx2Qk/approve")).toBe(true);
     expect(isKnownRoute("/leadsmith")).toBe(false);
     expect(isKnownRoute("/measurements")).toBe(false);
   });

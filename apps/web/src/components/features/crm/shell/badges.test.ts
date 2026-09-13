@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { NAV_GROUPS, MORE_ITEMS, PHONE_TABS, type BadgeKey } from "~/features/crm/core/nav";
 import { leadsKeys } from "~/features/crm/leads/queries";
 import { smsKeys } from "~/features/crm/sms/queries";
-import { BADGE_PATHS, BADGE_SOURCES, badgeCountsFrom, badgeKeyFor } from "./badges";
+import { BADGE_PATHS, BADGE_SOURCES, badgeCountsFrom, badgeKeyFor, pickField } from "./badges";
 
 /**
  * THE SIDEBAR BADGES — shell plumbing every CRM screen reads, so it gets a
@@ -63,8 +63,35 @@ describe("BADGE_SOURCES", () => {
     expect(BADGE_PATHS).toContain("/sms/unread");
   });
 
+  it("names the Contracts badge's own endpoint (B5's line), the first NESTED field", () => {
+    expect(BADGE_SOURCES.pendingApproval).toEqual({
+      path: "/contracts?counts=1",
+      field: "counts.pendingApproval",
+    });
+    expect(BADGE_PATHS).toContain("/contracts?counts=1");
+  });
+
   it("lists each distinct path once, so the hook polls each endpoint once", () => {
     expect(BADGE_PATHS.length).toBe(new Set(BADGE_PATHS).size);
+  });
+});
+
+/**
+ * B5's line is the first to read a NESTED field: the contracts board answers
+ * one envelope for its tiles AND its badge, so a badge poll must not cost a
+ * page of contracts a minute just to reshape the JSON.
+ */
+describe("pickField", () => {
+  it("reads a plain field and a dotted one", () => {
+    expect(pickField({ overdue: 3 }, "overdue")).toBe(3);
+    expect(pickField({ counts: { pendingApproval: 2 } }, "counts.pendingApproval")).toBe(2);
+  });
+
+  it("gives up quietly on a missing path rather than throwing on a slow first load", () => {
+    expect(pickField(undefined, "counts.pendingApproval")).toBeUndefined();
+    expect(pickField({}, "counts.pendingApproval")).toBeUndefined();
+    expect(pickField({ counts: null }, "counts.pendingApproval")).toBeUndefined();
+    expect(pickField({ counts: 7 }, "counts.pendingApproval")).toBeUndefined();
   });
 });
 

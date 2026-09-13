@@ -13,12 +13,17 @@ import type { BadgeCounts } from "./nav-links";
  * `core/nav.ts` names the badge each item carries (`overdue`, `unassigned`,
  * `pendingApproval`, `unread`, `missedCalls`); this table says where each count
  * comes from. A PR fills exactly ITS line: B3 → `/leads/badges` for `overdue`
- * and `unassigned`; C3 → `/calls/badges` for `missedCalls`; B5 adds
- * `pendingApproval`; C1 adds `unread`. A `null` line renders no badge.
+ * and `unassigned`; B5 → `/contracts?counts=1` for `pendingApproval`; C3 →
+ * `/calls/badges` for `missedCalls`; C1 → `/sms/unread` for `unread`. A `null`
+ * line renders no badge.
  *
  * The hook below polls EVERY distinct path in the table, so filling a line is
  * the whole change — no second `useQuery` to add, and no conflict between two
  * PRs doing it at once.
+ *
+ * `field` may name a nested value ("counts.pendingApproval"): the contracts
+ * board answers one envelope for its tiles AND its badge, and a badge poll
+ * must not cost a page of contracts a minute just to reshape the JSON.
  */
 export const BADGE_SOURCES: Record<
   BadgeKey,
@@ -26,7 +31,8 @@ export const BADGE_SOURCES: Record<
 > = {
   overdue: { path: "/leads/badges", field: "overdue" },
   unassigned: { path: "/leads/badges", field: "unassigned" },
-  pendingApproval: null,
+  /** B5: contracts waiting on a director's approval. */
+  pendingApproval: { path: "/contracts?counts=1", field: "counts.pendingApproval" },
   /** C1: the rep's own unread texts. `soft` — a message waiting is not an SLA breach. */
   unread: { path: "/sms/unread", field: "n", soft: true },
   /** C3: calls that rang and nobody answered. `soft` for the same reason. */
@@ -42,6 +48,17 @@ export const BADGE_PATHS: readonly string[] = [
   ),
 ];
 
+/** `"counts.pendingApproval"` → the nested number, or undefined. */
+export function pickField(payload: Record<string, unknown> | undefined, field: string): unknown {
+  if (!payload) return undefined;
+  let cursor: unknown = payload;
+  for (const part of field.split(".")) {
+    if (typeof cursor !== "object" || cursor === null) return undefined;
+    cursor = (cursor as Record<string, unknown>)[part];
+  }
+  return cursor;
+}
+
 /** Pure: fold `{path → payload}` into the shell's `BadgeCounts`. */
 export function badgeCountsFrom(
   payloads: Record<string, Record<string, unknown> | undefined>,
@@ -54,7 +71,7 @@ export function badgeCountsFrom(
   ][]) {
     if (!source) continue;
     if (key === "unassigned" && role !== "director") continue;
-    const raw = payloads[source.path]?.[source.field];
+    const raw = pickField(payloads[source.path], source.field);
     const n = typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
     if (n > 0) out[key] = { n, ...(source.soft ? { soft: true } : {}) };
   }
