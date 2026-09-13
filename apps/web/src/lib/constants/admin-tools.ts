@@ -81,6 +81,13 @@ export const SSO_ADMIN_TOOLS: ReadonlySet<string> = new Set([
   "api-docs",
   "checkin",
   "christmas-in-july",
+  // The group-events Sales CRM (2026-09-12). Desk tool by definition — reps
+  // and the sales director work leads from a chair — and the ONLY tool whose
+  // route needs the SIGNED-IN IDENTITY, not merely the `access` role: every
+  // mutation it records carries `actor_email`, and the in-app role split
+  // (rep vs director) is read from the same session. Its `[token]` shim can
+  // therefore never render the board and always 307s to `/admin/crm`.
+  "crm",
   "daily-events",
   "daily-events-v2",
   "deals",

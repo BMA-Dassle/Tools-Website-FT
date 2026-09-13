@@ -73,16 +73,18 @@ describe("the three lists partition the real tool directories", () => {
     }
   });
 
-  it("names the eighteen desk tools, the two wall displays and the one kiosk tool", () => {
+  it("names the nineteen desk tools, the two wall displays and the one kiosk tool", () => {
     // Spelled out rather than derived: this is an owner decision (2026-08-28,
-    // revised the same day after a shift on the shipped gate, and again on
-    // 2026-08-30 with "move the rest"), so a change to it should have to change
-    // these lines and be argued for in the diff, not slide in as a side effect
-    // of an edit somewhere else.
+    // revised the same day after a shift on the shipped gate, again on
+    // 2026-08-30 with "move the rest", and on 2026-09-12 when the Sales CRM
+    // joined at `/admin/crm`), so a change to it should have to change these
+    // lines and be argued for in the diff, not slide in as a side effect of an
+    // edit somewhere else.
     expect(sorted(SSO_ADMIN_TOOLS)).toEqual([
       "api-docs",
       "checkin",
       "christmas-in-july",
+      "crm",
       "daily-events",
       "daily-events-v2",
       "deals",

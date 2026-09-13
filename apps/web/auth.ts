@@ -35,10 +35,20 @@ import { REQUIRED_ROLE } from "~/features/sso/session";
  * pure, edge-safe function of the cookie and `AUTH_SECRET`.
  */
 
-/** Roles arrive on the profile; Auth.js's stock types don't know about them. */
+/**
+ * Roles arrive on the profile; Auth.js's stock types don't know about them.
+ *
+ * `sub` is the gateway's subject claim, surfaced for the Sales CRM
+ * (2026-09-12). The gateway's `sub` IS the Entra `oid`
+ * (tools-auth `src/entra/client.ts:45` → `oidc_accounts.oid` →
+ * `provider.ts:138-152` returns it as `accountId` and `claims().sub`), so the
+ * CRM may store it as `crm_reps.sso_sub` on first sign-in. It is informational:
+ * the CRM's identity JOIN KEY is the lowercased email, never `sub`.
+ */
 declare module "next-auth" {
   interface Session {
     roles?: string[];
+    sub?: string;
   }
 }
 
@@ -100,7 +110,11 @@ export function buildAuthConfig(): NextAuthConfig {
         const roles = Array.isArray((token as { roles?: unknown }).roles)
           ? (token as { roles: string[] }).roles
           : [];
-        return { ...session, roles };
+        // `token.sub` is what Auth.js copied from the id_token's subject on the
+        // sign-in pass; it is undefined only on a malformed token, and the CRM
+        // treats undefined as "not yet known", never as an identity.
+        const sub = typeof token?.sub === "string" && token.sub ? token.sub : undefined;
+        return { ...session, roles, sub };
       },
     },
     // The error page names the code and the gateway request id — the two things

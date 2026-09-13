@@ -161,6 +161,28 @@ describe("the profile → token → session hop carries roles and email", () => 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((session({ session: {}, token: {} } as any) as { roles: string[] }).roles).toEqual([]);
   });
+
+  it("surfaces the token's sub on the session — the CRM stores it as sso_sub", () => {
+    // The gateway's `sub` is the Entra oid (tools-auth provider.ts:138-152).
+    // The CRM keys identity by email and only RECORDS this, so it must arrive
+    // as-is when present and as `undefined` — never "" or null — when it is
+    // not, so a missing claim can't be mistaken for an identity.
+    const session = cfg().callbacks!.session!;
+    const out = session({
+      session: { user: {}, expires: "2026-08-29T00:00:00.000Z" },
+      token: { roles: ["access", "sales"], sub: "7d2a4a1e-oid" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any) as { roles: string[]; sub?: string };
+    expect(out.sub).toBe("7d2a4a1e-oid");
+    expect(out.roles).toEqual(["access", "sales"]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((session({ session: {}, token: {} } as any) as { sub?: string }).sub).toBeUndefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((session({ session: {}, token: { sub: "" } } as any) as { sub?: string }).sub).toBe(
+      undefined,
+    );
+  });
 });
 
 describe("hasAdminAccess", () => {
