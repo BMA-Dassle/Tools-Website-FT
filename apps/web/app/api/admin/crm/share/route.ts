@@ -4,6 +4,7 @@ import {
   ShareError,
   createShare,
   findShareLead,
+  getShareLink,
   listSharesFor,
   revokeShare,
 } from "~/features/crm/collateral";
@@ -57,6 +58,16 @@ export const GET = withCrmRoute(ShareListQuery, async ({ input }) => {
 export const POST = withCrmRoute(SharePostSchema, async ({ input, user, req }) => {
   if (input.action === "revoke") {
     if (user.role !== "director") throw new CrmHttpError(403, "director_only");
+    /**
+     * Look the link up FIRST, so the answer can be scoped to the file it
+     * belongs to. Answering with `listSharesFor({collateralId: null, leadId:
+     * null})` — the only caller that passed neither filter — handed back the
+     * newest 50 rows in the whole table: capability tokens for other reps'
+     * guests, about files the caller never asked about, which the sheet would
+     * then repaint as if they were this file's history.
+     */
+    const row = await getShareLink(input.shareToken);
+    if (!row) throw new CrmHttpError(404, "share_not_found");
     const ok = await revokeShare(input.shareToken);
     if (!ok) throw new CrmHttpError(404, "share_not_found");
     await writeAudit({
@@ -64,8 +75,9 @@ export const POST = withCrmRoute(SharePostSchema, async ({ input, user, req }) =
       entityId: input.shareToken,
       action: "revoke",
       actorEmail: user.email,
+      before: { collateralId: String(row.collateral_id), expiredAt: row.expired_at },
     });
-    return { shares: await listSharesFor({ collateralId: null, leadId: null, limit: 50 }) };
+    return { shares: await listSharesFor({ collateralId: String(row.collateral_id), limit: 50 }) };
   }
 
   try {
