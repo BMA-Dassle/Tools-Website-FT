@@ -305,6 +305,16 @@ const PROJECT_SMALL_ID_FIELDS = [
  * The result is byte-identical to what the proven rails send, while the CRM
  * keeps reading precision-safely. Pinned by `bmi-office-put-project-fields.test.ts`.
  */
+/**
+ * `companyId` (the project's BUSINESS — another person id) is small on both our
+ * tenants today, so the loop below turns it back into a number. It is in this
+ * raw list as well for the day it is not: a 17-digit value fails
+ * `isSafeInteger`, stays a string, and would otherwise be quoted on the wire
+ * (`"companyId":"630…"`) — a shape no proven Office write has sent. Listed
+ * here, it is injected raw instead, at full precision.
+ */
+const PROJECT_PUT_RAW_ID_FIELDS = [...BMI_ID_FIELDS, "companyId"] as const;
+
 export function projectPutJson(body: Record<string, unknown>): string {
   const out: Record<string, unknown> = { ...body };
   for (const field of PROJECT_SMALL_ID_FIELDS) {
@@ -313,7 +323,7 @@ export function projectPutJson(body: Record<string, unknown>): string {
     const asNumber = Number(value);
     if (Number.isSafeInteger(asNumber)) out[field] = asNumber;
   }
-  return serializeWithRawIds(out, BMI_ID_FIELDS);
+  return serializeWithRawIds(out, PROJECT_PUT_RAW_ID_FIELDS);
 }
 
 async function putProject(

@@ -246,6 +246,15 @@ describe("putProjectFields", () => {
       expect(JSON.parse(json).name).toBe("Acme holiday party");
     });
 
+    it("a small companyId goes as a number; a 17-digit one is injected raw, never quoted", () => {
+      expect(projectPutJson({ id: PROJECT_ID, companyId: "5725529" })).toContain(
+        '"companyId":5725529',
+      );
+      const big = projectPutJson({ id: PROJECT_ID, companyId: PERSON_ID });
+      expect(big).toContain(`"companyId":${PERSON_ID}`);
+      expect(big).not.toContain(`"companyId":"`);
+    });
+
     it("leaves a non-numeric or absent id alone rather than inventing one", () => {
       const json = projectPutJson({ name: "x", userId: null, invoiceId: "", styleId: "620931" });
       expect(json).toContain('"userId":null');
