@@ -1,0 +1,1 @@
+{"finalstatus":"Success","reason":"","result":{"id":7001,"status":"Dialing","dn":"9025","party_caller_id":"+12395551234","party_dn":"+12395551234","party_dn_type":"Wexternalline","device_id":"sip:9025@bma.3cx.us","direct_control":true,"callid":99042,"legid":1}}
