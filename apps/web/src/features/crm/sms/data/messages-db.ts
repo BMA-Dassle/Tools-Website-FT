@@ -175,6 +175,12 @@ export interface SendOutcomePatch {
   sendStatus: SmsSendStatus;
   provider?: string | null;
   providerMessageId?: string | null;
+  /**
+   * AUTHORITATIVE, including `null`. The caller has just heard from the
+   * provider, so this is the last word on which number the message left from —
+   * and `null` ("the backup carrier sent it and never said which number") must
+   * overwrite the row, not be coalesced away into a comfortable lie.
+   */
   sentFrom?: string | null;
   fallbackDid?: boolean;
   deliveryError?: string | null;
@@ -193,7 +199,7 @@ export async function patchSendOutcome(
         SET send_status = $2,
             provider = COALESCE($3, provider),
             provider_message_id = COALESCE($4, provider_message_id),
-            sent_from = COALESCE($5, sent_from),
+            sent_from = $5,
             fallback_did = COALESCE($6::boolean, fallback_did),
             delivery_error = $7
       WHERE id = $1::bigint
@@ -244,13 +250,41 @@ export async function patchDeliveryStatus(input: {
 export const MESSAGE_PAGE_MAX = 200;
 
 /**
+ * A page boundary in a thread: the WHOLE sort key, `(occurred_at, id)`.
+ *
+ * A template send and the system line that follows it land in the same
+ * millisecond, as does a burst of MO callbacks. Cursoring on the timestamp
+ * alone with a strict `<` ends a page mid-tie and then excludes the entire tie
+ * from the next query — "load earlier" silently loses those messages. The
+ * row-value comparison below matches the ORDER BY exactly, so a tie is walked
+ * through rather than jumped over.
+ */
+export interface MessageCursor {
+  occurredAt: string;
+  id: string;
+}
+
+export function encodeMessageCursor(c: MessageCursor): string {
+  return `${c.occurredAt}|${c.id}`;
+}
+
+export function decodeMessageCursor(raw: string | null | undefined): MessageCursor | null {
+  if (!raw) return null;
+  const at = raw.lastIndexOf("|");
+  if (at <= 0) return null;
+  const occurredAt = raw.slice(0, at);
+  const id = raw.slice(at + 1);
+  return /^\d{1,19}$/.test(id) && occurredAt ? { occurredAt, id } : null;
+}
+
+/**
  * A person's messages across every rep thread they have, NEWEST FIRST, keyset
- * on `occurred_at` (R10). The view reverses them for display; paging always
- * walks backwards in time, which is what "load earlier" means.
+ * on `(occurred_at, id)` (R10). The view reverses them for display; paging
+ * always walks backwards in time, which is what "load earlier" means.
  */
 export async function listMessagesForThreads(
   threadIds: readonly string[],
-  opts: { limit?: number; before?: string | null } = {},
+  opts: { limit?: number; before?: MessageCursor | null } = {},
 ): Promise<SmsMessage[]> {
   if (!isDbConfigured() || threadIds.length === 0) return [];
   await ensureSmsMessagesSchema();
@@ -259,10 +293,11 @@ export async function listMessagesForThreads(
   const rows = (await q.query(
     `SELECT ${MESSAGE_COLUMNS} FROM crm_sms_messages
       WHERE thread_id = ANY($1::bigint[])
-        AND ($2::timestamptz IS NULL OR occurred_at < $2::timestamptz)
+        AND ($2::timestamptz IS NULL
+             OR (occurred_at, id) < ($2::timestamptz, $3::bigint))
       ORDER BY occurred_at DESC, id DESC
-      LIMIT $3`,
-    [threadIds, opts.before ?? null, limit],
+      LIMIT $4`,
+    [threadIds, opts.before?.occurredAt ?? null, opts.before?.id ?? null, limit],
   )) as SmsMessageRowRaw[];
   return rows.map(mapMessageRow);
 }

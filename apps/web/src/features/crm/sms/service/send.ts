@@ -110,6 +110,36 @@ function refusal(code: SendRefusal, threadId: string | null = null): SendSmsResu
   return { ok: false, message: null, threadId, error: code };
 }
 
+/**
+ * WHAT NUMBER DID THIS ACTUALLY LEAVE FROM — never a guess.
+ *
+ * `voxSend` reports `sentFrom` on every path that reached a provider AND could
+ * name the sender: the rep's DID, and the A2P DID when Vox rejected the
+ * override. It deliberately does NOT report one for the Twilio failover
+ * (`lib/sms-retry.ts:507,521`), because Twilio picks its own sender from the
+ * messaging service and we are never told which number that was.
+ *
+ * So `sentFrom` stays NULL there rather than being defaulted to `did`. That
+ * default was the whole defect this PR added `sentFrom` to remove: the row, the
+ * thread and the owner's acceptance check ("`sent_from` equals that DID") would
+ * all have asserted a number the message did not leave from, while the guest's
+ * reply went to a Twilio number with no MO webhook into the CRM at all.
+ *
+ * `fallbackDid` therefore means "it did not go out from your number", which is
+ * true of both the A2P fallback and the backup carrier; `ThreadView.statusNote`
+ * says which from the presence of `sentFrom`. A send that never reached a
+ * provider is neither: nothing left, so there is nothing to disclaim.
+ */
+export function senderOf(
+  res: Pick<VoxSendResult, "ok" | "sentFrom" | "failedOver" | "provider">,
+  repDid: string,
+): { sentFrom: string | null; fallbackDid: boolean } {
+  if (!res.ok) return { sentFrom: null, fallbackDid: false };
+  const sentFrom = res.sentFrom ?? null;
+  const backupCarrier = res.failedOver === true || res.provider === "twilio";
+  return { sentFrom, fallbackDid: backupCarrier || (sentFrom !== null && sentFrom !== repDid) };
+}
+
 /** The destination the caller named, canonical, or null. */
 export function destinationFor(input: SendSmsInput): string | null {
   if (input.to) return canonicalizePhone(input.to);
@@ -188,7 +218,10 @@ export async function sendCrmSms(
     direction: "out",
     kind: "sms",
     body,
-    sentFrom: did,
+    // `sent_from` is "the number it ACTUALLY left from", and nothing has left
+    // yet. It is filled by the patch below from what the provider reported —
+    // which for a Twilio failover is nothing, and must stay nothing.
+    sentFrom: null,
     sendStatus: "pending",
     templateId: input.templateId ?? null,
     actorEmail: user.email,
@@ -206,8 +239,7 @@ export async function sendCrmSms(
     auditSource: "crm-sms",
   });
 
-  const sentFrom = res.sentFrom ?? (res.ok ? did : null);
-  const fallbackDid = sentFrom !== null && sentFrom !== did;
+  const { sentFrom, fallbackDid } = senderOf(res, did);
   const providerMessageId = res.voxId ?? res.twilioSid ?? null;
   const status = res.suppressed ? "suppressed" : res.ok ? "sent" : "failed";
 
@@ -306,13 +338,13 @@ export async function retryCrmSms(
     category: "transactional",
     auditSource: "crm-sms-retry",
   });
-  const sentFrom = res.sentFrom ?? (res.ok ? opts.did : null);
+  const { sentFrom, fallbackDid } = senderOf(res, opts.did);
   await deps.patchSendOutcome(message.id, {
     sendStatus: res.suppressed ? "suppressed" : res.ok ? "sent" : "failed",
     provider: res.provider ?? null,
     providerMessageId: res.voxId ?? res.twilioSid ?? null,
     sentFrom,
-    fallbackDid: sentFrom !== null && sentFrom !== opts.did,
+    fallbackDid,
     deliveryError: res.ok ? null : (res.error ?? null),
   });
   await safely(() =>
@@ -325,7 +357,8 @@ export async function retryCrmSms(
       error: res.error,
       body: message.body,
       provider: res.provider,
-      providerMessageId: res.voxId ?? undefined,
+      failedOver: res.failedOver,
+      providerMessageId: res.voxId ?? res.twilioSid ?? undefined,
     }),
   );
   if (res.suppressed) return { ok: false, error: "suppressed" };

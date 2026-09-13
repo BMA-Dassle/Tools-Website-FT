@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { sendCrmSms, smsRetryIdempotencyKey, type SendDeps } from "./send";
+import { retryCrmSms, sendCrmSms, smsRetryIdempotencyKey, type SendDeps } from "./send";
 import type { CrmRep, CrmUser } from "../../core/types";
 import type { LinkedContact, LinkedLead, SmsMessage, SmsThread } from "../types";
 
@@ -297,6 +297,50 @@ describe("sendCrmSms", () => {
     });
   });
 
+  it("A TWILIO FAILOVER NEVER CLAIMS THE REP'S NUMBER: sentFrom stays NULL, fallbackDid true", async () => {
+    // `voxSend`'s quota path hands the message to Twilio, which picks its own
+    // sender — so it returns `failedOver: true` with NO `sentFrom`
+    // (lib/sms-retry.ts:507,521). Defaulting to the rep's DID there would write
+    // a number the message did not leave from into `crm_sms_messages.sent_from`,
+    // the thread, and the owner's acceptance check — while the guest's reply
+    // went to a Twilio number with no MO webhook into the CRM at all.
+    const { deps: d, calls } = deps({
+      voxSend: async () => ({ ok: true, status: 201, provider: "twilio", failedOver: true }),
+    });
+    const res = await sendCrmSms({ key: "c-9", body: "Hi" }, user(), d);
+    expect(res.ok).toBe(true);
+    expect(calls.patches[0].patch.sentFrom).toBeNull();
+    expect(calls.patches[0].patch.fallbackDid).toBe(true);
+    expect(calls.patches[0].patch).toMatchObject({ sendStatus: "sent", provider: "twilio" });
+    // The shared log already knew; now the CRM row does too.
+    expect(calls.logs[0]).toMatchObject({ failedOver: true, provider: "twilio" });
+  });
+
+  it("the pending row claims no sender at all — nothing has left yet", async () => {
+    const inserted: Record<string, unknown>[] = [];
+    const { deps: d } = deps({
+      insertMessage: async (m) => {
+        inserted.push(m as unknown as Record<string, unknown>);
+        return pending;
+      },
+    });
+    await sendCrmSms({ key: "c-9", body: "Hi" }, user(), d);
+    expect(inserted[0].sentFrom).toBeNull();
+    expect(inserted[0]).toMatchObject({ sendStatus: "pending" });
+  });
+
+  it("a REFUSED send records no sender and no fallback flag", async () => {
+    const { deps: d, calls } = deps({
+      voxSend: async () => ({ ok: false, status: 500, error: "vox exploded", provider: "vox" }),
+    });
+    await sendCrmSms({ key: "c-9", body: "Hi" }, user(), d);
+    expect(calls.patches[0].patch).toMatchObject({
+      sendStatus: "failed",
+      sentFrom: null,
+      fallbackDid: false,
+    });
+  });
+
   it("logs to the shared SMS log under its own source and records the first touch", async () => {
     const { deps: d, calls } = deps();
     await sendCrmSms({ key: "c-9", body: "Hi Dana" }, user(), d);
@@ -335,5 +379,36 @@ describe("sendCrmSms", () => {
     const res = await sendCrmSms({ key: "c-404", body: "Hi" }, user(), d);
     expect(res.error).toBe("bad_number");
     expect(calls.order).toEqual([]);
+  });
+});
+
+describe("retryCrmSms", () => {
+  it("re-sends from the rep's DID and records it", async () => {
+    const { deps: d, calls } = deps();
+    const out = await retryCrmSms(pending, { did: REP_DID, phone: "+12395551234" }, d);
+    expect(out).toEqual({ ok: true, error: null });
+    expect(calls.patches[0].patch).toMatchObject({
+      sendStatus: "sent",
+      sentFrom: REP_DID,
+      fallbackDid: false,
+    });
+  });
+
+  it("is as honest about a Twilio failover as the first attempt was", async () => {
+    const { deps: d, calls } = deps({
+      voxSend: async () => ({ ok: true, status: 201, provider: "twilio", failedOver: true }),
+    });
+    await retryCrmSms(pending, { did: REP_DID, phone: "+12395551234" }, d);
+    expect(calls.patches[0].patch.sentFrom).toBeNull();
+    expect(calls.patches[0].patch.fallbackDid).toBe(true);
+  });
+
+  it("a suppression is terminal, never reported as a send", async () => {
+    const { deps: d, calls } = deps({
+      voxSend: async () => ({ ok: false, status: 200, suppressed: true, provider: "vox" }),
+    });
+    const out = await retryCrmSms(pending, { did: REP_DID, phone: "+12395551234" }, d);
+    expect(out).toEqual({ ok: false, error: "suppressed" });
+    expect(calls.patches[0].patch).toMatchObject({ sendStatus: "suppressed", sentFrom: null });
   });
 });
