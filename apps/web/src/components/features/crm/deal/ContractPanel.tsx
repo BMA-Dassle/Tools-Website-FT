@@ -29,7 +29,6 @@ import { Banner } from "../primitives/Banner";
 import { Chip } from "../primitives/Chip";
 import { ICON } from "../primitives/icon-props";
 import { Kv } from "../primitives/Kv";
-import { Meter } from "../primitives/Meter";
 import { Pill } from "../primitives/Pill";
 import { EmptyState, ErrorState, LoadingState } from "../primitives/States";
 import { Tile } from "../primitives/Tile";
@@ -99,9 +98,8 @@ export function ContractPanel({ shortId, footerLink = null }: ContractPanelProps
   const meta = GF_STATUS_META[row.status];
   const paidPct = pct(row.collectedCents, row.totalCents);
   const pageViews = contract.audit.filter((a) => a.event === "page_view").length;
-  const unsignedDays = row.sentAt
-    ? Math.floor((Date.now() - Date.parse(row.sentAt)) / 86_400_000)
-    : 0;
+  // Dated on the server beside `daysOut` — never `Date.now()` in a render body.
+  const unsignedDays = row.sentAgoDays ?? 0;
   const refresh = () => {
     closeSheet();
     void qc.invalidateQueries({ queryKey: contractsKeys.all });

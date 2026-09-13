@@ -9,6 +9,7 @@ import {
   emptyMessage,
   pagerSummary,
   rowMeta,
+  sentBannerText,
   statusFolderOptions,
   tileSpecs,
   weekLabel,
@@ -59,6 +60,7 @@ const row = (patch: Partial<ContractRow> = {}): ContractRow =>
     rep: null,
     leadPublicId: null,
     daysOut: 5,
+    sentAgoDays: null,
     reasons: [],
     createdAt: "2026-08-20T13:00:00.000Z",
     updatedAt: "2026-09-01T13:00:00.000Z",
@@ -174,6 +176,15 @@ describe("the Contract tab's money notes", () => {
     expect(balanceNote(row({ balanceCents: 0 }))).toBe("settled");
     expect(balanceNote(row({ postPaid: true }))).toBe("invoiced after the event");
     expect(balanceNote(row())).toBe("auto-charges 72 h before");
+  });
+
+  it("the sent banner reads the SERVER's day count, never a clock in render", () => {
+    expect(sentBannerText(row({ sentAgoDays: 12 }), 3)).toBe(
+      "Sent 12 days ago · guest opened it 3× · not signed. Automatic 96-hour reminder is scheduled.",
+    );
+    expect(sentBannerText(row({ sentAgoDays: 1 }), 0)).toContain("Sent 1 day ago");
+    expect(sentBannerText(row({ sentAgoDays: 0 }), 0)).toContain("Sent today");
+    expect(sentBannerText(row({ sentAgoDays: null }), 0)).toContain("Sent today");
   });
 
   it("deposit: paid, none for post-paid, else due at signing", () => {

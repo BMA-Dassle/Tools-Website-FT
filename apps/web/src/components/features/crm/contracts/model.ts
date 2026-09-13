@@ -138,7 +138,10 @@ export function tileSpecs(counts: {
 
 /** The "Sent … · opened N× · not signed" banner text (crm-events.js:88). */
 export function sentBannerText(row: ContractRow, pageViews: number): string {
-  const days = row.sentAt ? Math.floor((Date.now() - Date.parse(row.sentAt)) / 86_400_000) : 0;
+  // `sentAgoDays` is dated on the SERVER beside `daysOut`. A `Date.now()` here
+  // would be an impure call in a render body, and the banner could then
+  // disagree with the attention pills sitting next to it.
+  const days = row.sentAgoDays ?? 0;
   const ago = days <= 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
   return `Sent ${ago} · guest opened it ${pageViews}× · not signed. Automatic 96-hour reminder is scheduled.`;
 }

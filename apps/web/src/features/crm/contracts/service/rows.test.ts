@@ -155,10 +155,14 @@ describe("toContractRow", () => {
     ).toBeNull();
   });
 
-  it("computes daysOut and the attention pills from the SAME clock", () => {
+  it("computes daysOut, sentAgoDays and the attention pills from the SAME clock", () => {
     const row = toContractRow(quote, ctx);
     expect(row.daysOut).toBe(5);
+    // The banner's day count is dated here, next to the pills, so the two can
+    // never disagree — and no component has to call Date.now() in a render.
+    expect(row.sentAgoDays).toBe(12);
     expect(row.reasons.map((r) => r.t)).toEqual(["unsigned 12 d", "event in 5 d, unsigned"]);
+    expect(toContractRow({ ...quote, contract_sent_at: null }, ctx).sentAgoDays).toBeNull();
   });
 
   it("normalises Date columns the driver may hand back as objects", () => {

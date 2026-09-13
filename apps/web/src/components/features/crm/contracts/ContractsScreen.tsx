@@ -262,7 +262,10 @@ export default function ContractsScreen({ query }: ScreenProps) {
             />
           </div>
 
-          <label className="hstack xs muted" style={{ gap: 6 }}>
+          {/* A span, not a <label>: the control is a role="switch" button, which
+              a <label> cannot be associated with, and the button already carries
+              its own accessible name. */}
+          <span className="hstack xs muted" style={{ gap: 6 }}>
             <button
               type="button"
               className="toggle"
@@ -273,7 +276,7 @@ export default function ContractsScreen({ query }: ScreenProps) {
               onClick={() => patch({ closed: closed ? null : "1" })}
             />
             show completed &amp; cancelled
-          </label>
+          </span>
         </div>
 
         <div style={{ padding: "0 14px 10px" }}>

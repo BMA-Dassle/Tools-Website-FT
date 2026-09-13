@@ -126,6 +126,15 @@ export interface ContractRow {
   leadPublicId: string | null;
   /** ET calendar days from today; negative = past. */
   daysOut: number;
+  /**
+   * Whole days since the contract went out, or null if it never did.
+   *
+   * Computed HERE, from the same clock as `daysOut`, rather than in the
+   * component: a `Date.now()` in a render body is an impure call React may
+   * evaluate at any moment (`react-hooks/purity`), and the banner it feeds
+   * would then disagree with the pills beside it, which were dated server-side.
+   */
+  sentAgoDays: number | null;
   /** Why the row is in "Needs attention" — empty means it is not. */
   reasons: AttentionReason[];
   createdAt: string;
