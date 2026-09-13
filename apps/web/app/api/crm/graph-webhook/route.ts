@@ -2,13 +2,18 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   clientStateMatches,
   defaultWebhookDeps,
-  graphFetchIdempotencyKey,
   handleNotification,
-  GRAPH_FETCH_MESSAGE_KIND,
   type GraphNotification,
   type GraphNotificationBody,
+  type GraphSubscriptionRow,
   type NotificationOutcome,
 } from "~/features/crm/email";
+// The SHIPPED key function, from the sub's pure module: a route test that
+// stubs the barrel therefore cannot stub the key it asserts (C2-4).
+import {
+  GRAPH_FETCH_MESSAGE_KIND,
+  graphFetchIdempotencyKey,
+} from "~/features/crm/email/contracts";
 import { neonJobStore } from "~/features/crm/jobs";
 
 /**
@@ -49,6 +54,15 @@ export const dynamic = "force-dynamic";
 /** Graph's own cap is 30 s; leave room for a slow `getMessage`. */
 export const maxDuration = 30;
 
+/**
+ * This route is reachable from the open internet with no credential, and every
+ * entry of `value` costs at least one Neon round trip (and, with a valid state,
+ * a Graph fetch with a 20 s timeout) inside a 30 s function. Graph batches
+ * modestly — a handful of entries, all for the same subscription — so a cap
+ * costs nothing real and takes "post ten thousand entries" off the table.
+ */
+export const MAX_NOTIFICATIONS_PER_POST = 50;
+
 const NO_STORE = { "cache-control": "no-store" } as const;
 
 function textPlain(body: string, status = 200): Response {
@@ -79,12 +93,34 @@ export async function POST(req: NextRequest): Promise<Response> {
     return NextResponse.json({ ok: true, outcomes: [] }, { status: 202, headers: NO_STORE });
   }
 
-  const notes: GraphNotification[] = Array.isArray(body?.value) ? body.value : [];
+  const all: GraphNotification[] = Array.isArray(body?.value) ? body.value : [];
+  const notes = all.slice(0, MAX_NOTIFICATIONS_PER_POST);
+  const dropped = all.length - notes.length;
+  if (dropped > 0) {
+    console.warn("[crm] graph webhook capped a batch", {
+      received: all.length,
+      processed: notes.length,
+      dropped,
+    });
+  }
+
+  // One batch is normally one subscription; look it up once per request rather
+  // than once per entry.
+  const subs = new Map<string, Promise<GraphSubscriptionRow | null>>();
+  const findSubscription = (id: string): Promise<GraphSubscriptionRow | null> => {
+    const hit = subs.get(id);
+    if (hit) return hit;
+    const lookup = defaultWebhookDeps.findSubscription(id);
+    subs.set(id, lookup);
+    return lookup;
+  };
+
   const outcomes: NotificationOutcome[] = [];
   for (const note of notes) {
     outcomes.push(
       await handleNotification(note, {
         ...defaultWebhookDeps,
+        findSubscription,
         statesMatch: clientStateMatches,
         onFetchFailure: async (mailbox, messageId, error) => {
           // Never lose a notification to a Graph hiccup: the retry lane owns it
@@ -105,7 +141,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     acc[o.status] = (acc[o.status] ?? 0) + 1;
     return acc;
   }, {});
-  console.log("[crm] graph webhook", { notifications: notes.length, ...summary });
+  console.log("[crm] graph webhook", { notifications: notes.length, dropped, ...summary });
 
   return NextResponse.json({ ok: true, outcomes }, { status: 202, headers: NO_STORE });
 }
