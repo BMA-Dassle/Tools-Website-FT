@@ -24,9 +24,13 @@ describe("deal tab registry", () => {
     );
   });
 
-  it("overview is built; every other id points at TabComingLater", () => {
+  it("overview, notes and event are built; the rest still point at TabComingLater", () => {
     expect(String(DEAL_TABS.overview)).toContain("OverviewTab");
-    for (const id of DEAL_TAB_IDS.filter((t) => t !== "overview")) {
+    expect(String(DEAL_TABS.notes)).toContain("NotesTab");
+    expect(String(DEAL_TABS.event)).toContain("EventTab");
+    for (const id of DEAL_TAB_IDS.filter(
+      (t) => t !== "overview" && t !== "notes" && t !== "event",
+    )) {
       expect(String(DEAL_TABS[id]), id).toContain("TabComingLater");
     }
   });

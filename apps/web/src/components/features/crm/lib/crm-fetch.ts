@@ -92,6 +92,7 @@ export const KNOWN_ROUTES = [
   "/calls",
   "/collateral",
   "/share",
+  "/events",
 ] as const;
 
 export function isKnownRoute(path: string): boolean {

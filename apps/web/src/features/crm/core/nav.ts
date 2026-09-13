@@ -71,7 +71,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         ready: true,
       },
       { id: "contracts", label: "Contracts", icon: "file", badge: "pendingApproval", ready: false },
-      { id: "events", label: "Events", icon: "calendar", ready: false },
+      { id: "events", label: "Events", icon: "calendar", ready: true },
       {
         id: "conversations",
         label: "Conversations",
@@ -121,7 +121,7 @@ export const PHONE_TABS: readonly NavItem[] = [
 /** The phone "More" list (`direction-b.html:121`), director items flagged. */
 export const MORE_ITEMS: readonly NavItem[] = [
   { id: "queue", label: "Lead queue", icon: "bolt", director: true, ready: true },
-  { id: "events", label: "Events", icon: "calendar", ready: false },
+  { id: "events", label: "Events", icon: "calendar", ready: true },
   { id: "calls", label: "Calls", icon: "phone", badge: "missedCalls", ready: true },
   { id: "history", label: "History & accounts", icon: "history", ready: true },
   { id: "cold", label: "Cold lists", icon: "list", ready: false },
