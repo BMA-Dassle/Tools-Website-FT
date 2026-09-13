@@ -40,9 +40,13 @@ describe("quick-action slot registry", () => {
         prefers: null,
       },
     });
+    // C1 flipped the `text` line: it now opens the guest's CRM conversation,
+    // where the rep's own DID, the consent check and the message log live.
+    // Handing the phone's SMS app the number would send a text the CRM never
+    // sees, from a number the guest cannot reply to in the thread.
     expect(quickActionsFor(lead).map((a) => [a.slot.id, a.target?.href ?? null])).toEqual([
       ["call", "tel:+12395551234"],
-      ["text", "sms:+12395551234"],
+      ["text", "/admin/crm/conversations/p-12395551234"],
       ["email", "mailto:crm-test@example.com"],
       ["note", null],
       ["snooze", null],
