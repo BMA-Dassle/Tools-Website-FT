@@ -110,8 +110,26 @@ function minutesFromMidnight(ms: number, dayStartMs: number): number {
 }
 
 /**
+ * A lane QAMF reports with `Status: "Error"` is under maintenance and cannot be
+ * opened at all. `lane-plan` treats one as never free; so does this screen.
+ *
+ * It is drawn as a whole-day `maint` bar rather than quietly dropped, because
+ * "the grid shows nothing on lane 27" and "lane 27 is out of service" are very
+ * different sentences to a planner about to promise it.
+ */
+export const OUT_OF_SERVICE_LABEL = "Lane out of service";
+
+function outOfServiceBlock(): LaneBlock {
+  return { kind: "maint", label: OUT_OF_SERVICE_LABEL, start: 0, end: 24 * 60 };
+}
+
+/**
  * `LaneGrid.busy` → per-lane blocks. Exported so a test can drive it with a
  * fixture grid instead of the network.
+ *
+ * `errorLanes` comes straight off `LaneGrid.errorLanes`. A lane in it is busy
+ * ALL DAY and nothing else about it matters, so its own reservations are
+ * replaced rather than drawn underneath an out-of-service bar.
  */
 export function projectBusy(
   busy: readonly {
@@ -124,10 +142,13 @@ export function projectBusy(
   }[],
   lanes: readonly number[],
   dayStartMs: number,
+  errorLanes: ReadonlySet<number> = new Set<number>(),
 ): LaneOccupancy[] {
   const byLane = new Map<number, LaneBlock[]>();
   for (const lane of lanes) byLane.set(lane, []);
+  for (const lane of errorLanes) byLane.set(lane, [outOfServiceBlock()]);
   for (const b of busy) {
+    if (errorLanes.has(b.laneNumber)) continue;
     const start = minutesFromMidnight(b.startMs, dayStartMs);
     const end = minutesFromMidnight(b.endMs, dayStartMs);
     if (!(end > start)) continue;
@@ -203,7 +224,7 @@ export async function readLaneGrid(
     qamfCenterId,
     date,
     lanes: [...grid.lanes].sort((a, b) => a - b),
-    occupancy: projectBusy(grid.busy, grid.lanes, startMs),
+    occupancy: projectBusy(grid.busy, grid.lanes, startMs, grid.errorLanes),
     readAt: new Date(grid.readAtMs).toISOString(),
   };
   await writeCache(key, projection);

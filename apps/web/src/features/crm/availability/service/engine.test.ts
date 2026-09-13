@@ -384,6 +384,44 @@ describe("clock helpers", () => {
   });
 });
 
+describe("lanes the vendor did not report", () => {
+  /**
+   * `LANE_SECTIONS` is OUR map of what a centre has; `grid.lanes` is what QAMF
+   * answered on this read. A partial `GET /lanes` used to read as free space —
+   * `occupancy.get(lane) ?? []` is empty for a lane nobody mentioned — which is
+   * how a screen offers a lane the front desk cannot open. Unknown is not free.
+   */
+  const WIN = { start: 18 * 60, dur: 120 };
+  const EMPTY = new Map<number, never[]>();
+
+  it("counts an unreported lane as unavailable, not as free", () => {
+    const known = new Set(LANE_SECTIONS.HPFM.flatMap((s) => s.lanes).filter((l) => l !== 15));
+    const runs = sectionRuns(LANE_SECTIONS.HPFM, EMPTY, WIN, known);
+    const regular = runs.find((r) => r.section.name === "Regular");
+    expect(regular?.free).toBe(15);
+    expect(regular?.runs).toEqual([
+      [13, 14],
+      [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28],
+    ]);
+  });
+
+  /** Regular alone, so the placement is about the gap and not about Old Time. */
+  const REGULAR = LANE_SECTIONS.HPFM.filter((s) => s.name === "Regular");
+
+  it("breaks a run in two, so a party is never placed across the gap", () => {
+    const known = new Set(LANE_SECTIONS.HPFM.flatMap((s) => s.lanes).filter((l) => l !== 15));
+    const best = bestRun(REGULAR, EMPTY, WIN, 4, known);
+    // 13-14 is too short once 15 is unknown, so the pick starts at the next
+    // ODD lane of the run that survives.
+    expect(best?.lanes).toEqual([17, 18, 19, 20]);
+  });
+
+  it("treats every lane as known when the caller does not say", () => {
+    const best = bestRun(REGULAR, EMPTY, WIN, 4);
+    expect(best?.lanes).toEqual([13, 14, 15, 16]);
+  });
+});
+
 describe("the seeded grid itself", () => {
   it("covers every lane the centre has", () => {
     expect(protoLanes("HPFM")).toHaveLength(28);

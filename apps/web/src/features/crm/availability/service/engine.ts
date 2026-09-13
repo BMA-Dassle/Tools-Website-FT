@@ -133,17 +133,40 @@ export interface SectionRuns {
   free: number;
 }
 
+/**
+ * Lanes the VENDOR reported, when the caller knows.
+ *
+ * `LANE_SECTIONS` is our own map of what each centre has; `grid.lanes` is what
+ * QAMF answered on this read. When they disagree — a partial `GET /lanes`, a
+ * centre whose numbering changed — the missing lane is UNKNOWN, not free, and
+ * a verdict that offered it would be a lane the front desk cannot open. Omit
+ * the set and every lane in the sections counts as known, which is what the
+ * pure tests drive.
+ */
+export type KnownLanes = ReadonlySet<number> | undefined;
+
+function laneAvailable(
+  lane: number,
+  occupancy: ReadonlyMap<number, LaneBlock[]>,
+  win: RequestWindow,
+  knownLanes: KnownLanes,
+): boolean {
+  if (knownLanes && !knownLanes.has(lane)) return false;
+  return laneFreeIn(occupancy.get(lane) ?? [], win);
+}
+
 /** Contiguous free runs per section for one window (`crm-shared.js:493`). */
 export function sectionRuns(
   sections: readonly LaneSection[],
   occupancy: ReadonlyMap<number, LaneBlock[]>,
   win: RequestWindow,
+  knownLanes?: KnownLanes,
 ): SectionRuns[] {
   return sections.map((section) => {
     const runs: number[][] = [];
     let cur: number[] = [];
     for (const lane of section.lanes) {
-      if (laneFreeIn(occupancy.get(lane) ?? [], win)) {
+      if (laneAvailable(lane, occupancy, win, knownLanes)) {
         cur.push(lane);
       } else {
         if (cur.length) runs.push(cur);
@@ -181,9 +204,10 @@ export function bestRun(
   occupancy: ReadonlyMap<number, LaneBlock[]>,
   win: RequestWindow,
   need: number,
+  knownLanes?: KnownLanes,
 ): BestRun | null {
   let best: BestRun | null = null;
-  for (const { section, runs } of sectionRuns(sections, occupancy, win)) {
+  for (const { section, runs } of sectionRuns(sections, occupancy, win, knownLanes)) {
     for (const run of runs) {
       if (run.length < need) continue;
       const startsOdd = run[0] % 2 === 1;
@@ -215,6 +239,7 @@ export function alternateWindows(
   win: RequestWindow,
   need: number,
   bounds: DayBounds,
+  knownLanes?: KnownLanes,
 ): Alternate[] {
   const out: Alternate[] = [];
   for (
@@ -226,7 +251,7 @@ export function alternateWindows(
       const candidate: RequestWindow = { start: win.start + sign * d, dur: win.dur };
       if (candidate.start < bounds.openMin) continue;
       if (candidate.start + candidate.dur > bounds.closeMin) continue;
-      const best = bestRun(sections, occupancy, candidate, need);
+      const best = bestRun(sections, occupancy, candidate, need, knownLanes);
       if (best) out.push({ window: candidate, best });
       if (out.length >= MAX_ALTERNATES) break;
     }
@@ -240,6 +265,8 @@ export interface VerdictInput {
   window: RequestWindow;
   guests: number;
   bounds: DayBounds;
+  /** Lanes the vendor reported; anything outside it is unknown, so not free. */
+  knownLanes?: KnownLanes;
 }
 
 export interface Verdict {
@@ -253,15 +280,16 @@ export interface Verdict {
 /** The whole decision for one request, in one call. */
 export function evaluate(input: VerdictInput): Verdict {
   const need = lanesNeeded(input.guests);
-  const best = bestRun(input.sections, input.occupancy, input.window, need);
+  const known = input.knownLanes;
+  const best = bestRun(input.sections, input.occupancy, input.window, need, known);
   return {
     need,
     fits: best !== null,
     best,
     alternates: best
       ? []
-      : alternateWindows(input.sections, input.occupancy, input.window, need, input.bounds),
-    sections: sectionRuns(input.sections, input.occupancy, input.window),
+      : alternateWindows(input.sections, input.occupancy, input.window, need, input.bounds, known),
+    sections: sectionRuns(input.sections, input.occupancy, input.window, known),
   };
 }
 
