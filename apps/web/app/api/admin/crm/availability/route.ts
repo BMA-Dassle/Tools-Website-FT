@@ -5,6 +5,7 @@ import { withCrmRoute } from "~/features/crm/core/http";
 import {
   AvailabilityQuerySchema,
   boundsFor,
+  clampBlocks,
   evaluate,
   findLeadForAvailability,
   laneSectionsFor,
@@ -81,10 +82,14 @@ export const GET = withCrmRoute(AvailabilityQuerySchema, async ({ input, user })
       alternates: [] as AvailabilityAlternate[],
       sections: [] as AvailabilitySection[],
       lanes: [] as LaneOccupancy[],
+      lanesReported: 0,
+      lanesExpected: 0,
       readAt: new Date().toISOString(),
       cached: false,
     };
   }
+
+  const lanesExpected = sections.reduce((n, s) => n + s.lanes.length, 0);
 
   let grid;
   try {
@@ -106,18 +111,26 @@ export const GET = withCrmRoute(AvailabilityQuerySchema, async ({ input, user })
       alternates: [] as AvailabilityAlternate[],
       sections: [] as AvailabilitySection[],
       lanes: [] as LaneOccupancy[],
+      lanesReported: 0,
+      lanesExpected,
       readAt: new Date().toISOString(),
       cached: false,
     };
   }
 
   const occupancy = occupancyMap(grid);
+  // Lanes THIS READ reported. A lane in our sections that QAMF did not answer
+  // for is unknown, and the engine treats unknown as unavailable rather than
+  // counting it as free space (a partial `GET /lanes` would otherwise read as
+  // an empty grid).
+  const knownLanes = new Set(grid.lanes);
   const verdict = evaluate({
     sections,
     occupancy,
     window: { start: request.start, dur: request.dur },
     guests: request.guests,
     bounds,
+    knownLanes,
   });
 
   const placement: AvailabilityPlacement | null = verdict.best
@@ -151,10 +164,25 @@ export const GET = withCrmRoute(AvailabilityQuerySchema, async ({ input, user })
       free: s.free,
       runs: s.runs,
     })),
-    // Only the lanes this centre's sections actually contain, in section order.
+    // Only the lanes this centre's sections actually contain, in section order,
+    // and CLAMPED TO THE DRAWN DAY.
+    //
+    // `readLaneGrid` projects the whole ET day (a lunchtime league is in there),
+    // while `bounds` is the evening the timeline draws. Unclamped, `pctOf` puts
+    // a 1-3 PM block at a negative `left` and nothing in `crm.css` clips it, so
+    // real daytime occupancy paints outside the track — and the "free all
+    // evening" collapse, which counts blocks, would keep an afternoon-only lane
+    // out of the band it belongs in. The engine keeps the UNCLAMPED map above,
+    // because a request can run past the drawn close and must still see the
+    // whole day.
     lanes: sections.flatMap((s) =>
-      s.lanes.map((lane) => ({ lane, blocks: occupancy.get(lane) ?? [] })),
+      s.lanes.map((lane) => ({ lane, blocks: clampBlocks(occupancy.get(lane) ?? [], bounds) })),
     ),
+    lanesReported: sections.reduce(
+      (n, s) => n + s.lanes.filter((lane) => knownLanes.has(lane)).length,
+      0,
+    ),
+    lanesExpected,
     readAt: grid.readAt,
     cached: grid.cached,
   };

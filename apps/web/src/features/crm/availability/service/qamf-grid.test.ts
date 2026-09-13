@@ -30,9 +30,10 @@ vi.mock("@/lib/redis", () => ({
   },
 }));
 
-installMsw(...qamfHandlers);
+const server = installMsw(...qamfHandlers);
 
 const {
+  OUT_OF_SERVICE_LABEL,
   classifyKind,
   blockLabel,
   etDayBoundsMs,
@@ -41,7 +42,9 @@ const {
   projectBusy,
   readLaneGrid,
 } = await import("./qamf-grid");
-const { evaluate, LANE_SECTIONS } = await import("./engine");
+const { evaluate, LANE_SECTIONS, sectionRuns } = await import("./engine");
+const { http, rawJson } = await import("../../../../../test/msw/server");
+const { QAMF_BASE, qamfFixtures } = await import("../../../../../test/msw/handlers/qamf");
 
 /** The fixtures are a Fort Myers Saturday evening in EDT. */
 const DATE = "2026-09-12";
@@ -222,6 +225,43 @@ describe("readLaneGrid", () => {
 
   it("refuses to answer for a centre with no lanes", async () => {
     await expect(readLaneGrid("FT", DATE)).rejects.toThrow(/no bowling grid/);
+  });
+
+  it("holds a lane QAMF reports in Error — it is under maintenance, not free", async () => {
+    // Lane 15 is added to the floor read with `Status:"Error"` and NOTHING in
+    // the schedule. `toFloorIntervals` only emits for `Status:"Open"`, so
+    // before this the lane produced no block at all, `laneFreeIn` said true and
+    // the verdict could offer a lane that physically cannot be opened.
+    // `lane-plan`, which reads the same grid, has always treated Error as
+    // never free.
+    const lanes = JSON.parse(qamfFixtures.lanes()) as {
+      Lanes: { LaneNumber: number; Status: string; Reservation: unknown }[];
+    };
+    lanes.Lanes.push({ LaneNumber: 15, Status: "Error", Reservation: null });
+    server.use(
+      http.get(`${QAMF_BASE}/centers/:centerId/lanes`, () => rawJson(JSON.stringify(lanes))),
+    );
+
+    const grid = await readLaneGrid("HPFM", DATE, { refresh: true });
+    expect(grid.lanes).toContain(15);
+    expect(occupancyMap(grid).get(15)).toEqual([
+      { kind: "maint", label: OUT_OF_SERVICE_LABEL, start: 0, end: 24 * 60 },
+    ]);
+
+    const occupancy = occupancyMap(grid);
+    const win = { start: 18 * 60, dur: 120 };
+    const runs = sectionRuns(LANE_SECTIONS.HPFM, occupancy, win);
+    const regular = runs.find((r) => r.section.name === "Regular");
+    expect(regular?.runs.flat()).not.toContain(15);
+    const verdict = evaluate({
+      sections: LANE_SECTIONS.HPFM,
+      occupancy,
+      window: win,
+      guests: 6,
+      bounds: { openMin: 16 * 60, closeMin: 22 * 60 },
+      knownLanes: new Set(grid.lanes),
+    });
+    expect(verdict.best?.lanes).not.toContain(15);
   });
 
   it("feeds the engine a verdict that respects the league nobody else can see", async () => {
