@@ -129,7 +129,8 @@ describe("foldConversations", () => {
     expect(c.name).toBe("Dana Whitfield");
     expect(c.leadTitle).toBe("Lee Health");
     expect(c.leadPublicId).toBe("L-1042");
-    expect(c.repSlugs).toEqual(["kelsea"]);
+    // The rep's avatar data, not just the slug: the header draws initials.
+    expect(c.reps).toEqual([{ slug: "kelsea", initials: "KK", name: "Kelsea" }]);
     expect(c.lastBody).toBe("Hi Dana");
   });
 
@@ -160,7 +161,7 @@ describe("foldConversations", () => {
     );
     expect(out).toHaveLength(1);
     expect(out[0].threadIds).toEqual(["1", "2"]);
-    expect(out[0].repSlugs).toEqual(["kelsea", "lori"]);
+    expect(out[0].reps.map((r) => r.slug)).toEqual(["kelsea", "lori"]);
     expect(out[0].unread).toBe(3);
     expect(out[0].lastBody).toBe("newer");
     expect(out[0].lastDirection).toBe("in");

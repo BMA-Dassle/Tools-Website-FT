@@ -113,6 +113,13 @@ export interface LinkedContact {
   accountName: string | null;
 }
 
+/** Just enough of a rep to draw their avatar (`repAvatar`, crm-shared.js:205). */
+export interface ConversationRep {
+  slug: string;
+  initials: string;
+  name: string;
+}
+
 /**
  * One entry of the Conversations list — ONE PERSON, however many rep threads
  * they have (the owner's rule: one entry per person, Text and Email tabs).
@@ -131,8 +138,14 @@ export interface ConversationSummary {
   leadStatus: string | null;
   /** "Lee Health · 60 guests · Sat, Oct 17" style caption; null without a lead. */
   leadTitle: string | null;
-  /** Slugs of the reps whose DIDs this person has texted with. */
-  repSlugs: string[];
+  /**
+   * The reps whose DIDs this person has texted with, newest thread first.
+   * Carries initials and name as well as the slug because the list row AND the
+   * conversation header both draw `repAvatar(l.rep)` (crm-shared.js:205), and
+   * on a director's team-wide view that avatar is the only thing that says
+   * whose conversation this is.
+   */
+  reps: ConversationRep[];
   threadIds: string[];
   lastMessageAt: string | null;
   lastBody: string | null;
@@ -153,6 +166,25 @@ export interface ConversationDetail {
   contact: LinkedContact | null;
   lead: LinkedLead | null;
 }
+
+/**
+ * WHOSE CONVERSATIONS — three states, deliberately not two.
+ *
+ *   team   a director who asked for the team (`all=1`) — no rep filter
+ *   rep    this rep's own threads
+ *   none   signed in with a sales role but NO `crm_reps` row — sees nothing
+ *
+ * `none` exists because a bare `repId: null` used to mean BOTH "director, show
+ * everything" and "we could not find a rep row", and `core/identity.ts:70-78`
+ * degrades `rep` to `null` on purpose when the roster lookup throws. One
+ * transient Neon error would otherwise promote an ordinary rep to a team-wide
+ * reader who also zeroed their colleagues' unread counts. A person we cannot
+ * identify gets the empty view, never the widest one.
+ */
+export type ConversationScope =
+  | { kind: "team" }
+  | { kind: "rep"; repId: string }
+  | { kind: "none" };
 
 export type ConversationFolder = "all" | "unread" | "texts" | "email";
 export const CONVERSATION_FOLDERS = [

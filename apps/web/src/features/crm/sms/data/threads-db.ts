@@ -14,7 +14,7 @@
 
 import { isDbConfigured, sql } from "@ft/db";
 import { ensureRepsSchema } from "~/features/crm/reps";
-import type { SmsThread } from "../types";
+import type { ConversationScope, SmsThread } from "../types";
 
 let schemaReady: Promise<void> | null = null;
 
@@ -174,47 +174,86 @@ export async function threadsForContact(contactId: string): Promise<SmsThread[]>
 
 export const THREAD_LIST_MAX = 200;
 
+/** The rep filter for a scope: `null` only ever means "the whole team". */
+function repFilterFor(scope: ConversationScope): string | null {
+  return scope.kind === "rep" ? scope.repId : null;
+}
+
 export interface ThreadListFilter {
-  /** Only this rep's own threads; a director passes nothing and sees the team. */
-  repId?: string | null;
+  /** Whose threads — `{kind:"none"}` (the default) sees nothing, never everything. */
+  scope?: ConversationScope;
   limit?: number;
-  /** Keyset: rows strictly older than this instant. */
-  before?: string | null;
+  /** Keyset cursor from `threadCursor()`: rows strictly older than it. */
+  before?: ThreadCursor | null;
   unreadOnly?: boolean;
 }
 
 /**
+ * A page boundary at the thread grain: the whole ORDER BY, not half of it.
+ *
+ * `(last_message_at, id)` — two threads can share a millisecond (a template
+ * send and its system line, a burst of MO callbacks), and a cursor on the
+ * timestamp alone with a strict `<` drops every row of a tie that straddles the
+ * boundary. R10 asks for keyset paging; this is the whole key.
+ */
+export interface ThreadCursor {
+  lastMessageAt: string;
+  id: string;
+}
+
+export function encodeThreadCursor(c: ThreadCursor): string {
+  return `${c.lastMessageAt}|${c.id}`;
+}
+
+export function decodeThreadCursor(raw: string | null | undefined): ThreadCursor | null {
+  if (!raw) return null;
+  const at = raw.lastIndexOf("|");
+  if (at <= 0) return null;
+  const lastMessageAt = raw.slice(0, at);
+  const id = raw.slice(at + 1);
+  return /^\d{1,19}$/.test(id) && lastMessageAt ? { lastMessageAt, id } : null;
+}
+
+/**
  * The Conversations list at the thread grain, newest first, keyset on
- * `last_message_at` (R10: never OFFSET). `service/threads.ts` folds the page
- * into one entry per person.
+ * `(last_message_at, id)` (R10: never OFFSET). `service/threads.ts` folds the
+ * page into one entry per person.
  */
 export async function listThreads(filter: ThreadListFilter = {}): Promise<SmsThread[]> {
-  if (!isDbConfigured()) return [];
+  const scope = filter.scope ?? { kind: "none" };
+  if (!isDbConfigured() || scope.kind === "none") return [];
   await ensureSmsThreadsSchema();
   const q = sql();
   const limit = Math.max(1, Math.min(filter.limit ?? 50, THREAD_LIST_MAX));
   const rows = (await q.query(
     `SELECT ${THREAD_COLUMNS} FROM crm_sms_threads t
       WHERE ($1::bigint IS NULL OR t.rep_id = $1::bigint)
-        AND ($2::timestamptz IS NULL OR t.last_message_at < $2::timestamptz)
-        AND (NOT $3::boolean OR t.unread_count > 0)
+        AND ($2::timestamptz IS NULL
+             OR (t.last_message_at, t.id) < ($2::timestamptz, $3::bigint))
+        AND (NOT $4::boolean OR t.unread_count > 0)
         AND t.last_message_at IS NOT NULL
       ORDER BY t.last_message_at DESC, t.id DESC
-      LIMIT $4`,
-    [filter.repId ?? null, filter.before ?? null, filter.unreadOnly === true, limit],
+      LIMIT $5`,
+    [
+      repFilterFor(scope),
+      filter.before?.lastMessageAt ?? null,
+      filter.before?.id ?? null,
+      filter.unreadOnly === true,
+      limit,
+    ],
   )) as SmsThreadRowRaw[];
   return rows.map(mapThreadRow);
 }
 
 /** Sum of unread counts, for the sidebar badge. A rep sees only their own. */
-export async function unreadTotal(repId: string | null): Promise<number> {
-  if (!isDbConfigured()) return 0;
+export async function unreadTotal(scope: ConversationScope): Promise<number> {
+  if (!isDbConfigured() || scope.kind === "none") return 0;
   await ensureSmsThreadsSchema();
   const q = sql();
   const rows = (await q.query(
     `SELECT COALESCE(SUM(unread_count), 0)::int AS n FROM crm_sms_threads
       WHERE ($1::bigint IS NULL OR rep_id = $1::bigint)`,
-    [repId],
+    [repFilterFor(scope)],
   )) as { n: number }[];
   return Number(rows[0]?.n ?? 0);
 }

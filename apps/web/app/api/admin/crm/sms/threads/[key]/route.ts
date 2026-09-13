@@ -1,4 +1,5 @@
 import { CrmHttpError, withCrmRoute } from "~/features/crm/core/http";
+import { isDirector } from "~/features/crm/core/identity";
 import { crmSmsEnabled } from "~/features/crm/core/flags";
 import { listRoster } from "~/features/crm/reps";
 import {
@@ -6,6 +7,7 @@ import {
   ThreadDetailQuerySchema,
   ThreadPostSchema,
   UnknownConversationError,
+  conversationScopeFor,
   loadConversation,
   markConversationRead,
   sendCrmSms,
@@ -45,6 +47,7 @@ export const GET = withCrmRoute(ThreadDetailQuerySchema, async ({ input, params,
     const detail = await loadConversation({
       key,
       rep: user.rep,
+      scope: conversationScopeFor(user.rep, isDirector(user)),
       reps: await listRoster(),
       smsEnabled: crmSmsEnabled(),
       limit: input.limit,
