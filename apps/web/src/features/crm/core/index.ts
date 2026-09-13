@@ -16,6 +16,7 @@ export * from "./nav";
 export * from "./screens";
 export * from "./format";
 export * from "./dates";
+export * from "./projections";
 export {
   SALES_DIRECTOR_ROLE,
   SALES_ROLE,
@@ -23,8 +24,6 @@ export {
   crmUserFromRequest,
   isDirector,
   normalizeEmail,
-  publicRep,
-  publicUser,
   requireCrmUser,
   type CrmUserResolution,
 } from "./identity";
@@ -40,4 +39,21 @@ export {
   type RouteArgs,
   type RouteParams,
 } from "./http";
-export { ensureCrmSchema } from "./schema";
+export { CRM_TABLES, ensureCrmSchema } from "./schema";
+export { runSeed, type SeedCounts } from "./seed";
+export * from "./settings";
+export {
+  ensureSettingsSchema,
+  getCrmSettings,
+  getSettingValue,
+  listSettingRows,
+  putCrmSetting,
+  type SettingRow,
+} from "./data/settings-db";
+export {
+  ensureAuditSchema,
+  listAudit,
+  writeAudit,
+  type AuditEntry,
+  type AuditRow,
+} from "./data/audit-db";
