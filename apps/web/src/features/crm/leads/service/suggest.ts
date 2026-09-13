@@ -30,6 +30,7 @@ import {
   type DecisionOutcome,
   type EngineContext,
   type EngineLead,
+  type RequestedRepVerdict,
 } from "~/features/crm/rules";
 import type { CrmRep } from "../../core/types";
 import type { LeadView, RuleTraceRowView } from "../contracts";
@@ -57,6 +58,8 @@ export interface SuggestResult {
   trace: RuleTraceRowView[];
   /** What kind of answer it was: hold · route · assign · queue · none. */
   outcome: DecisionOutcome;
+  /** B7 — how the guest's planner request fared; absent when they asked for nobody. */
+  requested?: RequestedRepVerdict<CrmRep>;
 }
 
 /** What the queue shows when the engine could not answer: nothing picked, nothing traced. */
@@ -66,7 +69,7 @@ export const NO_SUGGESTION: SuggestResult = Object.freeze({
   outcome: "none" as DecisionOutcome,
 });
 
-/** The six fields the engine reads off a lead row. */
+/** The fields the engine reads off a lead row, the guest's planner among them. */
 export function toEngineLead(lead: LeadView): EngineLead {
   return {
     centre: lead.centre,
@@ -75,6 +78,7 @@ export function toEngineLead(lead: LeadView): EngineLead {
     eventDate: lead.eventDate,
     source: lead.source,
     kids: lead.kids,
+    requestedRepId: lead.requestedRep?.id ?? null,
   };
 }
 
@@ -87,6 +91,17 @@ export function toEngineLead(lead: LeadView): EngineLead {
  */
 export function isImmediate(outcome: DecisionOutcome): boolean {
   return outcome === "hold" || outcome === "route";
+}
+
+/**
+ * A guest who asked for Kelsea is told on the success screen — and in their
+ * text — that Kelsea has their enquiry, so an honoured request is applied at
+ * capture like a hold or a route, not left for the sweep's delay. The
+ * director's window exists to balance workload, which the owner ruled the
+ * request already beats (B7).
+ */
+export function appliesImmediately(result: SuggestResult): boolean {
+  return isImmediate(result.outcome) || result.requested?.honoured === true;
 }
 
 export async function suggestFor(lead: LeadView, ctx: SuggestContext = {}): Promise<SuggestResult> {
@@ -105,6 +120,7 @@ export async function suggestFor(lead: LeadView, ctx: SuggestContext = {}): Prom
         : null,
       trace: wire.trace,
       outcome: decision.outcome,
+      ...(decision.requested ? { requested: decision.requested } : {}),
     };
   } catch (err) {
     // The engine is advisory; a lead is never lost because the rules could not run.

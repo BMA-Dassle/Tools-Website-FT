@@ -80,6 +80,8 @@ export {
   assignDecision,
   autoPick,
   candidateReps,
+  decideByRules,
+  weighGuestRequest,
   monthLabel,
   standardPick,
   volumeFor,

@@ -491,15 +491,16 @@ describe("createLead", () => {
       expect(f.inserted[0]!.requestedRepId).toBe(REPS.kelsea.id);
     });
 
-    it("when the decision honours it, Pandora gets that planner's Office name as `agent`", async () => {
+    it("an honoured request mints as that planner and is assigned AT CAPTURE, not left for the sweep", async () => {
       const f = fakes({
-        // What `suggestFor` returns once the request has been weighed and won.
+        // What `suggestFor` returns once the engine has weighed the request and
+        // it won: outcome "assign" (the balancing rule's kind), honoured.
         suggest: async () => ({
           suggestion: {
             rep: REPS.kelsea,
             reason: "guest asked for Kelsea",
             ruleId: null,
-            finalRuleLabel: "Guest's choice of planner",
+            finalRuleLabel: "GUEST",
           },
           trace: [
             {
@@ -509,6 +510,15 @@ describe("createLead", () => {
               note: "Guest asked for Kelsea — honoured, ahead of lowest Oct volume",
             },
           ],
+          outcome: "assign" as const,
+          requested: {
+            outcome: "honoured" as const,
+            honoured: true,
+            rep: REPS.kelsea,
+            reason: "guest asked for Kelsea",
+            note: "Guest asked for Kelsea — honoured, ahead of lowest Oct volume",
+            overriddenBy: null,
+          },
         }),
       });
       await createLead(
@@ -518,6 +528,37 @@ describe("createLead", () => {
       );
       expect(f.mintArgs[0]![1]).toMatchObject({ agent: "Kelsea Kosco" });
       expect(f.assigns[0]).toMatchObject({ repId: REPS.kelsea.id, reason: "rule" });
+    });
+
+    it("a request the rules did NOT honour waits for the sweep like any balancing pick", async () => {
+      const f = fakes({
+        suggest: async () => ({
+          suggestion: {
+            rep: REPS.lori,
+            reason: "lowest Oct volume",
+            ruleId: "6",
+            finalRuleLabel: "R6",
+          },
+          trace: [],
+          outcome: "assign" as const,
+          requested: {
+            outcome: "unavailable" as const,
+            honoured: false,
+            rep: REPS.lori,
+            reason: "lowest Oct volume",
+            note: "Guest asked for Kelsea — they are off today, so the lead is worked by Lori",
+            overriddenBy: "6",
+          },
+        }),
+      });
+      await createLead(
+        { ...INPUT, centre: "HPFM", requestedPlannerSlug: "kelsea" },
+        { source: "web" },
+        f.deps,
+      );
+      expect(f.assigns).toHaveLength(0);
+      // Pandora still gets the rules' own pick, exactly as it does today.
+      expect(f.mintArgs[0]![1]).toMatchObject({ agent: "Lori Lehman" });
     });
   });
 

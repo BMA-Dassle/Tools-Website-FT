@@ -3,6 +3,7 @@ import {
   PROTOTYPE_NOW,
   QUEUE_LEADS,
   REPS,
+  REP_ID,
   RULES,
   SHIFTS_TODAY,
   SHIFTS_TOMORROW,
@@ -49,6 +50,21 @@ describe("ruleCode / toDecisionWire", () => {
     );
     expect(orphan.trace[0]).toEqual({ ruleId: "999", hit: false, code: "999", label: "999" });
     expect(orphan.finalRuleCode).toBeNull();
+  });
+
+  it("B7's guest-request STEP reads as a step, not as a missing rule", () => {
+    const d = assignDecision(
+      { ...QUEUE_LEADS["L-1061"], requestedRepId: REP_ID.kelsea },
+      prototypeContext(),
+    );
+    const w = toDecisionWire(d, RULES);
+    expect(w.trace.at(-1)).toEqual({
+      ruleId: "guest-request",
+      hit: true,
+      note: "Guest asked for Kelsea — honoured",
+      code: "GUEST",
+      label: "Guest's choice of planner",
+    });
   });
 });
 

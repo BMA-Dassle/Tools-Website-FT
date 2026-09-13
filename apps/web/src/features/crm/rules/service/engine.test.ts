@@ -13,8 +13,10 @@ import {
   assignDecision,
   autoPick,
   candidateReps,
+  decideByRules,
   standardPick,
   whenMatches,
+  type EngineLead,
 } from "./engine";
 
 /**
@@ -294,5 +296,96 @@ describe("helpers", () => {
 
   it("standardPick returns undefined for no candidates", () => {
     expect(standardPick([], QUEUE_LEADS["L-1061"], prototypeContext())).toBeUndefined();
+  });
+});
+
+/**
+ * B7 — "Who would you like to work with?". The owner's precedence (2026-09-13
+ * 14:05) applied to the SEEDED rules and the prototype's roster, so both halves
+ * are pinned against the real rule table rather than a hand-made decision.
+ */
+describe("the planner the guest asked for", () => {
+  const ctx = prototypeContext({ now: PROTOTYPE_NOW });
+  const asked = (lead: EngineLead, repId: string): EngineLead => ({
+    ...lead,
+    requestedRepId: repId,
+  });
+
+  it("beats the balancing rule: a FastTrax corporate enquiry that asks for Kelsea gets Kelsea", () => {
+    const d = assignDecision(asked(QUEUE_LEADS["L-1061"], REP_ID.kelsea), ctx);
+    expect(d.rep?.slug).toBe("kelsea");
+    expect(d.reason).toBe("guest asked for Kelsea");
+    expect(d.outcome).toBe("assign");
+    expect(d.requested?.outcome).toBe("honoured");
+    expect(d.trace.at(-1)).toEqual({
+      ruleId: "guest-request",
+      hit: true,
+      note: "Guest asked for Kelsea — honoured",
+    });
+  });
+
+  it("beats the balancing rule when it names someone else: Lori over Kelsea at HeadPinz", () => {
+    // R6 would pick Kelsea for December (40 guests vs Lori's 20 — Lori is off
+    // today, so R4 removes her; ask for her anyway and R4 still wins).
+    const december = { ...QUEUE_LEADS["L-1062"], eventDate: "2026-12-11" };
+    const plain = assignDecision(december, ctx);
+    expect(plain.rep?.slug).toBe("kelsea");
+
+    const d = assignDecision(asked(december, REP_ID.lori), ctx);
+    expect(d.requested?.outcome).toBe("unavailable");
+    expect(d.rep?.slug).toBe("kelsea");
+    expect(d.reason).toBe("lowest Dec volume");
+    expect(d.trace.at(-1)!.note).toBe(
+      "Guest asked for Lori — they are off today, so the lead is worked by Kelsea",
+    );
+  });
+
+  it("does NOT beat R1: a 120-guest enquiry is still held for the Marketing Director", () => {
+    const d = assignDecision(asked(QUEUE_LEADS["L-1059"], REP_ID.kelsea), ctx);
+    expect(d.rep?.slug).toBe("mkt");
+    expect(d.outcome).toBe("hold");
+    expect(d.requested?.outcome).toBe("overridden");
+    expect(d.requested?.overriddenBy).toBe("1");
+    expect(d.trace.at(-1)!.note).toBe(
+      "Guest asked for Kelsea — held for Marketing Director takes precedence",
+    );
+  });
+
+  it("does NOT beat R2: a kids' birthday still goes to Guest Services, request ignored", () => {
+    const d = assignDecision(asked(QUEUE_LEADS["L-1060"], REP_ID.stephanie), ctx);
+    expect(d.rep?.slug).toBe("gs");
+    expect(d.outcome).toBe("route");
+    expect(d.requested?.outcome).toBe("ignored");
+    expect(d.requested?.honoured).toBe(false);
+  });
+
+  it("a planner who does not sell at that centre is not honoured", () => {
+    const d = assignDecision(asked(QUEUE_LEADS["L-1061"], REP_ID.lori), ctx);
+    expect(d.rep?.slug).toBe("kelsea");
+    expect(d.reason).toBe("lowest Oct volume");
+    expect(d.requested?.outcome).toBe("unknown");
+  });
+
+  it("the Guest Services bucket and the Marketing hold row are not requestable", () => {
+    for (const id of [REP_ID.gs, REP_ID.mkt, REP_ID.jacob]) {
+      const d = assignDecision(asked(QUEUE_LEADS["L-1061"], id), ctx);
+      expect(d.requested?.outcome).toBe("unknown");
+      expect(d.rep?.slug).toBe("kelsea");
+    }
+  });
+
+  it("an id nobody on the roster carries is ignored, never a crash", () => {
+    const d = assignDecision(asked(QUEUE_LEADS["L-1061"], "999999"), ctx);
+    expect(d.rep?.slug).toBe("kelsea");
+    expect(d.requested).toBeUndefined();
+  });
+
+  it("no request → byte-identical to the rules' own decision, with no extra trace row", () => {
+    for (const lead of Object.values(QUEUE_LEADS)) {
+      const plain = decideByRules(lead, ctx);
+      const full = assignDecision(lead, ctx);
+      expect(full).toEqual(plain);
+      expect(full.trace.some((t) => t.ruleId === "guest-request")).toBe(false);
+    }
   });
 });
