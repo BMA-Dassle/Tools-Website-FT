@@ -62,11 +62,11 @@ export type DealTabLoader = () => Promise<{ default: DealTabComponent }>;
 
 export const DEAL_TABS: Record<DealTabId, DealTabLoader> = {
   overview: () => import("./OverviewTab"),
-  contract: () => import("./TabComingLater"),
+  contract: () => import("./ContractTab"),
   notes: () => import("./TabComingLater"),
   event: () => import("./TabComingLater"),
-  payments: () => import("./TabComingLater"),
-  history: () => import("./TabComingLater"),
+  payments: () => import("./PaymentsTab"),
+  history: () => import("./HistoryTab"),
 };
 
 export function isDealTabId(value: unknown): value is DealTabId {

@@ -24,9 +24,12 @@ describe("deal tab registry", () => {
     );
   });
 
-  it("overview is built; every other id points at TabComingLater", () => {
+  it("overview, contract, payments and history are built; notes and event wait for B6", () => {
     expect(String(DEAL_TABS.overview)).toContain("OverviewTab");
-    for (const id of DEAL_TAB_IDS.filter((t) => t !== "overview")) {
+    expect(String(DEAL_TABS.contract)).toContain("ContractTab");
+    expect(String(DEAL_TABS.payments)).toContain("PaymentsTab");
+    expect(String(DEAL_TABS.history)).toContain("HistoryTab");
+    for (const id of ["notes", "event"] as const) {
       expect(String(DEAL_TABS[id]), id).toContain("TabComingLater");
     }
   });
