@@ -22,9 +22,11 @@ import { shiftYmd, todayEasternYmd } from "~/features/crm/core/dates";
 import { crmAutoAssignEnabled } from "~/features/crm/core/flags";
 import type { JobHandler } from "~/features/crm/jobs";
 import { listReps } from "~/features/crm/reps";
+import { getSevenShiftsSetting } from "../data/sevenshifts-settings-db";
 import { pruneSevenShifts, upsertSevenShifts } from "../data/shifts-db";
 import { listSweepCandidates } from "../data/volume-db";
 import { loadEngineContext } from "./context";
+import { GS_SLUG } from "./gs-members";
 import { mirrorSevenShifts } from "./mirror";
 import {
   SEVEN_SHIFTS_TOKEN_MISSING,
@@ -43,7 +45,10 @@ export const sevenShiftsMirrorHandler: JobHandler = async ({ payload, now }) => 
     typeof payload.today === "string" && YMD.test(payload.today)
       ? payload.today
       : todayEasternYmd(now);
-  const reps = await listReps();
+  const [reps, sevenShifts] = await Promise.all([listReps(), getSevenShiftsSetting()]);
+  // Guest Services is a DEPARTMENT, not a user (§5.7b): the bucket's shifts are
+  // the call centre's shifts, so the mirror needs the bucket row and the ids.
+  const gsRep = reps.find((r) => r.slug === GS_SLUG) ?? null;
   const summary = await mirrorSevenShifts({
     client: new SevenShiftsClient(),
     store: { upsertSevenShifts, pruneSevenShifts },
@@ -51,6 +56,8 @@ export const sevenShiftsMirrorHandler: JobHandler = async ({ payload, now }) => 
     centres: CENTRE_LIST,
     todayYmd: today,
     tomorrowYmd: shiftYmd(today, 1),
+    gsRepId: gsRep?.id ?? null,
+    gsDepartmentIds: sevenShifts.gsDepartmentIds,
   });
   const failed = summary.locations.filter((l) => l.error);
   if (failed.length === summary.locations.length && failed.length > 0) {

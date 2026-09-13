@@ -37,6 +37,7 @@ export const SEVEN_SHIFTS_GAP_MS = 150;
 export const SEVEN_SHIFTS_TIMEOUT_MS = 15_000;
 export const SEVEN_SHIFTS_RETRIES = 3;
 export const SEVEN_SHIFTS_PAGE_LIMIT = 500;
+export const SEVEN_SHIFTS_USER_PAGE_LIMIT = 200;
 
 export const SEVEN_SHIFTS_TOKEN_MISSING = "SEVEN_SHIFTS_API_TOKEN is not set";
 
@@ -237,11 +238,18 @@ export class SevenShiftsClient {
     return raw.filter(isLiveShift).map(toSevenShift);
   }
 
-  /** Active users — `id` is the join key for `crm_reps.seven_shifts_user_id`. */
-  async listUsers(): Promise<SevenShiftsUserRaw[]> {
+  /**
+   * Active users — `id` is the join key for `crm_reps.seven_shifts_user_id`.
+   *
+   * `departmentId` is the ONLY way to learn who is in a department: a user row
+   * carries no department field at all (probed live 2026-09-13, §5.7b), so
+   * membership is a server-side filter, never something to scan `/users` for.
+   */
+  async listUsers(input: { departmentId?: number } = {}): Promise<SevenShiftsUserRaw[]> {
     const p = new URLSearchParams();
     p.set("status", "active");
-    p.set("limit", "200");
+    p.set("limit", String(SEVEN_SHIFTS_USER_PAGE_LIMIT));
+    if (input.departmentId !== undefined) p.set("department_id", String(input.departmentId));
     return this.getAll<SevenShiftsUserRaw>("/users", p);
   }
 }

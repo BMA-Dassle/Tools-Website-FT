@@ -9,4 +9,5 @@ export const rulesKeys = {
   try: (q: Record<string, string | number | boolean | undefined>) =>
     ["crm", "rules", "try", q] as const,
   roster: (date?: string) => ["crm", "rules", "roster", date ?? "today"] as const,
+  gs: () => ["crm", "rules", "gs"] as const,
 };

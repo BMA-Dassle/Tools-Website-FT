@@ -227,4 +227,31 @@ describe("listShifts against the fixture", () => {
     const users = await client.listUsers();
     expect(users.find((u) => u.email === "kelsea@headpinz.com")?.id).toBe(6543210);
   });
+
+  /**
+   * A user row carries NO department field (probed live 2026-09-13, §5.7b), so
+   * the Guest Services department's membership can only come from this
+   * server-side filter — never from scanning `/users` for a department key.
+   */
+  it("listUsers({departmentId}) asks 7shifts to filter, and pages with the cursor", async () => {
+    const asked: string[] = [];
+    server.use(
+      http.get(`${SEVEN_SHIFTS_BASE}/users`, ({ request }) => {
+        const url = new URL(request.url);
+        asked.push(url.search);
+        return rawJson(
+          url.searchParams.get("cursor")
+            ? '{"data":[{"id":902,"first_name":"Paula","last_name":"McGarvey","email":"paula@headpinz.com"}],"meta":{"cursor":{"next":null}}}'
+            : '{"data":[{"id":901,"first_name":"Jasmine","last_name":"Button","email":"jasmine@headpinz.com"}],"meta":{"cursor":{"next":"page2"}}}',
+        );
+      }),
+    );
+    const client = new SevenShiftsClient({ env: ENV, sleep: fakeSleep().sleep });
+    const users = await client.listUsers({ departmentId: 635186 });
+    expect(users.map((u) => u.id)).toEqual([901, 902]);
+    expect(asked[0]).toContain("department_id=635186");
+    expect(asked[0]).toContain("status=active");
+    expect(asked[1]).toContain("cursor=page2");
+    expect(asked[1]).toContain("department_id=635186");
+  });
 });

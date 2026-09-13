@@ -44,10 +44,21 @@ export {
   loadOpenVolumeByRepMonth,
   type SweepCandidate,
 } from "./data/volume-db";
+export { getSevenShiftsSetting, putSevenShiftsSetting } from "./data/sevenshifts-settings-db";
 export {
+  GS_DEPARTMENT_ID,
+  GS_DEPARTMENT_NAME,
+  SEVEN_SHIFTS_SETTING_DEFAULT,
+  SEVEN_SHIFTS_SETTING_KEY,
+  departmentIdsFrom,
+  sevenShiftsSettingFrom,
+} from "./settings";
+export {
+  dayWindows,
   fmtHour,
   fmtWindow,
   isOffToday,
+  mergeWindows,
   nextStart,
   onShiftNow,
   rosterForDate,
@@ -73,7 +84,6 @@ export {
   standardPick,
   volumeFor,
   whenMatches,
-  type DecisionOutcome,
   type EngineContext,
   type EngineDecision,
   type EngineLead,
@@ -101,16 +111,52 @@ export {
   type SevenShiftsUserRaw,
 } from "./service/sevenshifts";
 export {
+  keptShifts,
+  loadGsCoverage,
   mirrorLocations,
   mirrorSevenShifts,
   repsBySevenShiftsUserId,
   shiftsToUpserts,
+  type GsCoverage,
   type MirrorClient,
+  type MirrorDepartmentSummary,
   type MirrorDeps,
+  type MirrorGsSummary,
   type MirrorLocationSummary,
   type MirrorStore,
   type MirrorSummary,
 } from "./service/mirror";
+export {
+  GS_BLOCK_NO_BUCKET,
+  GS_BLOCK_NO_EMAIL,
+  GS_BLOCK_SERVICE,
+  GS_REFUSE_INELIGIBLE,
+  GS_REFUSE_NOT_GS,
+  GS_REFUSE_UNKNOWN,
+  GS_SLUG,
+  INTERNAL_EMAIL_DOMAIN,
+  classifyGsMembers,
+  gsLoginRefusal,
+  gsUserIds,
+  isInternalEmail,
+  isServiceAccount,
+  memberName,
+  normalizeEmail,
+  ownRepBlock,
+  type GsClassifyInput,
+  type GsDepartmentUser,
+} from "./service/gs-members";
+export {
+  liveGsDeps,
+  loadDepartmentUsers,
+  loadGsPayload,
+  repIdByEmail,
+  setGsDepartments,
+  setGsLogin,
+  type GsDeps,
+  type GsLoginOutcome,
+  type GsPayload,
+} from "./service/gs";
 export {
   SWEEP_BUSINESS_HOURS,
   SWEEP_HELD_REASON,
@@ -119,14 +165,13 @@ export {
   mirrorIdempotencyKey,
   runAssignSweep,
   sweepIdempotencyKey,
-  type SweepDecision,
   type SweepDeps,
-  type SweepResult,
 } from "./service/sweep";
 export { assignSweepHandler, sevenShiftsMirrorHandler } from "./service/jobs";
 export { nowLabel, rosterDateLabel, ruleCode, toDecisionWire, toRosterRows } from "./service/wire";
 export {
   CentreCodeSchema,
+  GsPostBodySchema,
   RULE_KINDS,
   RosterPostBodySchema,
   RosterQuerySchema,
@@ -135,6 +180,7 @@ export {
   RuleWhenSchema,
   RulesPostBodySchema,
   TryLeadQuerySchema,
+  type GsPostBodyParsed,
   type RosterPostBodyParsed,
   type RuleInputParsed,
   type RulesPostBodyParsed,

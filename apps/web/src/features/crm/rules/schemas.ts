@@ -126,3 +126,30 @@ export type RosterPostBodyParsed = z.infer<typeof RosterPostBodySchema>;
 
 /** `GET /roster?date=` — defaults to ET today. */
 export const RosterQuerySchema = z.object({ date: Ymd.optional() });
+
+/**
+ * `POST /rules/gs` — the Guest Services department config and the per-person
+ * "works leads as Guest Services" toggle (§5.7b). `departments` takes a LIST so
+ * a second call centre needs no migration; the toggle takes ONE address at a
+ * time, because a bulk import of the department's emails is exactly the thing
+ * that would sign the directors in as the bucket.
+ */
+export const GsPostBodySchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("departments"),
+    ids: z.array(z.number().int().min(1).max(2_147_483_647)).max(10),
+    name: z.string().trim().min(1).max(60).optional(),
+  }),
+  z.object({
+    action: z.literal("login"),
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .max(160)
+      .regex(/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i, "expected an email address"),
+    works: z.boolean(),
+  }),
+]);
+
+export type GsPostBodyParsed = z.infer<typeof GsPostBodySchema>;

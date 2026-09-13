@@ -1,4 +1,7 @@
 import type {
+  GsPostBody,
+  GsPostResponse,
+  GsResponse,
   RosterPostBody,
   RosterResponse,
   RulesPostBody,
@@ -37,6 +40,11 @@ export const fetchTryLead = (f: CrmFetch, q: TryLeadParams) => {
   if (q.source) p.set("source", q.source);
   return f<TryLeadResponse>(`/rules/try?${p.toString()}`);
 };
+
+export const fetchGs = (f: CrmFetch) => f<GsResponse>("/rules/gs");
+
+export const postGs = (f: CrmFetch, body: GsPostBody) =>
+  f<GsPostResponse>("/rules/gs", { body: { ...body } });
 
 export const fetchRoster = (f: CrmFetch, date?: string) =>
   f<RosterResponse>(date ? `/roster?date=${encodeURIComponent(date)}` : "/roster");

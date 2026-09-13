@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SweepCandidate } from "../data/volume-db";
 import { PROTOTYPE_NOW, PROTOTYPE_NOW_AFTERNOON, prototypeContext } from "../test-support";
 import {
+  SWEEP_BUSINESS_HOURS,
   SWEEP_HELD_REASON,
   SWEEP_NOT_APPLIED_REASON,
   isAfterHours,
@@ -54,6 +55,10 @@ describe("idempotency keys", () => {
 });
 
 describe("isAfterHours (9 AM – 9 PM ET)", () => {
+  it("business hours are a NAMED constant — 9 AM to 9 PM ET (owner to confirm, §5.7b)", () => {
+    expect(SWEEP_BUSINESS_HOURS).toEqual({ start: 9, end: 21 });
+  });
+
   it("is false at 14:00 and 19:30 ET, true at 21:00 and 08:59 ET", () => {
     expect(isAfterHours(PROTOTYPE_NOW_AFTERNOON)).toBe(false);
     expect(isAfterHours(PROTOTYPE_NOW)).toBe(false);

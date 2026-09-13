@@ -2,16 +2,12 @@
 
 import { IconPlus, IconSettings } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { CENTRE_LIST } from "~/features/crm/core/centres";
 import { shiftYmd, todayEasternYmd } from "~/features/crm/core/dates";
 import type { ScreenProps } from "~/features/crm/core/screens";
-import {
-  EVENT_TYPES,
-  type AssignmentRule,
-  type CentreCode,
-  type EventType,
-} from "~/features/crm/core/types";
+import type { AssignmentRule, CentreCode, EventType } from "~/features/crm/core/types";
 import { RULES_TEST_IDS, type RulesPostBody } from "~/features/crm/rules/contracts";
 import { rulesKeys } from "~/features/crm/rules/queries";
 import { errorMessage } from "../lib/crm-fetch";
@@ -25,12 +21,20 @@ import {
 } from "../lib/use-crm-user";
 import { ICON } from "../primitives/icon-props";
 import { EmptyState, ErrorState, LoadingState } from "../primitives/States";
+import { GuestServicesCard } from "./GuestServicesCard";
 import { RosterCard } from "./RosterCard";
 import { RuleSheet } from "./RuleSheet";
 import { RulesList } from "./RulesList";
 import { SweepCard } from "./SweepCard";
 import { TryLead } from "./TryLead";
-import { ruleCode, type CentreOption } from "./model";
+import {
+  applyTryPatch,
+  ruleCode,
+  tryFieldsFromQuery,
+  tryUrlPatch,
+  type CentreOption,
+  type TryFields,
+} from "./model";
 import { fetchRules, postRules } from "./queries";
 
 /**
@@ -49,13 +53,6 @@ const TRY_DEFAULTS = { guests: "42", type: "corporate" as EventType, centre: "HP
 
 const CENTRES: CentreOption[] = CENTRE_LIST.map((c) => ({ code: c.code, short: c.short }));
 
-function isEventType(v: string | undefined): v is EventType {
-  return !!v && (EVENT_TYPES as readonly string[]).includes(v);
-}
-function isCentre(v: string | undefined): v is CentreCode {
-  return !!v && CENTRES.some((c) => c.code === v);
-}
-
 export default function RulesScreen({ query }: ScreenProps) {
   const { isDirector } = useCrmUser();
   const crmFetch = useCrmFetch();
@@ -63,7 +60,18 @@ export default function RulesScreen({ query }: ScreenProps) {
   const { openSheet, closeSheet } = useCrmSheet();
   const slot = useTopbarSlot();
   const qc = useQueryClient();
-  const [urlQuery, setUrlQuery] = useUrlQuery(query);
+  const [, setUrlQuery] = useUrlQuery(query);
+  // The "Try a lead" fields are COMPONENT state seeded from the URL once, and
+  // mirrored back to it. Reading them straight from the query made the guests
+  // box snap back to "42" the moment it was cleared — the URL helper drops an
+  // empty key — so backspacing to retype a number was impossible.
+  const [tryFields, setTryFields] = useState<TryFields>(() =>
+    tryFieldsFromQuery(
+      query,
+      { ...TRY_DEFAULTS, eventDate: shiftYmd(todayEasternYmd(), 30) },
+      CENTRES,
+    ),
+  );
 
   const rulesQ = useQuery({
     queryKey: rulesKeys.list(),
@@ -82,11 +90,10 @@ export default function RulesScreen({ query }: ScreenProps) {
   const busy = post.isPending;
   const todayYmd = todayEasternYmd();
 
-  const tryValues = {
-    guests: urlQuery.guests ?? TRY_DEFAULTS.guests,
-    type: isEventType(urlQuery.type) ? urlQuery.type : TRY_DEFAULTS.type,
-    centre: isCentre(urlQuery.centre) ? urlQuery.centre : TRY_DEFAULTS.centre,
-    eventDate: urlQuery.eventDate ?? shiftYmd(todayYmd, 30),
+  const onTryChange = (patch: Partial<TryFields>) => {
+    const next = applyTryPatch(tryFields, patch);
+    setTryFields(next);
+    setUrlQuery(tryUrlPatch(next));
   };
 
   const openForm = (initial?: AssignmentRule) =>
@@ -167,9 +174,10 @@ export default function RulesScreen({ query }: ScreenProps) {
             ) : null}
           </div>
           <RosterCard canEdit={canEdit} />
+          <GuestServicesCard canEdit={canEdit} />
         </div>
         <div className="stack" style={{ gap: 12 }}>
-          <TryLead centres={CENTRES} values={tryValues} onChange={(patch) => setUrlQuery(patch)} />
+          <TryLead centres={CENTRES} values={tryFields} onChange={onTryChange} />
           <SweepCard canEdit={canEdit} />
         </div>
       </div>

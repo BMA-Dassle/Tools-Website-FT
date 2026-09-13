@@ -4,11 +4,13 @@ import type { AssignmentRule } from "~/features/crm/core/types";
 import type { DecisionWire } from "~/features/crm/rules/contracts";
 import {
   actionOf,
+  applyTryPatch,
   delayOptions,
   formFromRule,
   kindOf,
   monthOptions,
   moveIndex,
+  parseDepartmentIds,
   parseGuests,
   reorderByDrop,
   ruleCode,
@@ -16,6 +18,10 @@ import {
   ruleThenLabel,
   ruleWhenLabel,
   traceRows,
+  tryFieldsFromQuery,
+  tryUrlPatch,
+  type CentreOption,
+  type TryFields,
 } from "./model";
 
 /** The pure half of the Rules screen: the prototype's when/then copy, the sheet's form ⇄ rule, ordering. */
@@ -242,5 +248,78 @@ describe("options", () => {
       ],
       finalRuleId: "R7",
     });
+  });
+});
+
+/**
+ * The guests box of "Try a lead". It used to read straight from the URL, and
+ * the URL helper deletes a key set to "" — so clearing the field re-rendered
+ * it as the default mid-edit: backspacing "42" to type "120" gave "4", then
+ * "42", then "427…". The raw text is component state now; only a value that
+ * parses reaches the URL.
+ */
+describe("Try a lead fields", () => {
+  const CENTRES: CentreOption[] = [
+    { code: "HPFM", short: "HP Fort Myers" },
+    { code: "FT", short: "FastTrax" },
+  ];
+  const DEFAULTS: TryFields = {
+    guests: "42",
+    type: "corporate",
+    centre: "HPFM",
+    eventDate: "2026-10-12",
+  };
+
+  it("an empty guests box STAYS empty, and does not write a guests key", () => {
+    const cleared = applyTryPatch(DEFAULTS, { guests: "" });
+    expect(cleared.guests).toBe("");
+    expect(tryUrlPatch(cleared).guests).toBeNull();
+    expect(parseGuests("")).toBeNull();
+
+    // …and one digit at a time gets there without the default fighting back.
+    const one = applyTryPatch(cleared, { guests: "1" });
+    const twelve = applyTryPatch(one, { guests: "12" });
+    const full = applyTryPatch(twelve, { guests: "120" });
+    expect([one.guests, twelve.guests, full.guests]).toEqual(["1", "12", "120"]);
+    expect(tryUrlPatch(full).guests).toBe("120");
+  });
+
+  it("the URL seeds the fields once, ignoring anything unparseable", () => {
+    expect(
+      tryFieldsFromQuery(
+        { guests: "120", type: "school", centre: "FT", eventDate: "2026-11-20" },
+        DEFAULTS,
+        CENTRES,
+      ),
+    ).toEqual({ guests: "120", type: "school", centre: "FT", eventDate: "2026-11-20" });
+    expect(
+      tryFieldsFromQuery(
+        { guests: "", type: "nope", centre: "HPN", eventDate: "yesterday" },
+        DEFAULTS,
+        CENTRES,
+      ),
+    ).toEqual(DEFAULTS);
+    expect(tryFieldsFromQuery({}, DEFAULTS, CENTRES)).toEqual(DEFAULTS);
+  });
+
+  it("the other fields always mirror to the URL", () => {
+    const next = applyTryPatch(DEFAULTS, { type: "birthday", centre: "FT" });
+    expect(tryUrlPatch(next)).toEqual({
+      guests: "42",
+      type: "birthday",
+      centre: "FT",
+      eventDate: "2026-10-12",
+    });
+  });
+});
+
+describe("parseDepartmentIds (the Guest Services department box)", () => {
+  it("a comma list of whole numbers, de-duplicated; empty = no department; junk = null", () => {
+    expect(parseDepartmentIds("635186")).toEqual([635186]);
+    expect(parseDepartmentIds(" 635186 , 730648 ,635186 ")).toEqual([635186, 730648]);
+    expect(parseDepartmentIds("")).toEqual([]);
+    expect(parseDepartmentIds("635186, Call Center")).toBeNull();
+    expect(parseDepartmentIds("-1")).toBeNull();
+    expect(parseDepartmentIds("1.5")).toBeNull();
   });
 });

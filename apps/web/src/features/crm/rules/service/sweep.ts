@@ -21,11 +21,13 @@
  */
 
 import { etHourOfDay, todayEasternYmd } from "~/features/crm/core/dates";
-import type { CentreCode, EventType, LeadSource, SweepSetting } from "~/features/crm/core/types";
-import type { PublicRep } from "~/features/crm/core/contracts";
 import { publicRep } from "~/features/crm/core/projections";
+import type { SweepSetting } from "~/features/crm/core/types";
+import type { SweepDecision, SweepResult } from "../contracts";
 import type { SweepCandidate } from "../data/volume-db";
-import { assignDecision, type DecisionOutcome, type EngineContext } from "./engine";
+import { assignDecision, type EngineContext } from "./engine";
+
+export type { SweepDecision, SweepResult };
 
 export const SWEEP_BUSINESS_HOURS = { start: 9, end: 21 } as const;
 export const SWEEP_NOT_APPLIED_REASON = "assign rail lands with B3";
@@ -45,33 +47,6 @@ export function mirrorIdempotencyKey(now: Date): string {
 export function isAfterHours(now: Date): boolean {
   const h = etHourOfDay(now);
   return h < SWEEP_BUSINESS_HOURS.start || h >= SWEEP_BUSINESS_HOURS.end;
-}
-
-export interface SweepDecision {
-  leadId: string;
-  publicId: string;
-  centre: CentreCode;
-  guests: number;
-  type: EventType;
-  eventDate: string;
-  source: LeadSource;
-  ageMinutes: number;
-  rep: PublicRep | null;
-  outcome: DecisionOutcome;
-  reason: string;
-  finalRuleId: string | null;
-}
-
-export interface SweepResult {
-  ranAt: string;
-  delayMinutes: number;
-  afterHours: SweepSetting["afterHours"];
-  /** True when `hold9am` kept the decisions from being applied this hour. */
-  held: boolean;
-  candidates: number;
-  decisions: SweepDecision[];
-  applied: number;
-  reason: string;
 }
 
 export interface SweepDeps {
