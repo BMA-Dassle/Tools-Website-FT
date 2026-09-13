@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CrmAccount, CrmContact } from "../../core/types";
 import type { LeadView } from "../contracts";
 import type { NewLeadRow } from "../data/leads-db";
-import { PROTO_NOW, REPS, makeLead } from "../test-support";
+import { ALL_REPS, PROTO_NOW, REPS, makeLead } from "../test-support";
 import type { AssignResult } from "./assign";
 import type { CreateLeadDeps, CreateLeadInput } from "./create-lead";
 import type { MintLeadResult } from "./mint";
@@ -117,6 +117,10 @@ function fakes(
       return "1";
     },
     suggest: async () => ({ suggestion: null, trace: [], outcome: "none" as const }),
+    listReps: async () => {
+      order.push("listReps");
+      return [...ALL_REPS];
+    },
     mintLead: async (lead, extras, _deps, actor) => {
       order.push("mint");
       mintArgs.push([lead, extras, actor]);
@@ -407,6 +411,114 @@ describe("createLead", () => {
     expect(f.order).not.toContain("mint");
     expect(f.order).not.toContain("notify");
     expect(r.mint).toEqual({ status: "none", error: "prospect" });
+  });
+
+  // B7 — "Who would you like to work with?" on the public form.
+  describe("the planner the guest asked for", () => {
+    it("is stored on the lead as a real column, resolved from the slug", async () => {
+      const f = fakes();
+      await createLead(
+        { ...INPUT, centre: "FT", requestedPlannerSlug: "kelsea" },
+        { source: "web" },
+        f.deps,
+      );
+      expect(f.inserted[0]!.requestedRepId).toBe(REPS.kelsea.id);
+      expect(f.order.indexOf("listReps")).toBeLessThan(f.order.indexOf("insertLead"));
+    });
+
+    it("costs no roster read when the guest left it on First available", async () => {
+      const f = fakes();
+      await createLead(INPUT, { source: "web" }, f.deps);
+      expect(f.inserted[0]!.requestedRepId).toBeNull();
+      expect(f.order).not.toContain("listReps");
+    });
+
+    it("a planner who does not cover that centre is dropped, not stored", async () => {
+      const f = fakes();
+      // Lori sells at HPFM only; this is a FastTrax enquiry.
+      await createLead(
+        { ...INPUT, centre: "FT", requestedPlannerSlug: "lori" },
+        { source: "web" },
+        f.deps,
+      );
+      expect(f.inserted[0]!.requestedRepId).toBeNull();
+    });
+
+    it("the Guest Services bucket and the Marketing hold row are not requestable", async () => {
+      for (const slug of ["gs", "mkt", "jacob"]) {
+        const f = fakes();
+        await createLead(
+          { ...INPUT, centre: "FT", requestedPlannerSlug: slug },
+          { source: "web" },
+          f.deps,
+        );
+        expect(f.inserted[0]!.requestedRepId).toBeNull();
+      }
+    });
+
+    it("a children's birthday IGNORES the request on the SERVER — the client is not trusted", async () => {
+      const f = fakes();
+      await createLead(
+        {
+          ...INPUT,
+          centre: "HPFM",
+          type: "birthday",
+          kids: true,
+          requestedPlannerSlug: "kelsea",
+        },
+        { source: "web" },
+        f.deps,
+      );
+      // Pandora force-routes "Child Birthday" to Guest Services whatever agent
+      // we send, so the request is not stored and never reaches the mint.
+      expect(f.inserted[0]!.requestedRepId).toBeNull();
+      expect(f.mintArgs[0]![1]).toMatchObject({ agent: null });
+    });
+
+    it("an ADULT birthday keeps the request — only children's parties are force-routed", async () => {
+      const f = fakes();
+      await createLead(
+        {
+          ...INPUT,
+          centre: "HPFM",
+          type: "birthday",
+          kids: false,
+          requestedPlannerSlug: "kelsea",
+        },
+        { source: "web" },
+        f.deps,
+      );
+      expect(f.inserted[0]!.requestedRepId).toBe(REPS.kelsea.id);
+    });
+
+    it("when the decision honours it, Pandora gets that planner's Office name as `agent`", async () => {
+      const f = fakes({
+        // What `suggestFor` returns once the request has been weighed and won.
+        suggest: async () => ({
+          suggestion: {
+            rep: REPS.kelsea,
+            reason: "guest asked for Kelsea",
+            ruleId: null,
+            finalRuleLabel: "Guest's choice of planner",
+          },
+          trace: [
+            {
+              ruleId: "guest-request",
+              label: "Guest's choice of planner",
+              hit: true,
+              note: "Guest asked for Kelsea — honoured, ahead of lowest Oct volume",
+            },
+          ],
+        }),
+      });
+      await createLead(
+        { ...INPUT, centre: "FT", requestedPlannerSlug: "kelsea" },
+        { source: "web" },
+        f.deps,
+      );
+      expect(f.mintArgs[0]![1]).toMatchObject({ agent: "Kelsea Kosco" });
+      expect(f.assigns[0]).toMatchObject({ repId: REPS.kelsea.id, reason: "rule" });
+    });
   });
 
   it("captureLine wording follows the prototype's system lines", () => {

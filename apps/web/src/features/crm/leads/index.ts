@@ -58,6 +58,7 @@ export {
   createLead,
   captureLine,
   defaultCreateLeadDeps,
+  requestedRepFrom,
   PROSPECT_SOURCES,
   type CreateLeadDeps,
   type CreateLeadInput,
@@ -123,6 +124,20 @@ export {
   type SuggestContext,
   type SuggestResult,
 } from "./service/suggest";
+export {
+  plannerOptions,
+  plannersForCenterKey,
+  plannerStillOffered,
+  requestedPlannerLabel,
+  CENTER_KEY_TO_CENTRE,
+  FIRST_AVAILABLE_OPTION,
+  PLANNERS_ENDPOINT,
+  PLANNER_FIELD_HELP,
+  PLANNER_FIELD_LABEL,
+  type PlannerOption,
+  type PlannersResponse,
+  type SalesFormCenterKey,
+} from "./planners";
 export {
   recordFirstTouch,
   noteOutboundTouch,

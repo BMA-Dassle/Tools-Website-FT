@@ -117,6 +117,9 @@ export const EmptySchema = z.object({});
 const blank = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), schema);
 
+/** `crm_reps.slug` as the form may send it. */
+export const PLANNER_SLUG = /^[a-z0-9][a-z0-9-]{0,38}$/;
+
 /** The web form's body (`components/SalesLeadForm.tsx`), unchanged on the wire. */
 export const WebSubmitSchema = z.object({
   centerKey: z.string().trim().min(1).max(40),
@@ -146,6 +149,17 @@ export const WebSubmitSchema = z.object({
   preferredContactMethod: blank(z.enum(["phone", "text", "email"]).optional()),
   bestTimeToCall: blank(z.enum(["Morning", "Afternoon", "Evening"]).optional()),
   packagePrefill: blank(z.string().trim().max(120).optional()),
+  /**
+   * B7 — the planner the guest picked in "Who would you like to work with?".
+   * A `crm_reps.slug`, never a row id: the server resolves it against the
+   * roster, so an unknown, stale or forged value simply means "First
+   * available" instead of 400ing a real enquiry. Empty string = the default.
+   */
+  requestedPlanner: z.preprocess((v) => {
+    if (typeof v !== "string") return undefined;
+    const slug = v.trim().toLowerCase();
+    return PLANNER_SLUG.test(slug) ? slug : undefined;
+  }, z.string().optional()),
 });
 
 export type WebSubmitBody = z.infer<typeof WebSubmitSchema>;
