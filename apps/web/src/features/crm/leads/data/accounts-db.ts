@@ -162,9 +162,26 @@ const SUMMARY_SELECT = `
   SELECT ${COLUMNS},
          (SELECT count(*) FROM crm_bmi_projects p WHERE p.account_id = a.id AND p.kind_id IS DISTINCT FROM '-10')::int AS event_count,
          (SELECT max(p.event_date) FROM crm_bmi_projects p WHERE p.account_id = a.id AND p.kind_id IS DISTINCT FROM '-10')::text AS last_event_date,
-         (SELECT array_agg(trim(c.first_name || ' ' || c.last_name) ORDER BY c.updated_at DESC)
-            FROM crm_contacts c WHERE c.account_id = a.id) AS contact_names
+         (SELECT array_agg(DISTINCT trim(c.first_name || ' ' || c.last_name))
+            FROM crm_contacts c
+           WHERE c.account_id = a.id
+              OR c.id IN (SELECT p.contact_id FROM crm_bmi_projects p
+                           WHERE p.account_id = a.id AND p.contact_id IS NOT NULL)) AS contact_names
     FROM crm_accounts a
+`;
+
+/**
+ * An account is worth listing once it has a mirrored event or a lead. Without
+ * this an account the mirror created and then moved away from — the host of a
+ * corporate booking who was first filed as a household, before the company
+ * record was read — lingers as an empty row in the History list. The
+ * `to_regclass` guard keeps this reader working before the leads sub's DDL has
+ * run (only `crm_accounts` is ensured here).
+ */
+const HAS_SOMETHING = `
+  (EXISTS (SELECT 1 FROM crm_bmi_projects p WHERE p.account_id = a.id)
+   OR (to_regclass('crm_leads') IS NOT NULL
+       AND EXISTS (SELECT 1 FROM crm_leads l WHERE l.account_id = a.id AND l.archived_at IS NULL)))
 `;
 
 export interface AccountSearchOpts {
@@ -193,6 +210,7 @@ export async function searchAccounts(
   const rows = (await sqlc.query(
     `${SUMMARY_SELECT}
       WHERE a.archived_at IS NULL
+        AND ${HAS_SOMETHING}
         AND (
               $1::text = ''
            OR a.name ILIKE $2

@@ -39,11 +39,55 @@ of the last `ok` run per tenant.
 
 A mirrored host becomes a `crm_contacts` row (matched by `bmi_person_id`, then
 `phone_e164`, then `email_key`; a match backfills the person id) and a
-`crm_accounts` row: a **business** when the Office person carries a company,
-else a **household** keyed `household:<last name>:<phone digits | email |
-person:id>` — never the surname alone. `crm_accounts.lifetime_cents` is the sum
+`crm_accounts` row: a **business** when the project names one, else a
+**household** keyed `household:<last name>:<phone digits | email |
+person:id>` — never the surname alone.
+
+**Where a business name actually lives** (probed live 2026-09-13 at Naples,
+because it is not where the plan assumed): an Office **person entity has no
+`company` field at all** — its keys are `privateMemo, publicMemo, tags,
+memberships, alias, …, name2, free1, free2, kind, …, addresses`. The business
+is a SECOND PERSON RECORD and the project points at it with **`companyId`**;
+that record's `name` is the company (`5725529` → "Naples Bears", `5638044` →
+"Blossom Academy", `5843900` → "Home Team Pest Defense"). Roughly one project
+in ten has one. The detail phase therefore reads `person/{companyId}` when the
+project names one, and `accountKeyFor` prefers that name over the host's own
+(never-present) company field. Two different hosts booking the same company
+(Naples had two "Arthrex" events in a month, each with its own `companyId`
+record) normalise to one `name_key` and share ONE account.
+
+`companyId` was missing from `OFFICE_ID_FIELDS`, so it parsed as a NUMBER. At
+Naples the ids are seven digits and nothing broke; on a 17-digit tenant it
+would have rounded and read the WRONG person — the 2026 off-by-one under a new
+field name. It is in the list now (`daily-events/data/bmi-office.ts`), pinned
+by `bmi/transport.test.ts` with a fixture id that a naive parse corrupts.
+
+`crm_accounts.lifetime_cents` is the sum
 of the account's non-cancelled group events, recomputed after every run. The
 mirror row keeps `account_id` / `contact_id`.
+
+## Attribution (the KPI substrate)
+
+`responsible_user_id` is the project's Office `userId`; the screens join it to
+`crm_reps.bmi_user_id` for the rep chip and fall back to `responsible_name`.
+
+Two facts, both probed live 2026-09-13:
+
+- **Office user ids are PER TENANT.** At Naples `41096` is Lori and `1559644`
+  is Stephanie; the seeded `crm_reps.bmi_user_id` values (`465247` Lori,
+  `465242` Stephanie) are Fort Myers ids. One TEXT column cannot attribute both
+  centres — the rep chip resolves at Fort Myers and stays blank at Naples until
+  `crm_reps` can hold an id per client key. Flagged to the lead; PR1 owns that
+  DDL.
+- **`getMetadataLookups().userNames` never sees a tenant's own staff.** It
+  reads `u.name || u.displayName || firstName+lastName`, and an Office metadata
+  user row has only **`username`**, so the map holds the hard-coded Fort Myers
+  `USER_NAMES` and nothing else — which is why the first Naples backfill
+  mirrored every row with `responsible_name: null`. The CRM fills the gaps from
+  the tenant's own `username` (`transport.ts` `tenantFacts`, curated names
+  still win) and does NOT change the shared lookup, which the pit board and the
+  daily-events screens read. At Naples those usernames are first names, so the
+  History rows read "was Lori's" / "was Stephanie's" as the prototype does.
 
 `leads → bmi` is the declared import direction, so the bmi sub reaches the
 leads data module with a dynamic import (`service/deps.ts` `leadsLinker`); the

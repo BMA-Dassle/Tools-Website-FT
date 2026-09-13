@@ -173,8 +173,15 @@ export async function listContactsForAccount(accountId: string, limit = 50): Pro
   await ensureContactsSchema();
   const q = sql();
   const rows = (await q.query(
+    // Both the contacts filed UNDER the account and the hosts of its mirrored
+    // events: a person who was first seen booking privately keeps their own
+    // household on `crm_contacts.account_id` (a sync never overwrites that),
+    // yet they are still the contact for the company's events — and the
+    // prototype's Contacts tile means "who books for this account".
     `SELECT ${COLUMNS} FROM crm_contacts c
       WHERE c.account_id = $1::bigint
+         OR c.id IN (SELECT p.contact_id FROM crm_bmi_projects p
+                      WHERE p.account_id = $1::bigint AND p.contact_id IS NOT NULL)
       ORDER BY c.updated_at DESC, c.id ASC
       LIMIT $2`,
     [accountId, Math.min(Math.max(limit, 1), 200)],
