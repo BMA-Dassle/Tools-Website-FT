@@ -68,7 +68,11 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   "share-link-expire": notImplemented("share-link-expire"),
   "email-send-retry": notImplemented("email-send-retry"),
   "sms-send-retry": notImplemented("sms-send-retry"),
-  "pandora-goals-sync": notImplemented("pandora-goals-sync"),
+  // Lazily imported, like `mint-bmi-project`: the measure sub imports this
+  // registry's `runJobInline` to mirror a save immediately, so a static import
+  // here would close the cycle.
+  "pandora-goals-sync": (ctx) =>
+    import("~/features/crm/kpi").then((m) => m.pandoraGoalsSyncHandler(ctx)),
 };
 
 /** Kinds a director may run from the Statuses screen — everything registered. */

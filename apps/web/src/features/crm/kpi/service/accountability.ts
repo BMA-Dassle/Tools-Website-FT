@@ -153,9 +153,18 @@ export function pctOf(actual: number, target: number): number {
 }
 
 /**
- * The one rep the director's banner names: whoever is furthest below target on
- * calls AND reach-outs. Null when nobody is behind — a banner that is always
- * there is a banner nobody reads.
+ * The one rep the director's banner names: whoever has done least of the work
+ * the two headline targets ask for. Null when nobody is behind — a banner that
+ * is always there is a banner nobody reads.
+ *
+ * THE SCORE IS COMBINED PROGRESS — `(calls + reachouts) / (their targets)` —
+ * not the worse of the two percentages. The min-of-two rule looked reasonable
+ * and named the wrong person: a rep at 38 of 40 calls who has not started her
+ * reach-outs scores 0% on Monday morning and outranks somebody genuinely
+ * adrift at 45% and 27%. One untouched column early in the week is not the
+ * same thing as being behind, and a banner that cries wolf every Monday is one
+ * Jacob stops reading. The per-rep cards still show each meter on its own, so
+ * nothing is hidden by summing here.
  */
 export function worstBehind(
   reps: readonly RepAccountability[],
@@ -163,9 +172,11 @@ export function worstBehind(
   let worst: RepAccountability | null = null;
   let worstScore = Number.POSITIVE_INFINITY;
   for (const r of reps) {
-    const calls = pctOf(r.actual.calls, r.target.calls);
-    const reach = pctOf(r.actual.reachouts, r.target.reachouts);
-    const score = Math.min(calls, reach);
+    const done = r.actual.calls + r.actual.reachouts;
+    const asked = r.target.calls + r.target.reachouts;
+    // No target set at all is not "0% done" — there is nothing to be behind on.
+    if (asked === 0) continue;
+    const score = pctOf(done, asked);
     if (score >= BEHIND_PCT) continue;
     if (score < worstScore) {
       worstScore = score;

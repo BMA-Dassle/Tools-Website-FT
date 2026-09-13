@@ -21,7 +21,7 @@
 
 import { listReps } from "~/features/crm/reps";
 import { CENTRES, isCentreCode } from "~/features/crm/core/centres";
-import type { CentreCode, CrmRep, OfficeClientKey } from "~/features/crm/core/types";
+import type { CentreCode, CrmRep, CrmUser, OfficeClientKey } from "~/features/crm/core/types";
 import type {
   AttributionCoverage,
   DepositsDue,
@@ -31,7 +31,6 @@ import type {
   LostRow,
   MonthlyGoalRow,
   RepKpi,
-  SourceRow,
 } from "../contracts";
 import {
   bookedByDayRollup,
@@ -62,11 +61,19 @@ import {
 export interface KpiQuery {
   month?: string | null;
   quarter?: string | null;
-  /** `crm_reps.slug`, or null for the team. */
+  /** `crm_reps.slug`, or null for the team. Ignored for a rep (see below). */
   rep?: string | null;
   centre?: string | null;
   now?: Date;
 }
+
+/**
+ * A rep id that can never match a row, for the `$n IS NULL OR col = $n` lead
+ * filters: `NULL` there means "the whole team", which is exactly what a rep
+ * with no `crm_reps` row must NOT be shown. `crm_reps.id` is a BIGSERIAL and
+ * starts at 1, so 0 is a value no rep can hold.
+ */
+const NOBODY_REP_ID = "0";
 
 const SOURCE_LABELS: Record<string, string> = {
   web: "Web form",
@@ -125,7 +132,22 @@ function zeroTotals(): Totals {
   return { bookedCents: 0, quotedCents: 0, confirmed: 0, leads: 0 };
 }
 
-export async function kpiDashboard(query: KpiQuery = {}): Promise<Omit<KpiResponse, "ok">> {
+/**
+ * VISIBILITY IS ENFORCED HERE, not by hiding UI (brief C7: "A rep sees their
+ * own accountability; the director sees everyone's… enforced server-side in the
+ * route, not by hiding UI"). The prototype shows the same split on this screen
+ * — `repIds = isDirector() ? [four reps] : [S.viewAs]` (crm-shared.js:374).
+ *
+ * So a `?rep=` from a rep is IGNORED, not obeyed and not refused: the screen is
+ * theirs, the filter simply does not apply, and a hand-typed URL cannot read a
+ * colleague's booked revenue. A rep with no `crm_reps` row sees zeroes and a
+ * screen that says why — never the team total by accident, which is what
+ * `repId: null` would have meant to every lead query below.
+ */
+export async function kpiDashboard(
+  user: CrmUser,
+  query: KpiQuery = {},
+): Promise<Omit<KpiResponse, "ok">> {
   const now = query.now ?? new Date();
   const window = resolveKpiWindow({ month: query.month, quarter: query.quarter }, now);
   const centre: CentreCode | null =
@@ -136,7 +158,13 @@ export async function kpiDashboard(query: KpiQuery = {}): Promise<Omit<KpiRespon
   const allReps = await listReps({ includeInactive: true });
   const index = buildAttributionIndex(allReps);
   const roster = measurableReps(allReps);
-  const filterRep = query.rep ? (roster.find((r) => r.slug === query.rep) ?? null) : null;
+  const director = user.role === "director";
+  const ownRep = user.rep ? (roster.find((r) => r.id === user.rep!.id) ?? null) : null;
+  const requested = query.rep ? (roster.find((r) => r.slug === query.rep) ?? null) : null;
+  const filterRep = director ? requested : ownRep;
+  /** True when a non-director has no rep row: every figure must read zero. */
+  const blind = !director && !ownRep;
+  const leadRepId = blind ? NOBODY_REP_ID : (filterRep?.id ?? null);
   const repSlug = filterRep?.slug ?? null;
 
   // The same window one year back, day for day.
@@ -171,26 +199,26 @@ export async function kpiDashboard(query: KpiQuery = {}): Promise<Omit<KpiRespon
     leadsBySource({
       from: window.from,
       until: window.until,
-      repId: filterRep?.id ?? null,
+      repId: leadRepId,
       centre,
     }),
     funnelByStatus({
       from: window.from,
       until: window.until,
-      repId: filterRep?.id ?? null,
+      repId: leadRepId,
       centre,
     }),
-    lostReasons({ from: window.from, until: window.until, repId: filterRep?.id ?? null, centre }),
+    lostReasons({ from: window.from, until: window.until, repId: leadRepId, centre }),
     responseMinutes({
       from: window.from,
       until: window.until,
-      repId: filterRep?.id ?? null,
+      repId: leadRepId,
       centre,
     }),
     responseMinutes({
       from: lastYearYmd(window.from),
       until: lastYearYmd(window.until),
-      repId: filterRep?.id ?? null,
+      repId: leadRepId,
       centre,
     }),
     lastYearHostCounts({ from: lyFrom, until: lyUntil, locationId }),
@@ -224,11 +252,25 @@ export async function kpiDashboard(query: KpiQuery = {}): Promise<Omit<KpiRespon
   }
 
   // ---- pacing -----------------------------------------------------------
-  const byDay = dayMap(bookedDays, index, filterRep);
-  const lyByDay = dayMap(bookedDaysLy, index, filterRep);
+  // ONE scope predicate for every mirror-derived chart. A `null` filterRep
+  // means "everyone", which is right for a director on the team view and wrong
+  // for a rep with no roster row — hence the explicit `blind` arm, so the
+  // pacing line and the monthly bars cannot show the team's money to somebody
+  // the roster has never heard of.
+  const inScope = (row: MirrorRollupRow): boolean => {
+    if (blind) return false;
+    if (!filterRep) return true;
+    return (
+      index.match(row.clientKey, row.responsibleUserId, row.responsibleName).rep?.id ===
+      filterRep.id
+    );
+  };
+
+  const byDay = dayMap(bookedDays, inScope);
+  const lyByDay = dayMap(bookedDaysLy, inScope);
   // LY's cumulative must be read on the SAME day-of-window, so its map is keyed
   // by this year's day through `dayPairs` inside `pacingFor`.
-  const goalForWindow = goalCentsFor(goals, window, filterRep);
+  const goalForWindow = blind ? 0 : goalCentsFor(goals, window, filterRep);
   const pacing = pacingFor(
     { from: window.from, days: window.days, elapsed: window.elapsed },
     byDay,
@@ -237,7 +279,9 @@ export async function kpiDashboard(query: KpiQuery = {}): Promise<Omit<KpiRespon
   );
 
   // ---- per-rep rows -----------------------------------------------------
-  const shown = filterRep ? [filterRep] : roster;
+  // A rep with no roster row shows NOTHING, never the roster: `blind` is the
+  // only branch that yields an empty list, and the screen says why.
+  const shown = blind ? [] : filterRep ? [filterRep] : roster;
   const reps: RepKpi[] = shown.map((rep) => {
     const t = perRep.get(rep.id) ?? zeroTotals();
     const ly = perRepLy.get(rep.id) ?? zeroTotals();
@@ -257,18 +301,24 @@ export async function kpiDashboard(query: KpiQuery = {}): Promise<Omit<KpiRespon
     };
   });
 
-  const team: RepKpi = filterRep
-    ? (reps[0] ?? emptyRepKpi(filterRep, filterRep.slug, filterRep.displayName))
-    : {
-        ...emptyRepKpi(null, "team", "All salespeople"),
-        bookedCents: teamTotals.bookedCents,
-        lastYearToDateCents: lastYearOnSameDay(pacing),
-        lastYearFullCents: teamLy.bookedCents,
-        quotedCents: teamTotals.quotedCents,
-        goalCents: goalForWindow,
-        leads: teamTotals.leads,
-        confirmed: teamTotals.confirmed,
-      };
+  // The TEAM tile is the team's only when a director is looking at the team.
+  // For anybody scoped to one rep — by their own role, or by a director's
+  // filter — it is that rep's row, so the tiles and the table agree.
+  const teamTile: RepKpi = {
+    ...emptyRepKpi(null, "team", "All salespeople"),
+    bookedCents: teamTotals.bookedCents,
+    lastYearToDateCents: lastYearOnSameDay(pacing),
+    lastYearFullCents: teamLy.bookedCents,
+    quotedCents: teamTotals.quotedCents,
+    goalCents: goalForWindow,
+    leads: teamTotals.leads,
+    confirmed: teamTotals.confirmed,
+  };
+  const team: RepKpi = blind
+    ? emptyRepKpi(null, "none", user.name || user.email)
+    : filterRep
+      ? (reps[0] ?? emptyRepKpi(filterRep, filterRep.slug, filterRep.displayName))
+      : teamTile;
   if (filterRep) team.lastYearToDateCents = lastYearOnSameDay(pacing);
 
   return {
@@ -286,7 +336,7 @@ export async function kpiDashboard(query: KpiQuery = {}): Promise<Omit<KpiRespon
       won: s.won,
     })),
     lostReasons: lost satisfies LostRow[],
-    monthly: monthlyRows(monthsThis, monthsLast, goals, index, filterRep, window.year, now),
+    monthly: monthlyRows(monthsThis, monthsLast, goals, inScope, filterRep, window.year, now),
     deposits: { ...deposits, days: DEPOSIT_WINDOW_DAYS } satisfies DepositsDue,
     reachOuts: { done: reachOuts, hosts: hosts.hosts, remaining: hosts.remaining },
     medianResponseMinutes: median(response.minutes),
@@ -297,7 +347,10 @@ export async function kpiDashboard(query: KpiQuery = {}): Promise<Omit<KpiRespon
       leads: s.leads,
       won: s.won,
     })),
-    attribution: coverage satisfies AttributionCoverage,
+    // Coverage describes the rows that FED these figures. A rep scoped to
+    // their own row was never shown the unattributed ones, so reporting the
+    // team's gap to them would be a number about data they cannot see.
+    attribution: (blind ? emptyCoverage() : coverage) satisfies AttributionCoverage,
   };
 }
 
@@ -318,19 +371,15 @@ function depositWindow(now: Date): { from: string; until: string } {
   return { from: today, until };
 }
 
-/** Day → confirmed cents booked that day, for the rep in view (or everyone). */
+/** Day → confirmed cents booked that day, for whoever `inScope` admits. */
 function dayMap(
   rows: MirrorRollupRow[],
-  index: ReturnType<typeof buildAttributionIndex>,
-  filterRep: CrmRep | null,
+  inScope: (row: MirrorRollupRow) => boolean,
 ): Map<string, number> {
   const out = new Map<string, number>();
   for (const row of rows) {
     if (bucketOf(row.stateName) !== "confirmed") continue;
-    if (filterRep) {
-      const match = index.match(row.clientKey, row.responsibleUserId, row.responsibleName);
-      if (match.rep?.id !== filterRep.id) continue;
-    }
+    if (!inScope(row)) continue;
     const key = row.day ?? "";
     if (!key) continue;
     out.set(key, (out.get(key) ?? 0) + row.cents);
@@ -379,7 +428,7 @@ function monthlyRows(
   thisYear: MirrorRollupRow[],
   lastYear: MirrorRollupRow[],
   goals: { repId: string | null; month: number; goalCents: number }[],
-  index: ReturnType<typeof buildAttributionIndex>,
+  inScope: (row: MirrorRollupRow) => boolean,
   filterRep: CrmRep | null,
   year: number,
   now: Date,
@@ -389,10 +438,7 @@ function monthlyRows(
   const add = (into: Map<number, number>, rows: MirrorRollupRow[]) => {
     for (const row of rows) {
       if (bucketOf(row.stateName) !== "confirmed") continue;
-      if (filterRep) {
-        const match = index.match(row.clientKey, row.responsibleUserId, row.responsibleName);
-        if (match.rep?.id !== filterRep.id) continue;
-      }
+      if (!inScope(row)) continue;
       const m = row.month ?? 0;
       if (!m) continue;
       into.set(m, (into.get(m) ?? 0) + row.cents);
