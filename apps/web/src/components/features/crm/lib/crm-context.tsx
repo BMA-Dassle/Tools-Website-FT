@@ -24,6 +24,19 @@ export interface SheetSpec {
 
 export type ToastKind = "ok" | "warn" | "crit";
 
+/**
+ * What the topbar says. `SCREEN_META` names the SCREEN ("Account"); a screen
+ * showing one record names the RECORD ("Acme Corp" · "Business · HeadPinz Fort
+ * Myers · lifetime $14,260"), as the prototype's account and deal screens do.
+ * A screen sets it through `useScreenHead()` and the shell clears it when the
+ * screen unmounts — so the page's one `<h1>` is the record, and no screen has
+ * to draw a second heading under the first.
+ */
+export interface ScreenHead {
+  title: string;
+  sub?: string;
+}
+
 export interface CrmContextValue {
   token: string;
   user: PublicCrmUser;
@@ -35,6 +48,8 @@ export interface CrmContextValue {
   overlayRoot: HTMLElement | null;
   /** The topbar's `.actions` element; a screen portals its buttons into it. */
   topbarSlot: HTMLElement | null;
+  /** Override the topbar's title/sub for the screen in view (null = the screen's own meta). */
+  setScreenHead: (head: ScreenHead | null) => void;
 }
 
 export const CrmContext = createContext<CrmContextValue | null>(null);

@@ -28,12 +28,38 @@ preview, where crons never fire).
 
 Every run writes one `crm_bmi_sync_runs` row. `ok = true` on a backfill run
 means every detail in that run was read; on a delta run it means every changed
-project is in the mirror (a project whose detail read failed is stored from
-the live row and named in `error`). The delta's watermark is the `window_until`
-of the last `ok` run per tenant.
+project is in the mirror. The delta's watermark is the `window_until` of the
+last `ok` run per tenant.
+
+**A project whose detail read failed** is stored from the `liveReservations`
+row so the mirror is not blind to the change, named in the run's `error`, and
+its id is enqueued as a RETRY (`bmi-mirror-delta:<ck>:<until>:partial`,
+`chain:false`). Without that retry it would never be looked at again:
+`liveReservations` filters by modified stamp, so a project that changed once
+and failed once drops out of every later window. The key is a pure function of
+the window, so the retry is created once and `crm_jobs`' attempt cap parks it
+if Office keeps refusing. A partial row also resolves the live row's NAMES
+back to ids through the tenant's metadata, and stores neither half when it
+cannot — the upsert COALESCEs `state_id`, so a fresh `state_name` beside a
+stale id would make the row contradict itself.
+
+**Draining the chain.** A backfill run hands back `result.nextPayload`: the
+exact cursor the next run needs. In production the cron drains the queue; on a
+preview it never fires (`verifyCron` short-circuits), so the History screen's
+mirror card posts `nextPayload` back, run after run, until the span is
+finished — one press, one finished backfill, nothing left pending. A fresh
+`{clientKey, from, until}` always restarts at the FIRST window, so a caller
+that ignores `nextPayload` re-reads window 1 forever.
 
 "Ran" is not a result: check `crm_bmi_sync_runs` (every window `ok`) and
 `crm_bmi_projects` counts against Office before calling a backfill done.
+
+Proven on production Neon 2026-09-13 (`headpinzftmyers`, 2025-12-01→31): one
+window = 3,208 projects — 220 group events read in detail across a drained
+chain of four runs, and **2,988 online bookings bulk-upserted** through
+`upsertMirrorRowsBulk` (its first execution against Postgres; a second run of
+the same window inserted 0). Mirror now holds 220 + 3,319 Fort Myers rows and
+84 + 22 Naples rows; every `crm_bmi_sync_runs` row `ok`, no job left pending.
 
 ## Accounts and contacts
 
@@ -62,9 +88,29 @@ would have rounded and read the WRONG person — the 2026 off-by-one under a new
 field name. It is in the list now (`daily-events/data/bmi-office.ts`), pinned
 by `bmi/transport.test.ts` with a fixture id that a naive parse corrupts.
 
+That makes TWO B1 hunks in `bmi-office.ts` (C5's file): the optional
+`sessionTag` on `officeGet`, and this field. The write side is closed to
+match — `projectPutJson` (`lib/bmi-office-actions.ts`) now passes `companyId`
+in its raw-id list, so a 17-digit value is injected raw instead of going out
+quoted as `"companyId":"630…"`, a shape no proven Office write has sent. Small
+ids still leave as numbers, byte-identical to the rails that have always
+worked. **Still open for C5:** `fetchProjectRawIds` parses with the DEFAULT
+`BMI_ID_FIELDS`, so a 17-digit `companyId` would round on the way IN to
+`putProjectFields`; both tenants' company ids are seven digits today.
+
 `crm_accounts.lifetime_cents` is the sum
 of the account's non-cancelled group events, recomputed after every run. The
 mirror row keeps `account_id` / `contact_id`.
+
+**One index B1 does not own.** `upsertAccountByKey` needs a UNIQUE
+`(kind, name_key)` on `crm_accounts` for its `ON CONFLICT`, and `crm_accounts`
+is PR1's table (§3.8 lets a later PR add columns to its OWN sub only). B1
+creates it in `leads/data/accounts-db.ts` for now, after merging any duplicate
+rows (`CREATE UNIQUE INDEX IF NOT EXISTS` does not skip the uniqueness check),
+inside its own try/catch so a failure is logged instead of being cached in the
+memoised `schemaReady` promise — a rejection there would 500 every account
+read until the lambda recycled. **The lead should move this index into PR1's
+DDL**, and B3 should know it exists.
 
 ## Attribution (the KPI substrate)
 
@@ -95,12 +141,20 @@ static graph stays acyclic.
 
 ## Routes
 
-- `GET /api/admin/crm/history?q=` — accounts (name / contact / phone digits /
-  email) + events matching `q` + the mirror's state.
+- `GET /api/admin/crm/history?q=&accounts=0&events=0&status=0` — accounts (name
+  / contact / phone digits / email) + events matching `q` + the mirror's state.
+  The two lists page with their OWN cursors: `accounts=0` / `events=0` say
+  "that list is finished", so a "Load more" for one never re-reads the other
+  from its first page (which would render those rows twice). `status=0` skips
+  the mirror counts — two unfiltered `count(*)` over a table that runs to six
+  figures — so the screen pays for them once per mount, not once per keystroke.
 - `GET /api/admin/crm/accounts/[id]` — one account across every year.
 - `GET /api/admin/crm/last-year` — hosts from 3–8 weeks ahead of today, one
-  year back, with no later lead (by account / phone / email) and no later
-  Office project.
+  year back, who have NOT come back. "Come back" means a lead or a
+  non-cancelled Office project (same account / phone / email) dated in the
+  current cycle — `window.from + 1 year − 8 weeks` onwards. A booking a
+  fortnight after last year's event is not a return: that host is exactly who
+  the reach-out is for.
 
 All keyset-paginated, `limit ≤ 200`.
 
