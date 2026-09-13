@@ -379,4 +379,53 @@ describe("putProjectFields", () => {
     expect(minimal).toEqual({ id: "1", stateId: "2", userId: "3" });
     expect(toMinimalProject({ id: "1", logs: [] }, ["logs"])).toEqual({ id: "1", logs: [] });
   });
+
+  /**
+   * `companyId` — the project's BUSINESS — is a second PERSON id, and it is
+   * absent from the DEFAULT `BMI_ID_FIELDS`. `fetchProjectRawIds` used to parse
+   * with that default, so a 17-digit value ROUNDED on the way IN and
+   * `putProjectFields` would have written the wrong business back: the 2026
+   * off-by-one under a new field name. Both tenants' company ids are seven
+   * digits today, which is the only reason nobody has been bitten yet.
+   *
+   * The id below is deliberately NOT a multiple of 8 — doubles are spaced 8
+   * apart up here, so a value that happened to land on one would survive
+   * `JSON.parse` and this test would pass while proving nothing.
+   */
+  it("a 17-digit companyId survives the READ and leaves raw, not rounded and not quoted", async () => {
+    const COMPANY_ID = "63000000009561513";
+    const naive = String(JSON.parse(`{"companyId":${COMPANY_ID}}`).companyId as number);
+    expect(naive).not.toBe(COMPANY_ID); // the negative control: it really does corrupt
+
+    state.officeHandler = ((method, path) => {
+      if (path === "/auth/token") {
+        return { status: 200, body: JSON.stringify({ access_token: "t", expires_in: "86400" }) };
+      }
+      if (method === "GET" && path.endsWith(`/project/${PROJECT_ID}`)) {
+        return {
+          status: 200,
+          body: projectText("28267036").replace('"companyId":1', `"companyId":${COMPANY_ID}`),
+        };
+      }
+      if (method === "PUT" && path.endsWith("/project")) return { status: 200, body: "{}" };
+      return { status: 404, body: "{}" };
+    }) as OfficeHandler;
+
+    await putProjectFields({
+      clientKey: "headpinzftmyers",
+      projectId: PROJECT_ID,
+      patch: { name: "Acme holiday party" },
+    });
+
+    const body = puts()[0].body;
+    expect(body).toContain(`"companyId":${COMPANY_ID}`);
+    // Raw, at full precision — not quoted (a shape no proven write has sent)
+    // and not rounded to …512.
+    expect(body).not.toContain(`"companyId":"${COMPANY_ID}"`);
+    expect(body).not.toContain(`"companyId":${naive}`);
+  });
+
+  it("a SMALL companyId still leaves as a plain number, byte-identical to the proven rail", () => {
+    expect(projectPutJson({ id: "58454076", companyId: "1" })).toContain('"companyId":1');
+  });
 });
