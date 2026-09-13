@@ -73,10 +73,25 @@ export function composerPlaceholder(firstName: string | null, did: string | null
   return did ? `Text ${who} from ${did}…` : `Text ${who}…`;
 }
 
-/** `From your number ${did} to ${phone}` (crm-shared.js:260). */
-export function fromToLine(did: string | null, phone: string): string {
-  return did ? `From your number ${did} to ${phone}` : `${NO_DID_MESSAGE} · to ${phone}`;
-}
+/*
+ * `fromToLine` — "From your number <did> to <phone>" (crm-shared.js:260) — is
+ * DELETED, not unused.
+ *
+ * It was the header of the prototype's in-drawer Text sheet, and C1 does not
+ * build that sheet: the deal's Text button opens this person's Conversations
+ * thread instead, so there is ONE composer, one consent check and one place a
+ * text is recorded rather than two of each. Keeping the string alive with only
+ * its own test to read it would have made that test an assertion about a screen
+ * nobody renders.
+ *
+ * The conversation header carries the same fact in the prototype's other
+ * wording, `convFromLine` above ("<phone> ↔ your number <did>").
+ *
+ * HANDED TO C6: the dropped sheet also had an "Attach flyer / pricing" button
+ * (crm-shared.js:263), and the Conversations composer has no attach control
+ * either. The affordance belongs with the collateral library — C6 adds it to
+ * `SmsComposer` when share links exist to attach.
+ */
 
 /**
  * Why the composer is closed. One sentence per refusal code — the SAME codes
