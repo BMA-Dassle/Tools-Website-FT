@@ -13,6 +13,7 @@
 
 import { runSeed } from "../core/seed";
 import { JOB_KINDS, type JobKind, type JobRow } from "../core/types";
+import { bmiMirrorBackfillHandler, bmiMirrorDeltaHandler } from "~/features/crm/bmi";
 
 export interface JobContext {
   job: JobRow;
@@ -58,8 +59,8 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   "mint-bmi-project": notImplemented("mint-bmi-project"),
   "assign-sweep": notImplemented("assign-sweep"),
   "sevenshifts-mirror": notImplemented("sevenshifts-mirror"),
-  "bmi-mirror-delta": notImplemented("bmi-mirror-delta"),
-  "bmi-mirror-backfill": notImplemented("bmi-mirror-backfill"),
+  "bmi-mirror-delta": bmiMirrorDeltaHandler,
+  "bmi-mirror-backfill": bmiMirrorBackfillHandler,
   "graph-renew": notImplemented("graph-renew"),
   "graph-fetch-message": notImplemented("graph-fetch-message"),
   "threecx-reconcile": notImplemented("threecx-reconcile"),

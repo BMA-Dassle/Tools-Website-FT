@@ -151,8 +151,20 @@ async function officeFetch<T>(
   return parseWithRawIds<T>(text, OFFICE_ID_FIELDS);
 }
 
-export function officeGet<T>(clientKey: string, endpoint: string): Promise<T> {
-  return officeFetch<T>(clientKey, endpoint);
+/**
+ * A read. `sessionTag` names the CALLER for BMI's per-session bookkeeping:
+ * omitted, the read rides the shared `events` session exactly as before; a
+ * bulk reader (the CRM mirror backfill) passes its own STABLE tag so its load
+ * is attributable and never mixed into the guest-facing session. The tag goes
+ * through `officeReadSessionId(tag, clientKey)` — never a clock, never a UUID
+ * (tasks/lessons.md 2026-08-25).
+ */
+export function officeGet<T>(clientKey: string, endpoint: string, sessionTag?: string): Promise<T> {
+  return officeFetch<T>(
+    clientKey,
+    endpoint,
+    sessionTag ? { sessionId: officeReadSessionId(sessionTag, clientKey) } : undefined,
+  );
 }
 
 /** body must be pre-serialized (serializeWithRawIds / raw-id-safe string).

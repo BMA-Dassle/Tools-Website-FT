@@ -86,7 +86,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: "grow",
     label: "Find & grow",
     items: [
-      { id: "history", label: "History & accounts", icon: "history", ready: false },
+      { id: "history", label: "History & accounts", icon: "history", ready: true },
       { id: "cold", label: "Cold lists", icon: "list", ready: false },
       { id: "collateral", label: "Collateral", icon: "file", ready: false },
     ],
@@ -123,7 +123,7 @@ export const MORE_ITEMS: readonly NavItem[] = [
   { id: "queue", label: "Lead queue", icon: "bolt", director: true, ready: false },
   { id: "events", label: "Events", icon: "calendar", ready: false },
   { id: "calls", label: "Calls", icon: "phone", ready: false },
-  { id: "history", label: "History & accounts", icon: "history", ready: false },
+  { id: "history", label: "History & accounts", icon: "history", ready: true },
   { id: "cold", label: "Cold lists", icon: "list", ready: false },
   { id: "collateral", label: "Collateral & templates", icon: "file", ready: false },
   { id: "accountability", label: "Accountability", icon: "target", ready: false },

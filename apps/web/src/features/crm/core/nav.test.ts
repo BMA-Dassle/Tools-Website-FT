@@ -67,9 +67,27 @@ describe("the nav is the prototype's (direction-b.html:51-57,121)", () => {
     expect(isDirectorOnlyScreen("pipeline")).toBe(false);
   });
 
-  it("ships only statuses with ready: true — the one screen PR1 builds a body for", () => {
-    for (const i of [...NAV_GROUPS.flatMap((g) => g.items), ...PHONE_TABS, ...MORE_ITEMS]) {
-      expect(i.ready, i.id).toBe(i.id === "statuses");
+  it("`ready` agrees with SCREENS: a ready item has a real body, an unready one is NotBuiltYet", () => {
+    // PR-agnostic on purpose: each feature PR flips its own `ready` line(s) AND
+    // its own SCREENS line, and this holds the two in step without every PR
+    // editing the same assertion. A half-flipped entry (nav says ready, the
+    // loader still points at NotBuiltYet — or the reverse) fails here.
+    const items = [...NAV_GROUPS.flatMap((g) => g.items), ...PHONE_TABS, ...MORE_ITEMS];
+    expect(items.length).toBeGreaterThan(10);
+    for (const i of items) {
+      const loader = SCREENS[i.id].toString();
+      const notBuilt = loader.includes("shell/NotBuiltYet");
+      expect(
+        i.ready,
+        `${i.id}: ready=${i.ready} but loader is ${notBuilt ? "NotBuiltYet" : "real"}`,
+      ).toBe(!notBuilt);
+    }
+    // The same id appears in more than one list (sidebar / tabs / More); all copies agree.
+    const byId = new Map<string, boolean>();
+    for (const i of items) {
+      const seen = byId.get(i.id);
+      if (seen !== undefined) expect(seen, `${i.id} ready differs between lists`).toBe(i.ready);
+      byId.set(i.id, i.ready);
     }
   });
 });
