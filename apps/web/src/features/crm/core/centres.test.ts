@@ -9,6 +9,7 @@ import {
   QAMF_ID_TO_CENTER_CODE,
 } from "@/lib/qamf-centers";
 import { PANDORA_LOCATION_MAP } from "@/lib/pandora-locations";
+import { officeClientKeyForCenter } from "@/lib/bmi-office-actions";
 import { LOCATION_NAMES, LOCATION_TO_CLIENT_KEY } from "~/features/daily-events/constants";
 import {
   CENTRES,
@@ -62,6 +63,17 @@ describe("CENTRES agrees with the three upstream constant files", () => {
   it("uses the booking stack's centre slugs", () => {
     // `lib/bmi-office-actions.ts` CLIENT_KEYS is keyed by exactly these.
     expect(CENTRE_LIST.map((c) => c.centerCode)).toEqual(["fort-myers", "fasttrax", "naples"]);
+  });
+
+  it("agrees with the write rail's own client keys (officeClientKeyForCenter)", () => {
+    // The fourth copy this file guards is `CLIENT_KEYS` in
+    // lib/bmi-office-actions.ts, which is module-private and reachable ONLY
+    // through this accessor. Asserting the slug list alone would miss the
+    // failure that matters: a Naples centre resolving to the Fort Myers
+    // tenant, i.e. a lead written into the wrong Office database.
+    for (const c of CENTRE_LIST) {
+      expect(officeClientKeyForCenter(c.centerCode), c.code).toBe(c.clientKey);
+    }
   });
 });
 

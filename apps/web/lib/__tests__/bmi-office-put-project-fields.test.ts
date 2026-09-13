@@ -104,6 +104,7 @@ const {
   CRM_PROJECT_LOCK_PREFIX,
   OfficeProjectLockedError,
   OfficeProjectVerifyError,
+  projectPutJson,
   putProjectFields,
   toMinimalProject,
 } = await import("../bmi-office-actions");
@@ -193,21 +194,64 @@ describe("putProjectFields", () => {
     expect(puts()[0].path).toBe("/api/headpinzftmyers/project");
 
     const body = JSON.parse(puts()[0].body) as Record<string, unknown>;
-    expect(body.userId).toBe("465247");
-    expect(body.userAgentId).toBe("465247");
-    // `fetchProjectRawIds` quotes only BMI_ID_FIELDS (the 17-digit-capable
-    // ones); `stateId` is a small id outside that list and goes back to Office
-    // exactly as it came — a bare number, the way the UI's own Save sends it.
+    // EVERY id leaves as a JSON NUMBER — the shape the four pre-CRM callers of
+    // putProject have always sent (they build `minimal` from a bare
+    // JSON.parse). The CRM reads with parseWithRawIds, so `projectPutJson`
+    // undoes the string form on the way out; without it the wire would carry
+    // `"userId":"465247"`, a shape no live Office write has ever been proven
+    // to accept.
+    expect(body.userId).toBe(465247);
+    expect(body.userAgentId).toBe(465247);
     expect(body.stateId).toBe(49130082);
     expect(body.confirm).toBe(false);
+    expect(puts()[0].body).toContain('"userId":465247');
+    expect(puts()[0].body).not.toContain('"userId":"465247"');
     // Never the booking itself.
     for (const k of ["bills", "schedules", "products", "projectPersons", "logs"])
       expect(k in body).toBe(false);
     // The read side kept the 17-digit ids whole (JSON.parse would have rounded them).
     expect(out.project.personId).toBe(PERSON_ID);
     expect((out.project.bills as { id: string }[])[0].id).toBe("63000000009561438");
-    expect(puts()[0].body).toContain(`"personId":"${PERSON_ID}"`);
+    // …and the write emits them RAW: full precision, unquoted, exactly as
+    // Office sent them. JSON.stringify of the string form, or of a Number,
+    // would each be wrong in a different way.
+    expect(puts()[0].body).toContain(`"personId":${PERSON_ID}`);
+    expect(puts()[0].body).not.toContain(`"personId":"${PERSON_ID}"`);
+    expect(puts()[0].body).toContain(`"id":${PROJECT_ID}`);
     expect(puts()[0].body).not.toContain("63000000009561440");
+  });
+
+  describe("projectPutJson — the string form the CRM reads in is undone on the way out", () => {
+    it("small ids become numbers, 17-digit ids are injected raw, and a SIGNED state id is not left quoted", () => {
+      const json = projectPutJson({
+        id: PROJECT_ID,
+        personId: PERSON_ID,
+        userId: "465247",
+        userAgentId: "465247",
+        // -4 is Cancellation: a small SIGNED id, the case a digits-only
+        // serialiser would have left as a string.
+        stateId: "-4",
+        kindId: -1,
+        persons: 42,
+        name: "Acme holiday party",
+      });
+
+      expect(json).toContain(`"id":${PROJECT_ID}`);
+      expect(json).toContain(`"personId":${PERSON_ID}`);
+      expect(json).toContain('"userId":465247');
+      expect(json).toContain('"stateId":-4');
+      expect(json).not.toMatch(/"(id|personId|userId|userAgentId|stateId)":"/);
+      // Full precision: JSON.parse rounds this id, the raw injection does not.
+      expect(json).not.toContain("63000000009561440");
+      expect(JSON.parse(json).name).toBe("Acme holiday party");
+    });
+
+    it("leaves a non-numeric or absent id alone rather than inventing one", () => {
+      const json = projectPutJson({ name: "x", userId: null, invoiceId: "", styleId: "620931" });
+      expect(json).toContain('"userId":null');
+      expect(json).toContain('"invoiceId":""');
+      expect(json).toContain('"styleId":620931');
+    });
   });
 
   it("the write goes through the SAME putProject: a 403 prompt is retried EXACTLY once with confirm:true, same session id", async () => {

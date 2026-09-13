@@ -100,6 +100,11 @@ async function seedIfEmpty(): Promise<void> {
 
 export function ensureCrmSchema(): Promise<void> {
   if (!isDbConfigured()) return Promise.resolve();
+  // A REJECTED promise must not be memoised: `ready ??=` would hand the same
+  // failure to every later request, so one transient Neon blip during the
+  // first call would leave the tool schema-less for the life of the process.
+  // Clearing it on failure makes the next caller retry; the success path is
+  // still one pass per process.
   ready ??= (async () => {
     await ensureRepsSchema();
     await ensureSettingsSchema();
@@ -129,6 +134,9 @@ export function ensureCrmSchema(): Promise<void> {
     await ensureColdRowsSchema();
     await ensureJobsSchema();
     await seedIfEmpty();
-  })();
+  })().catch((err) => {
+    ready = null;
+    throw err;
+  });
   return ready;
 }

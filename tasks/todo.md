@@ -9,8 +9,10 @@ the build scratchpad; `docs/crm/README.md` is the distilled reference. **Nothing
 
 - [ ] **PR1 `feat/crm-foundation`** — registry + pages + identity + `withCrmRoute` + the 30
       `crm_*` tables + seed + jobs runner/cron + statuses screen (real) + shell/primitives +
-      msw + e2e `crm-signin.spec.ts` + ADR 0002 + `docs/crm/README.md`. Server half done
-      (this branch); UI half on `feat/crm-foundation-ui`; integrate stage runs build + e2e.
+      msw + e2e `crm-signin.spec.ts` + ADR 0002 + `docs/crm/README.md`. Built, reviewed and
+      gated: tsc 0, CRM suite 56 files / 680 tests, whole repo 8080 tests, one build with the
+      a11y line, the mock-Entra rig 47 sweep + 8 CRM tests. Preview `dpl_8VbQsZGmsprjkFqwwSHx89yEJvj2`
+      (`b3f40c228`). Release ticks this box.
 - [ ] Wave B (parallel after PR1): B1 BMI mirror (History & accounts, KPI substrate) ·
       B2 rules engine + 7shifts shifts + assign sweep · B3 leads (create/assign/mint, v1
       `/api/sales-lead/submit` becomes a thin caller) · B4 pipeline board + status

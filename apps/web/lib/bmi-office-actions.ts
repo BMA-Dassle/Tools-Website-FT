@@ -1,6 +1,6 @@
 import https from "https";
 import { randomUUID } from "crypto";
-import { parseWithRawIds } from "@ft/db";
+import { BMI_ID_FIELDS, parseWithRawIds, serializeWithRawIds } from "@ft/db";
 import redis from "./redis";
 import { officeReadSessionId } from "./bmi-office-ids";
 import { getOfficeToken } from "./bmi-office-token";
@@ -264,13 +264,72 @@ export function officePromptLine(p: OfficePrompt): string {
  * Exactly ONE retry: `confirm` is already true on it, so a repeat would refuse
  * identically forever.
  */
+/**
+ * Project-core ids Office sends — and expects back — as SMALL signed JSON
+ * NUMBERS, not strings. Every one fits inside `Number.MAX_SAFE_INTEGER`
+ * comfortably (`stateId` is as small as `-4`), which is why they are absent
+ * from `BMI_ID_FIELDS`: they were never the precision hazard.
+ */
+const PROJECT_SMALL_ID_FIELDS = [
+  "companyId",
+  "styleId",
+  "stateId",
+  "kindId",
+  "priority",
+  "userCreatedId",
+  "userUpdatedId",
+  "userId",
+  "userAgentId",
+  "userExternalId",
+  "resellerId",
+  "invoiceId",
+] as const;
+
+/**
+ * Serialise a project PUT body into the bytes Office has accepted for years.
+ *
+ * WHY THIS EXISTS. The four long-standing callers of `putProject` build their
+ * `minimal` from a bare `JSON.parse`, so every id leaves as a JSON NUMBER. The
+ * CRM's `putProjectFields` reads with `parseWithRawIds` instead — it has to,
+ * or a 17-digit `personId` is corrupted before it is ever sent — and that
+ * leaves those ids as STRINGS. Handing them straight to `JSON.stringify` would
+ * put `"personId":"63000000009561437"` on the wire: a shape no live Office
+ * write has ever been proven to accept, and one no test against a mock can
+ * vouch for. So the string form is undone here, on the way out:
+ *
+ *   - the small signed ids become real numbers (lossless — safe integers),
+ *   - the 17-digit ones are injected raw by `serializeWithRawIds`, which is
+ *     exactly `parseWithRawIds`'s inverse and the only way to emit them at
+ *     full precision.
+ *
+ * The result is byte-identical to what the proven rails send, while the CRM
+ * keeps reading precision-safely. Pinned by `bmi-office-put-project-fields.test.ts`.
+ */
+export function projectPutJson(body: Record<string, unknown>): string {
+  const out: Record<string, unknown> = { ...body };
+  for (const field of PROJECT_SMALL_ID_FIELDS) {
+    const value = out[field];
+    if (typeof value !== "string" || !/^-?\d+$/.test(value)) continue;
+    const asNumber = Number(value);
+    if (Number.isSafeInteger(asNumber)) out[field] = asNumber;
+  }
+  return serializeWithRawIds(out, BMI_ID_FIELDS);
+}
+
 async function putProject(
   clientKey: string,
   headers: Record<string, string>,
   project: Record<string, unknown>,
+  /**
+   * How the body becomes bytes. The default is what every pre-CRM caller has
+   * always done; `putProjectFields` passes `projectPutJson` because it reads
+   * with raw ids. The confirm retry uses the SAME serialiser, so the second
+   * request differs from the first by exactly one key.
+   */
+  toJson: (payload: Record<string, unknown>) => string = JSON.stringify,
 ): Promise<{ status: number; body: string }> {
   const path = `/api/${clientKey}/project`;
-  const first = await httpsRequest("PUT", path, headers, JSON.stringify(project));
+  const first = await httpsRequest("PUT", path, headers, toJson(project));
   const prompt = officePromptFrom(first.status, first.body);
   if (!prompt) return first;
 
@@ -280,12 +339,7 @@ async function putProject(
   );
   // Spread keeps `confirm` in its original position (overwriting an existing key
   // never moves it), so the retry is byte-identical to the UI's.
-  const retry = await httpsRequest(
-    "PUT",
-    path,
-    headers,
-    JSON.stringify({ ...project, confirm: true }),
-  );
+  const retry = await httpsRequest("PUT", path, headers, toJson({ ...project, confirm: true }));
   const again = officePromptFrom(retry.status, retry.body);
   if (again) {
     throw new Error(
@@ -1012,7 +1066,7 @@ export async function putProjectFields(
     const token = await getOfficeToken(clientKey);
     // One session id for the whole GET → PUT → verify, as the Office UI does.
     const headers = apiHeaders(token, clientKey);
-    const res = await putProject(clientKey, headers, body);
+    const res = await putProject(clientKey, headers, body, projectPutJson);
     if (res.status >= 400) {
       throw new Error(
         `Office project ${projectId} PUT failed: ${res.status} ${res.body.slice(0, 300)}`,

@@ -1,6 +1,7 @@
 import { adminPoppins } from "~/components/features/admin-skin/font";
 import CrmApp from "~/components/features/crm/CrmApp";
 import { publicUser, requireCrmUser } from "~/features/crm/core/identity";
+import { ensureCrmSchema } from "~/features/crm/core/schema";
 import { mintAdminApiToken } from "@/lib/admin-api-token";
 
 /**
@@ -37,6 +38,21 @@ export function flattenQuery(query: PageQuery): Record<string, string> {
 }
 
 export default async function AdminToolPage({ view, query }: { view: string[]; query: PageQuery }) {
+  // The tool's own tables, created and seeded on first use (brief §3.8). This
+  // is the ONLY path that runs on a plain page load: crons never fire on a
+  // preview, and a rep cannot press "Run job". Without it a fresh database
+  // renders an empty Statuses screen and resolves every signed-in rep to
+  // `rep: null`. Memoised per process, so this is one pass, not one per view.
+  //
+  // It never fails the page: the schema is infrastructure, and every screen
+  // already renders its own empty state. A failure is logged and the shell
+  // still comes up — a sign-in that 500s teaches a rep nothing.
+  await ensureCrmSchema().catch((err: unknown) => {
+    console.error("[crm] ensureCrmSchema failed on page load", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+
   const user = await requireCrmUser();
   const apiToken = await mintAdminApiToken();
 

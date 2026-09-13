@@ -2,7 +2,11 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { E2E } from "../playwright.config";
-import { ADMIN_NAV_GROUP_ID, TEST_IDS } from "../src/features/crm/core/contracts";
+import {
+  ADMIN_NAV_GROUP_ID,
+  DIRECTOR_ONLY_SCREENS,
+  TEST_IDS,
+} from "../src/features/crm/core/contracts";
 
 /**
  * THE CRM SIGN-IN PROOF (brief §3.10). The `admin-sso.spec.ts` sweep also
@@ -251,15 +255,22 @@ test.describe.serial("rep — Kelsea, sales only", () => {
     expect(countOf(await documentBytes(page), TOKEN)).toBe(0);
   });
 
-  test("/admin/crm/queue — the in-app 'not for your role' screen, status 200, never Next's 404", async () => {
-    const res = await page.goto("/admin/crm/queue", { waitUntil: "domcontentloaded" });
-    await page.waitForLoadState("networkidle");
-    expect(res?.status()).toBe(200);
-    expect(new URL(page.url()).pathname).toBe("/admin/crm/queue");
-    await expect(page.locator(byTestId(TEST_IDS.notForRole))).toBeVisible();
-    await expect(page.locator("body")).not.toContainText("This page could not be found");
-    await shoot(page, "rep-queue");
-  });
+  // EVERY director-only screen, not just the first. `canViewScreen` is pinned
+  // as a pure function in nav.test.ts, but this is the assertion that the
+  // rendered route obeys it — and that a rep meets the in-app screen rather
+  // than Next's 404, which would read as "broken" instead of "not yours".
+  for (const screen of DIRECTOR_ONLY_SCREENS) {
+    test(`/admin/crm/${screen} — the in-app 'not for your role' screen, status 200, never Next's 404`, async () => {
+      const res = await page.goto(`/admin/crm/${screen}`, { waitUntil: "domcontentloaded" });
+      await page.waitForLoadState("networkidle");
+      expect(res?.status()).toBe(200);
+      expect(new URL(page.url()).pathname).toBe(`/admin/crm/${screen}`);
+      await expect(page.locator(byTestId(TEST_IDS.notForRole))).toBeVisible();
+      await expect(page.locator("body")).not.toContainText("This page could not be found");
+      // One screenshot is enough evidence for a set that renders one screen.
+      if (screen === "queue") await shoot(page, "rep-queue");
+    });
+  }
 });
 
 test.describe("mgr — access only, no sales role", () => {

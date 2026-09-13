@@ -45,9 +45,12 @@ describe("msw intercepts under vitest node", () => {
     const res = await fetch("https://example.invalid/office/project");
     const text = await res.text();
 
-    // NEGATIVE CONTROL: the ordinary parse ROUNDS the id. If this ever passes
-    // as equal, the fixture is no longer an ugly one and the test proves nothing.
-    expect(JSON.parse(text).id).not.toBe("63000000009561437");
+    // NEGATIVE CONTROL: the ordinary parse ROUNDS the id, and this says so in
+    // the one way that can fail — by naming the rounded value. (`not.toBe` of
+    // the string form would pass against a Number no matter what, which is a
+    // control that proves nothing.) The day the fixture stops being 17 digits,
+    // this line goes red.
+    expect(JSON.parse(text).id).toBe(63000000009561440);
     expect(String(JSON.parse(text).id)).not.toBe("63000000009561437");
 
     const parsed = parseWithRawIds<{ id: string; personId: string; name: string }>(text);

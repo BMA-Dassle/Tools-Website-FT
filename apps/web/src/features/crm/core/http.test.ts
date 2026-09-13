@@ -224,17 +224,21 @@ describe("input (step 2) and the handler envelope (step 5)", () => {
     });
   });
 
-  it("any other throw → 500 JSON, logged with actor_email", async () => {
+  it("any other throw → a FIXED 500 code; the detail is logged, never sent", async () => {
     const boom = withCrmRoute(z.object({}), async () => {
-      throw new Error("neon down");
+      // The shape a real failure has: a hostname and an upstream snippet.
+      throw new Error("connect ECONNREFUSED ep-crimson-1234.us-east-2.aws.neon.tech:5432");
     });
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const res = await boom(get(URL_ME, hdr));
       expect(res.status).toBe(500);
-      expect(await res.json()).toEqual({ ok: false, error: "neon down" });
+      // Fixed code — the browser learns that it failed, not where.
+      expect(await res.json()).toEqual({ ok: false, error: "unexpected" });
       expect(error).toHaveBeenCalledTimes(1);
-      expect(JSON.stringify(error.mock.calls[0])).toContain("kelsea@headpinz.com");
+      const logged = JSON.stringify(error.mock.calls[0]);
+      expect(logged).toContain("kelsea@headpinz.com");
+      expect(logged).toContain("neon.tech");
     } finally {
       error.mockRestore();
     }

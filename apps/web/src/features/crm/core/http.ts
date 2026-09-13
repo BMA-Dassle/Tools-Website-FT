@@ -159,7 +159,14 @@ export function withCrmRoute<TSchema extends ZodType, TOut extends Record<string
         actor_email: who.user.email,
         error: err instanceof Error ? err.message : String(err),
       });
-      return apiError(500, err instanceof Error ? err.message : "unexpected");
+      // A FIXED code, never `err.message`. Neon, Redis, Office and Pandora
+      // errors carry hostnames, SQL fragments and upstream body snippets
+      // (`putProjectFields` throws with 300 chars of Office's reply); a rep's
+      // toast is the wrong place for any of it. The detail stays in the log
+      // line above, which already names the actor and the route. Anything a
+      // caller is MEANT to read comes back as a `CrmHttpError` with its own
+      // code, handled one branch up.
+      return apiError(500, "unexpected");
     }
   };
 }
