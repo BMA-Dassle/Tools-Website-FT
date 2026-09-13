@@ -144,7 +144,16 @@ vi.mock("~/features/crm/activities", () => ({
     return "1";
   },
 }));
-vi.mock("~/features/crm/reps", () => ({ listReps: async () => ALL_REPS }));
+/**
+ * A working rep whose Office user id is still unknown — the `no_bmi_user`
+ * case. It cannot be the Marketing Director any more: a `hold` row parks the
+ * lead and never reaches the responsible write at all.
+ */
+const NO_OFFICE_REP = { ...REPS.gs, id: "7", slug: "gs2", bmiUserId: null, bmiUsername: null };
+
+vi.mock("~/features/crm/reps", () => ({
+  listReps: async () => [...ALL_REPS, NO_OFFICE_REP],
+}));
 vi.mock("../../core/data/settings-db", () => ({ getSettingValue: async () => state.setting }));
 vi.mock("~/features/crm/jobs", () => ({
   neonJobStore: {
@@ -329,8 +338,12 @@ describe("assignLead", () => {
     });
     expect(state.activities.map((a) => a.kind)).toEqual(["assign", "system"]);
     expect(String(state.activities[1]!.body)).toContain("queued for retry");
-    // The assignment itself stood: the lead is Kelsea's whatever Office said.
+    // The assignment itself stood: the lead is Kelsea's in Neon whatever Office
+    // said. NOTHING is rolled back — Neon is the source of truth and the
+    // external sync is a downstream retry (CLAUDE.md "persist at capture").
+    expect(state.updates[0]!.patch).toMatchObject({ assignedRepId: "1", statusId: "assigned" });
     expect(r.lead.rep).toBe("1");
+    expect(r.assignment.bmiResponsibleSyncedAt).toBeNull();
   });
 
   it("writes paused (crm_settings.bmi_writes enabled:false) → paused, zero Office calls, no job", async () => {
@@ -355,7 +368,8 @@ describe("assignLead", () => {
     ).toEqual({ status: "no_project" });
     state.lead = minted();
     expect(
-      (await assignLead({ leadId: "1061", repId: REPS.mkt.id, actor: "x", reason: "manual" })).bmi,
+      (await assignLead({ leadId: "1061", repId: NO_OFFICE_REP.id, actor: "x", reason: "manual" }))
+        .bmi,
     ).toEqual({ status: "no_bmi_user" });
     expect(state.requests).toHaveLength(0);
     expect(state.assignments).toHaveLength(2);
@@ -378,6 +392,35 @@ describe("assignLead", () => {
       nextActionDue: null,
     });
     expect(state.requests).toHaveLength(0);
+  });
+
+  /**
+   * A `hold` row PARKS the lead. `assignableReps()` has always refused to list
+   * the Marketing Director; this is the write side of the same rule. If it
+   * stamped `assigned_rep_id` the lead would drop off the queue board it was
+   * parked on, never show its "Held for…" pill, and be skipped by
+   * `listSweepCandidates` for ever — parked AND invisible.
+   */
+  it("a HOLD rep parks the lead: held_for_rep_id set, assigned_rep_id NULL, no clock, no Office", async () => {
+    const r = await assignLead({
+      leadId: "1061",
+      repId: REPS.mkt.id,
+      actor: "rules",
+      reason: "rule",
+    });
+    expect(state.assignments[0]).toMatchObject({ toRepId: REPS.mkt.id, reason: "rule" });
+    expect(state.updates[0]!.patch).toMatchObject({
+      assignedRepId: null,
+      assignedAt: null,
+      heldForRepId: REPS.mkt.id,
+      statusId: "new",
+    });
+    expect(state.updates[0]!.patch).toMatchObject({ nextActionDue: null });
+    expect(r.lead.rep).toBeNull();
+    expect(r.bmi).toEqual({ status: "skipped" });
+    expect(state.requests).toHaveLength(0);
+    expect(String(state.activities[0]!.body)).toBe("Held for Marketing Director by rules");
+    expect((state.activities[0]!.meta as { held: boolean }).held).toBe(true);
   });
 
   it("a reassign keeps a contacted lead's status and does not reset the first-touch clock", async () => {

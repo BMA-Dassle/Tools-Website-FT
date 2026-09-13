@@ -1,11 +1,31 @@
 /**
- * The assign sweep (brief §3.9 `assign-sweep:<hour>`): the rail that takes the
- * leads the queue has been holding and hands them to a rep once the director's
- * delay has passed. B2 built the deciding half; this is both halves.
+ * The assign sweep (brief §3.9 `assign-sweep:<hour>`) — a SAFETY NET, not the
+ * assignment rail (owner, 2026-09-13 14:50: "let's get rid of the hour sweep
+ * rule just capture right away").
  *
- * DECIDE: find open, unassigned, unheld leads older than the director's delay
- * setting (`crm_settings.sweep.delayMinutes`, default 60) and run every one
- * through `assignDecision`.
+ * `createLead` now applies EVERY decision the engine resolves the moment a
+ * lead is captured, at all hours. So by the time this runs, an ordinary lead
+ * already has a rep and is not a candidate. What reaches the net is only what
+ * fell through:
+ *
+ *   - the engine resolved NOBODY when the lead arrived (the R7 fallback, or no
+ *     rule matched) and the roster has since changed — somebody came back on
+ *     shift, a rule was edited, a rep gained the centre;
+ *   - the capture-time `assignLead` threw (Neon hiccup, Office refusing the
+ *     responsible PUT hard enough to abort the hand-off);
+ *   - `CRM_AUTO_ASSIGN` was "false" when the lead came in and has since been
+ *     switched back on.
+ *
+ * `crm_settings.sweep.delayMinutes` keeps its meaning for exactly that retry
+ * path: how long a lead that arrived unassigned waits before the net tries
+ * again. It is NOT a window in which a director gets first refusal — that
+ * window no longer exists, and the queue's countdown went with it.
+ *
+ * DECIDE: find open, unassigned, unheld leads older than the retry delay and
+ * run every one through `assignDecision`. Leads PARKED on purpose are out of
+ * scope by construction: `listSweepCandidates` excludes any lead with
+ * `held_for_rep_id` set, so a ≥ 100-guest enquiry held for the Marketing
+ * Director is never quietly handed to a planner by this job.
  *
  * APPLY: hand each decision that resolved a rep to B3's `assignLead` with
  * `reason: "auto"`, the deciding rule's id and its trace — the same rail a
@@ -21,13 +41,12 @@
  * retries inside one run; the next hour's sweep sees the same lead again.
  *
  * Kill switch `CRM_AUTO_ASSIGN !== "false"` (R4) is checked HERE as well as in
- * the job handler, so no caller of `runAssignSweep` can write past it.
+ * the job handler and in `createLead`, so no caller can write past it.
  *
- * After-hours (`sweep.afterHours`): `hold9am` computes the decisions but marks
- * the run `held` outside business hours — the prototype's "Hold until 9 AM";
- * `assign` runs regardless. Business hours are 9 AM–9 PM ET
- * (`SWEEP_BUSINESS_HOURS`) — an assumption until D1/D14 close; the setting
- * itself is the owner's knob.
+ * AT ALL HOURS. The "hold until 9 AM" branch is gone with the setting that
+ * drove it: R5 already answers "nobody is on shift now" by narrowing to
+ * whoever works the next shift, and a lead sitting unassigned overnight is
+ * strictly worse than one waiting in the inbox of the person who opens up.
  *
  * Idempotency: one row per ET hour (`assign-sweep:2026-09-12T19`), so a cron
  * that fires every two minutes still sweeps once an hour.
@@ -44,10 +63,8 @@ import { toDecisionWire } from "./wire";
 
 export type { SweepDecision, SweepResult };
 
-export const SWEEP_BUSINESS_HOURS = { start: 9, end: 21 } as const;
 /** Nothing was handed over: no candidates, or no decision resolved a rep. */
 export const SWEEP_NOT_APPLIED_REASON = "nothing to apply";
-export const SWEEP_HELD_REASON = "outside business hours · held until 9 AM";
 export const SWEEP_DISABLED_REASON = 'CRM_AUTO_ASSIGN="false"';
 export const SWEEP_APPLIED_REASON = "applied";
 /** `crm_assignments.actor_email` for a hand-off the sweep made on nobody's behalf. */
@@ -65,11 +82,6 @@ export function sweepIdempotencyKey(now: Date): string {
 /** `sevenshifts-mirror:<ET date>` — one mirror row per ET day. */
 export function mirrorIdempotencyKey(now: Date): string {
   return `sevenshifts-mirror:${todayEasternYmd(now)}`;
-}
-
-export function isAfterHours(now: Date): boolean {
-  const h = etHourOfDay(now);
-  return h < SWEEP_BUSINESS_HOURS.start || h >= SWEEP_BUSINESS_HOURS.end;
 }
 
 export interface SweepDeps {
@@ -135,7 +147,6 @@ export async function applySweepDecisions(
 export async function runAssignSweep(deps: SweepDeps): Promise<SweepResult> {
   const olderThan = new Date(deps.now.getTime() - deps.settings.delayMinutes * 60_000);
   const candidates = await deps.listCandidates(olderThan, 200);
-  const held = deps.settings.afterHours === "hold9am" && isAfterHours(deps.now);
 
   const decisions: SweepDecision[] = [];
   const traces = new Map<string, TraceRowWire[]>();
@@ -176,9 +187,7 @@ export async function runAssignSweep(deps: SweepDeps): Promise<SweepResult> {
 
   let applied = 0;
   let reason = SWEEP_NOT_APPLIED_REASON;
-  if (held) {
-    reason = SWEEP_HELD_REASON;
-  } else if (decisions.length > 0) {
+  if (decisions.length > 0) {
     const autoOn = (deps.autoAssignEnabled ?? crmAutoAssignEnabled)();
     if (!autoOn) {
       reason = SWEEP_DISABLED_REASON;
@@ -191,8 +200,6 @@ export async function runAssignSweep(deps: SweepDeps): Promise<SweepResult> {
   return {
     ranAt: deps.now.toISOString(),
     delayMinutes: deps.settings.delayMinutes,
-    afterHours: deps.settings.afterHours,
-    held,
     candidates: candidates.length,
     decisions,
     applied,

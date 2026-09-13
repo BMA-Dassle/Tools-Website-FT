@@ -5,11 +5,11 @@ import type { MintOutcome } from "./mint";
 import {
   ALREADY_SENT,
   CENTRE_TO_CENTER_KEY,
-  QUEUE_CHAT_ENV,
+  UNASSIGNED_CHAT_ENV,
   centerConfigFor,
   notifyAlreadySent,
   notifyNewLead,
-  queueCardSkipReason,
+  unassignedCardSkipReason,
   salesCardKey,
   summarizeNotify,
   withoutCardActions,
@@ -19,9 +19,15 @@ import {
 /**
  * Notification fan-out isolation (brief §4 B3 tests): Teams / SMS / email
  * each throwing → the lead is unaffected and every channel reports itself;
- * `CRM_JACOB_TEAMS_CHAT_ID` unset → the queue card is skipped with the logged
- * reason; the guest's channels follow `preferredContactMethod` exactly as the
- * legacy route did, and only for web leads.
+ * `CRM_UNASSIGNED_TEAMS_CHAT_ID` unset → the Assignment Pending card is
+ * skipped with the logged reason; the guest's channels follow
+ * `preferredContactMethod` exactly as the legacy route did, and only for web
+ * leads.
+ *
+ * And the rule the owner's 2026-09-13 decision added: "Sales Leads -
+ * Assignment Pending" hears about a lead ONLY when nobody owns it. An
+ * ordinary lead is assigned at capture, so it gets exactly ONE card — in its
+ * planner's chat — and never a second one in the director's.
  */
 
 const MINTED: MintOutcome = {
@@ -66,7 +72,7 @@ function fakes(over: Partial<NotifyDeps> = {}) {
       calls.note!.push(a);
       return { ok: true };
     },
-    queueChatId: () => "19:queue@thread.v2",
+    unassignedChatId: () => "19:pending@thread.v2",
     now: () => new Date("2026-09-12T23:30:00Z"),
     ...over,
   };
@@ -90,18 +96,24 @@ describe("mapping", () => {
     expect(centerConfigFor("FT").pandoraKey).toBe("fasttrax");
     expect(centerConfigFor("HPN").displayName).toBe("HeadPinz Naples");
   });
-  it("queueCardSkipReason names the env var", () => {
-    expect(queueCardSkipReason(undefined)).toBe(`${QUEUE_CHAT_ENV} not set`);
-    expect(queueCardSkipReason("19:x")).toBeNull();
+  it("unassignedCardSkipReason: an owned lead never reaches the chat; an unset env var names itself", () => {
+    expect(unassignedCardSkipReason(undefined, false)).toBe(`${UNASSIGNED_CHAT_ENV} not set`);
+    expect(unassignedCardSkipReason("19:x", false)).toBeNull();
+    expect(unassignedCardSkipReason("19:x", true, "Kelsea")).toBe(
+      "assigned to Kelsea — their card is the one",
+    );
+    expect(unassignedCardSkipReason("19:x", true)).toBe(
+      "assigned to a planner — their card is the one",
+    );
   });
 });
 
 describe("notifyNewLead", () => {
-  it("web lead, no preference: guest text + email from the planner Pandora picked, planner card, queue card, salescard state, three audit lines", async () => {
+  it("an UNASSIGNED web lead, no preference: guest text + email from the planner Pandora picked, planner card, Assignment Pending card, salescard state, three audit lines", async () => {
     const { deps, calls } = fakes();
     const out = await notifyNewLead({ lead, mint: MINTED, source: "web" }, deps);
     expect(out.planner).toEqual({ displayName: "Kelsea", isIndividual: true });
-    expect(out.sms.ok && out.email.ok && out.plannerCard.ok && out.queueCard.ok).toBe(true);
+    expect(out.sms.ok && out.email.ok && out.plannerCard.ok && out.unassignedCard.ok).toBe(true);
     expect(calls.sms![0]![0]).toBe("+12395552710");
     expect(calls.sms![0]![2]).toMatchObject({ fromOverride: PLANNERS.kelsea.phone });
     expect(calls.email![0]![0]).toMatchObject({
@@ -111,7 +123,7 @@ describe("notifyNewLead", () => {
     });
     expect(calls.card!.map((c) => c[0])).toEqual([
       PLANNERS.kelsea.teamsChatId,
-      "19:queue@thread.v2",
+      "19:pending@thread.v2",
     ]);
     expect(calls.redis![0]![0]).toBe("salescard:63000000009561437");
     expect(calls.redis![0]![2]).toBe(60 * 60 * 24 * 90);
@@ -127,20 +139,45 @@ describe("notifyNewLead", () => {
     expect(last.cardActivityId).toBe("act-1");
   });
 
-  it("CRM_JACOB_TEAMS_CHAT_ID unset → the queue card is skipped with the reason, logged, nothing else changes", async () => {
-    const { deps, calls } = fakes({ queueChatId: () => undefined });
+  it("CRM_UNASSIGNED_TEAMS_CHAT_ID unset → the Assignment Pending card is skipped with the reason, logged, nothing else changes", async () => {
+    const { deps, calls } = fakes({ unassignedChatId: () => undefined });
     const out = await notifyNewLead({ lead, mint: MINTED, source: "web" }, deps);
-    expect(out.queueCard).toEqual({
+    expect(out.unassignedCard).toEqual({
       ok: true,
       status: null,
       skipped: true,
-      reason: "CRM_JACOB_TEAMS_CHAT_ID not set",
+      reason: "CRM_UNASSIGNED_TEAMS_CHAT_ID not set",
     });
     expect(calls.card).toHaveLength(1);
     expect(console.log).toHaveBeenCalledWith(
-      "[crm] queue Teams card skipped",
-      expect.objectContaining({ reason: "CRM_JACOB_TEAMS_CHAT_ID not set" }),
+      "[crm] Assignment Pending card skipped",
+      expect.objectContaining({ reason: "CRM_UNASSIGNED_TEAMS_CHAT_ID not set" }),
     );
+  });
+
+  // Owner, 2026-09-13: "where we can alert the none assigned groups". An
+  // ordinary lead is assigned at capture, so exactly ONE card goes out.
+  it("an ASSIGNED lead gets ONE card — the planner's — and the Assignment Pending chat hears nothing", async () => {
+    const { deps, calls } = fakes();
+    const out = await notifyNewLead({ lead, mint: MINTED, source: "web", assigned: true }, deps);
+    expect(calls.card!.map((c) => c[0])).toEqual([PLANNERS.kelsea.teamsChatId]);
+    expect(out.plannerCard.ok).toBe(true);
+    expect(out.unassignedCard).toEqual({
+      ok: true,
+      status: null,
+      skipped: true,
+      reason: "assigned to Kelsea — their card is the one",
+    });
+  });
+
+  it("`assigned` defaults to the lead's own rep, so a lead with an owner is never double-carded", async () => {
+    const { deps, calls } = fakes();
+    const out = await notifyNewLead(
+      { lead: { ...lead, rep: "1" }, mint: MINTED, source: "web" },
+      deps,
+    );
+    expect(calls.card).toHaveLength(1);
+    expect(out.unassignedCard.skipped).toBe(true);
   });
 
   it("Teams, SMS and email each throwing → resolves with per-channel failures, never rejects", async () => {
@@ -159,7 +196,7 @@ describe("notifyNewLead", () => {
     expect(out.sms).toEqual({ ok: false, error: "vox down" });
     expect(out.email).toEqual({ ok: false, error: "sendgrid down" });
     expect(out.plannerCard).toEqual({ ok: false, error: "bot down" });
-    expect(out.queueCard).toEqual({ ok: false, error: "bot down" });
+    expect(out.unassignedCard).toEqual({ ok: false, error: "bot down" });
   });
 
   it("even Redis or the audit writer throwing does not reject", async () => {
@@ -170,7 +207,7 @@ describe("notifyNewLead", () => {
     });
     const out = await notifyNewLead({ lead, mint: MINTED, source: "web" }, deps);
     expect(out.sms.ok).toBe(false);
-    expect(out.queueCard.ok).toBe(false);
+    expect(out.unassignedCard.ok).toBe(false);
   });
 
   it("preferredContactMethod: text → SMS only; email → email only; phone → email only", async () => {
@@ -204,7 +241,7 @@ describe("notifyNewLead", () => {
     expect(calls.card).toHaveLength(2);
   });
 
-  it("not minted: only the queue card goes (keyed by the lead's public id); no planner, no guest, no salescard", async () => {
+  it("not minted: only the Assignment Pending card goes (keyed by the lead's public id); no planner, no guest, no salescard", async () => {
     const { deps, calls } = fakes();
     const out = await notifyNewLead(
       { lead, mint: { status: "failed", error: "boom", httpStatus: 502 }, source: "web" },
@@ -212,7 +249,7 @@ describe("notifyNewLead", () => {
     );
     expect(out.planner).toBeNull();
     expect(calls.card).toHaveLength(1);
-    expect(calls.card![0]![0]).toBe("19:queue@thread.v2");
+    expect(calls.card![0]![0]).toBe("19:pending@thread.v2");
     expect(calls.redis).toHaveLength(0);
     expect(calls.sms).toHaveLength(0);
     expect(out.plannerCard.reason).toBe("no BMI project yet");
@@ -221,18 +258,22 @@ describe("notifyNewLead", () => {
   it("summarizeNotify is one readable line", () => {
     const line = summarizeNotify({
       planner: { displayName: "Kelsea", isIndividual: true },
-      queueCard: { ok: true, skipped: true, reason: "CRM_JACOB_TEAMS_CHAT_ID not set" },
+      unassignedCard: {
+        ok: true,
+        skipped: true,
+        reason: "assigned to Kelsea — their card is the one",
+      },
       plannerCard: { ok: true },
       sms: { ok: true },
       email: { ok: false, error: "sendgrid down" },
     });
     expect(line).toBe(
-      "Guest text sent · guest email FAILED (sendgrid down) · Teams card to Kelsea sent · queue card skipped (CRM_JACOB_TEAMS_CHAT_ID not set)",
+      "Guest text sent · guest email FAILED (sendgrid down) · Teams card to Kelsea sent · Assignment Pending card skipped (assigned to Kelsea — their card is the one)",
     );
   });
 });
 
-describe("the queue card's buttons", () => {
+describe("the Assignment Pending card's buttons", () => {
   const actionSets = (card: Record<string, unknown>) =>
     (card.body as Array<{ type?: string }>).filter((b) => b?.type === "ActionSet");
 
@@ -247,7 +288,7 @@ describe("the queue card's buttons", () => {
     expect(stripped.type).toBe("AdaptiveCard");
   });
 
-  it("an un-minted lead gets a READ-ONLY queue card: its verbs read salescard:{projectID}, which is never written", async () => {
+  it("an un-minted lead gets a READ-ONLY card: its verbs read salescard:{projectID}, which is never written", async () => {
     const { deps, calls } = fakes();
     await notifyNewLead(
       { lead, mint: { status: "failed", error: "boom", httpStatus: 502 }, source: "web" },
@@ -262,9 +303,9 @@ describe("the queue card's buttons", () => {
   it("a minted lead keeps them — the state they read exists", async () => {
     const { deps, calls } = fakes();
     await notifyNewLead({ lead, mint: MINTED, source: "web" }, deps);
-    // [0] = the planner's card, [1] = the queue card.
-    const queueCard = calls.card![1]![1] as Record<string, unknown>;
-    expect(actionSets(queueCard)).toHaveLength(1);
+    // [0] = the planner's card, [1] = the Assignment Pending card.
+    const pendingCard = calls.card![1]![1] as Record<string, unknown>;
+    expect(actionSets(pendingCard)).toHaveLength(1);
     expect(calls.redis![0]![0]).toBe(salesCardKey(MINTED.projectId));
   });
 });
@@ -297,7 +338,7 @@ describe("notifyAlreadySent (a resubmit inside the dedupe window)", () => {
     expect(calls.email).toHaveLength(0);
     expect(calls.card).toHaveLength(0);
     expect(calls.note).toHaveLength(0);
-    for (const c of [out.sms, out.email, out.plannerCard, out.queueCard])
+    for (const c of [out.sms, out.email, out.plannerCard, out.unassignedCard])
       expect(c).toEqual({ ok: true, status: null, skipped: true, reason: ALREADY_SENT });
   });
 

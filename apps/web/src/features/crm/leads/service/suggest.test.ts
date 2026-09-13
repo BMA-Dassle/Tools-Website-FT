@@ -5,13 +5,7 @@ import {
   prototypeContext,
 } from "~/features/crm/rules/test-support";
 import { QUEUE_LEADS, PROTO_NOW, ALL_REPS, REPS, asRequestedRep, makeLead } from "../test-support";
-import {
-  NO_SUGGESTION,
-  appliesImmediately,
-  isImmediate,
-  suggestFor,
-  toEngineLead,
-} from "./suggest";
+import { NO_SUGGESTION, suggestFor, toEngineLead } from "./suggest";
 
 /**
  * The engine seam, wired (B2's `assignDecision` over B2's seeded rules).
@@ -55,10 +49,9 @@ describe("suggestFor", () => {
     expect(r.outcome).toBe("route");
     expect(r.suggestion?.rep.slug).toBe("gs");
     expect(r.suggestion?.reason).toBe("routed to Guest Services");
-    expect(isImmediate(r.outcome)).toBe(true);
   });
 
-  it("L-1059 (120 guests) → R1 held for the Marketing Director, and that is immediate", async () => {
+  it("L-1059 (120 guests) → R1 held for the Marketing Director", async () => {
     const r = await suggestFor(lead("L-1059"), {
       now: PROTOTYPE_NOW,
       engine: prototypeContext({ now: PROTOTYPE_NOW }),
@@ -66,7 +59,6 @@ describe("suggestFor", () => {
     expect(r.outcome).toBe("hold");
     expect(r.suggestion?.rep.slug).toBe("mkt");
     expect(r.suggestion?.reason).toBe("held for Marketing Director");
-    expect(isImmediate(r.outcome)).toBe(true);
   });
 
   it("L-1062 (Dec holiday party) → R4 skips Lori, R6 picks Kelsea", async () => {
@@ -89,12 +81,27 @@ describe("suggestFor", () => {
     expect(r.suggestion?.finalRuleLabel).toBe("R5");
   });
 
-  it("a balancing pick is NOT immediate — the sweep's delay owns it", async () => {
-    const r = await suggestFor(lead("L-1061"), {
+  // Owner, 2026-09-13 14:50: every resolved decision is applied at capture, so
+  // there is nothing left for an `isImmediate` predicate to say. The seam's only
+  // question is whether the engine named anybody.
+  it("every outcome that names a rep resolves one; queue and none resolve nobody", async () => {
+    const resolved = await Promise.all(
+      ["L-1061", "L-1060", "L-1059"].map((id) =>
+        suggestFor(lead(id), {
+          now: PROTOTYPE_NOW,
+          engine: prototypeContext({ now: PROTOTYPE_NOW }),
+        }),
+      ),
+    );
+    expect(resolved.map((r) => r.outcome)).toEqual(["assign", "route", "hold"]);
+    expect(resolved.every((r) => r.suggestion !== null)).toBe(true);
+
+    const unresolved = await suggestFor(lead("L-1061"), {
       now: PROTOTYPE_NOW,
-      engine: prototypeContext({ now: PROTOTYPE_NOW }),
+      engine: prototypeContext({ now: PROTOTYPE_NOW, reps: [], openVolumeByRepMonth: {} }),
     });
-    expect(isImmediate(r.outcome)).toBe(false);
+    expect(["queue", "none"]).toContain(unresolved.outcome);
+    expect(unresolved.suggestion).toBeNull();
   });
 
   it("no rule resolves anyone → suggestion null, the trace still explains why", async () => {
@@ -164,8 +171,6 @@ describe("suggestFor", () => {
       expect(r.suggestion?.rep.slug).toBe("kelsea");
       expect(r.suggestion?.reason).toBe("guest asked for Kelsea");
       expect(r.requested?.honoured).toBe(true);
-      expect(isImmediate(r.outcome)).toBe(false);
-      expect(appliesImmediately(r)).toBe(true);
       // The step reads as a step on the trace, not as a mystery rule id.
       expect(r.trace.at(-1)).toMatchObject({
         code: "GUEST",
@@ -186,7 +191,6 @@ describe("suggestFor", () => {
       const r = await suggestFor(l, { now: PROTOTYPE_NOW, engine: engine() });
       expect(r.suggestion?.rep.slug).toBe("mkt");
       expect(r.requested?.outcome).toBe("overridden");
-      expect(appliesImmediately(r)).toBe(true);
       expect(r.trace.at(-1)!.note).toContain("takes precedence");
     });
 
@@ -196,7 +200,6 @@ describe("suggestFor", () => {
         engine: engine(),
       });
       expect(r.requested).toBeUndefined();
-      expect(appliesImmediately(r)).toBe(false);
     });
   });
 });

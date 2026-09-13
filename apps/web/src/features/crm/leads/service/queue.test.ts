@@ -3,16 +3,18 @@ import { ALL_REPS, PROTO_NOW, QUEUE_LEADS, makeLead, minsAgo } from "../test-sup
 import type { SuggestResult } from "./suggest";
 import {
   ageMinutes,
-  autoAssignInMinutes,
   buildQueueLeads,
   buildRepColumns,
   loadQueue,
+  parkFor,
   queueMonths,
 } from "./queue";
 
 /**
  * Queue ordering + age (brief §4 B3 tests) at the prototype's clock, the
- * three-month volume columns, and the rep columns (assignable reps only).
+ * three-month volume columns, the rep columns (assignable reps only), and the
+ * PARK verdict that replaced the prototype's "auto-assign in 52m" countdown
+ * when the owner moved assignment to capture (2026-09-13 14:50).
  */
 
 describe("queueMonths", () => {
@@ -23,20 +25,59 @@ describe("queueMonths", () => {
   });
 });
 
-describe("age and the sweep countdown", () => {
+describe("age", () => {
   it("ageMinutes floors whole minutes", () => {
     expect(ageMinutes(minsAgo(8), PROTO_NOW)).toBe(8);
     expect(ageMinutes(minsAgo(118), PROTO_NOW)).toBe(118);
     expect(ageMinutes(new Date(PROTO_NOW.getTime() + 5000).toISOString(), PROTO_NOW)).toBe(0);
   });
-  it("autoAssignInMinutes counts down from the sweep delay for the OLDEST waiting lead", () => {
-    expect(autoAssignInMinutes([], 60, PROTO_NOW)).toBeNull();
-    expect(autoAssignInMinutes([{ createdAt: minsAgo(8) }], 60, PROTO_NOW)).toBe(52);
-    expect(
-      autoAssignInMinutes([{ createdAt: minsAgo(8) }, { createdAt: minsAgo(41) }], 60, PROTO_NOW),
-    ).toBe(19);
-    // L-1059 has waited 118 min: the sweep is overdue → 0, never negative
-    expect(autoAssignInMinutes(QUEUE_LEADS, 60, PROTO_NOW)).toBe(0);
+});
+
+describe("parkFor — WHY a lead is still on the board", () => {
+  const kelseaPick = {
+    rep: {
+      id: "1",
+      slug: "kelsea",
+      displayName: "Kelsea Kosco",
+      firstName: "Kelsea",
+      initials: "KK",
+      role: "rep" as const,
+      centres: ["FT" as const],
+    },
+    reason: "lowest Oct volume",
+    ruleId: "6",
+    finalRuleCode: "R6",
+  };
+
+  it("a hold rule names the person it is parked with", () => {
+    const mkt = ALL_REPS.find((r) => r.slug === "mkt")!;
+    expect(parkFor({ heldForRep: mkt.id }, kelseaPick, ALL_REPS)).toEqual({
+      kind: "held",
+      label: "Held for Marketing Director",
+    });
+  });
+
+  it("no suggestion → no eligible rep, and it needs a human", () => {
+    expect(parkFor({ heldForRep: null }, null, ALL_REPS)).toEqual({
+      kind: "no-rep",
+      label: "No eligible rep — assign by hand",
+    });
+  });
+
+  it("a pick that is still here means the capture-time assign did not happen — the net owes it one", () => {
+    expect(parkFor({ heldForRep: null }, kelseaPick, ALL_REPS)).toEqual({
+      kind: "retry",
+      label: "Not assigned yet — the sweep will hand it to Kelsea",
+    });
+  });
+
+  it("never counts down: no park label mentions minutes", () => {
+    const labels = [
+      parkFor({ heldForRep: ALL_REPS.find((r) => r.slug === "mkt")!.id }, kelseaPick, ALL_REPS),
+      parkFor({ heldForRep: null }, null, ALL_REPS),
+      parkFor({ heldForRep: null }, kelseaPick, ALL_REPS),
+    ].map((p) => p.label);
+    for (const l of labels) expect(l).not.toMatch(/\bmin\b|\d+\s*m\b|auto-assign in/i);
   });
 });
 
@@ -57,7 +98,7 @@ describe("buildQueueLeads", () => {
         },
       ],
     ]);
-    const rows = buildQueueLeads(QUEUE_LEADS, sug, PROTO_NOW);
+    const rows = buildQueueLeads(QUEUE_LEADS, sug, ALL_REPS, PROTO_NOW);
     expect(rows.map((r) => [r.lead.publicId, r.ageMinutes])).toEqual([
       ["L-1061", 8],
       ["L-1060", 41],
@@ -109,7 +150,7 @@ describe("buildRepColumns", () => {
 });
 
 describe("loadQueue", () => {
-  it("wires the pieces: months from ET today, one suggest per unassigned lead, the sweep countdown from settings", async () => {
+  it("wires the pieces: months from ET today, one suggest per unassigned lead, the retry delay from settings", async () => {
     const suggested: string[] = [];
     const body = await loadQueue({
       listUnassigned: async () => QUEUE_LEADS,
@@ -122,7 +163,7 @@ describe("loadQueue", () => {
       },
       settings: async () => ({
         bmiWrites: { enabled: true, offCentres: [] },
-        sweep: { delayMinutes: 45, afterHours: "hold9am" },
+        sweep: { delayMinutes: 45 },
         responseTargetMinutes: 60,
       }),
       now: () => PROTO_NOW,
@@ -132,6 +173,13 @@ describe("loadQueue", () => {
     expect(body.unassigned).toHaveLength(4);
     expect(body.reps.map((c) => c.rep.slug)).toEqual(["kelsea", "lori", "stephanie", "gs"]);
     expect(body.sweepDelayMinutes).toBe(45);
-    expect(body.autoAssignInMinutes).toBe(0);
+    // No countdown reaches the board any more — only a reason per lead.
+    expect(body).not.toHaveProperty("autoAssignInMinutes");
+    expect(body.unassigned.map((u) => u.park.kind)).toEqual([
+      "no-rep",
+      "no-rep",
+      "no-rep",
+      "no-rep",
+    ]);
   });
 });

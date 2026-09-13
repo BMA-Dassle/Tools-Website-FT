@@ -303,10 +303,14 @@ export const RULE_SEED: readonly RuleSeed[] = [
   {
     position: 7,
     kind: "fallback",
-    label: "Otherwise wait for Jacob (60 min, then auto)",
+    // Renamed 2026-09-13: the rules assign at capture, so nothing "waits 60
+    // minutes, then auto" any more. The old label is healed in place by
+    // `seedRules` so production does not gain a second fallback rule.
+    label: "Otherwise park it for Jacob",
     when: {},
     then: { queue: true },
-    why: "Nothing matched; the hourly sweep re-runs the rules",
+    why: "Nothing matched; it sits on the queue board until a director assigns it, and the safety-net sweep re-checks the rules",
+    previousLabels: ["Otherwise wait for Jacob (60 min, then auto)"],
   },
 ];
 

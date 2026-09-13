@@ -12,7 +12,6 @@
  */
 
 import { publicRep } from "../../core/projections";
-import { getCrmSettings } from "../../core/data/settings-db";
 import { ET, todayEasternYmd } from "../../core/dates";
 import type { CrmRep, CrmUser } from "../../core/types";
 import { assignableReps, listReps } from "~/features/crm/reps";
@@ -22,9 +21,7 @@ import {
   countUnassignedLeads,
   listAssignedAwaitingTouch,
   listDueLeads,
-  listUnassignedLeads,
 } from "../data/leads-db";
-import { autoAssignInMinutes } from "./queue";
 
 /** "Good morning" before noon ET, "Good afternoon" before 5 PM, else "Good evening". */
 export function greetingFor(now: Date, firstName: string): string {
@@ -127,8 +124,6 @@ export interface MyDayDeps {
   listReps: typeof listReps;
   countUnassigned: typeof countUnassignedLeads;
   countInStatus: typeof countLeadsInStatus;
-  listUnassigned: typeof listUnassignedLeads;
-  settings: typeof getCrmSettings;
   now: () => Date;
 }
 
@@ -139,8 +134,6 @@ export function defaultMyDayDeps(): MyDayDeps {
     listReps,
     countUnassigned: countUnassignedLeads,
     countInStatus: countLeadsInStatus,
-    listUnassigned: listUnassignedLeads,
-    settings: getCrmSettings,
     now: () => new Date(),
   };
 }
@@ -158,22 +151,18 @@ export async function loadMyDay(
   }
 
   const first = user.rep?.firstName ?? user.name.split(/\s+/)[0] ?? user.email;
-  const [teamDue, reps, unassignedCount, contractsOut, oldestUnassigned, settings] =
-    await Promise.all([
-      deps.listDue(null),
-      deps.listReps(),
-      deps.countUnassigned(),
-      deps.countInStatus("contract"),
-      deps.listUnassigned(1),
-      deps.settings(),
-    ]);
+  const [teamDue, reps, unassignedCount, contractsOut] = await Promise.all([
+    deps.listDue(null),
+    deps.listReps(),
+    deps.countUnassigned(),
+    deps.countInStatus("contract"),
+  ]);
   const { overdue } = bucketDue(teamDue, now);
   return {
     kind: "director",
     greeting: greetingFor(now, first),
     dateLabel: dateLabelFor(now),
     tiles: { unassigned: unassignedCount, overdueTeam: overdue.length, contractsOut },
-    autoAssignInMinutes: autoAssignInMinutes(oldestUnassigned, settings.sweep.delayMinutes, now),
     lanes: buildLanes(reps, teamDue, now),
   };
 }

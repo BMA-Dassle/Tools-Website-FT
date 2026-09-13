@@ -158,7 +158,7 @@ export const SCREEN_META: Record<ScreenId, ScreenMeta> = {
   queue: {
     title: "Lead queue",
     description:
-      "Drag a lead onto a rep, or tap Assign. Untouched leads auto-assign after 60 minutes using the rules.",
+      "Drag a lead onto a rep, or tap Assign. The rules assign as leads arrive — everything here was parked on purpose, or has no eligible rep.",
   },
   deal: {
     title: "Deal",
@@ -208,7 +208,8 @@ export const SCREEN_META: Record<ScreenId, ScreenMeta> = {
   },
   rules: {
     title: "Assignment rules",
-    description: "Evaluated top to bottom for every new lead · the hourly sweep uses the same list",
+    description:
+      "Evaluated top to bottom the moment a lead arrives · the safety-net sweep uses the same list",
   },
   statuses: {
     title: "Statuses",

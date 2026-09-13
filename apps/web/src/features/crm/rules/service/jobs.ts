@@ -7,12 +7,16 @@
  *                       parked rows are what the director's "Needs attention"
  *                       tile lists. Payload: `{today?: "YYYY-MM-DD"}` to mirror
  *                       another day (defaults to ET today).
- *   assign-sweep        decisions for unassigned leads older than the delay
- *                       setting, applied through B3's `assignLead`
- *                       (`sweep.ts`'s live rail). Kill switch
- *                       `CRM_AUTO_ASSIGN !== "false"` (R4) — checked here so
- *                       the job never touches Neon, and again inside the sweep
- *                       so no other caller can write past it.
+ *   assign-sweep        the SAFETY NET (owner, 2026-09-13 14:50). The rules
+ *                       assign at capture, so this only catches leads that
+ *                       arrived unassigned — no rule named a rep, the Office
+ *                       responsible write failed, or the kill switch was off
+ *                       at the time — once they are older than the retry delay
+ *                       (`crm_settings.sweep.delayMinutes`). Applied through
+ *                       B3's `assignLead` (`sweep.ts`'s live rail). Kill
+ *                       switch `CRM_AUTO_ASSIGN !== "false"` (R4) — checked
+ *                       here so the job never touches Neon, and again inside
+ *                       the sweep so no other caller can write past it.
  *
  * The handler type is imported as a TYPE only, so `rules` never loads the jobs
  * runtime (the registry imports us, not the other way round).

@@ -68,6 +68,25 @@ function createdTables(): string[] {
     .map((s) => /CREATE TABLE IF NOT EXISTS (\w+)/.exec(s.text)?.[1] ?? "?");
 }
 
+/**
+ * WARM THE GRAPH OUTSIDE ANY TEST'S BUDGET.
+ *
+ * The aggregator pulls in every sub's `data/*-db.ts`, and transforming those
+ * thirty-odd modules from cold costs about four seconds — inside vitest's 5 s
+ * default by less than a second, so under a loaded parallel run the first case
+ * times out and the NEXT one then sees the statements the timed-out one left
+ * behind ("expected 49 to be 30"). Importing once here pays that cost at
+ * module scope, where no timeout applies.
+ *
+ * `vi.resetModules()` still runs per test, because "exactly once per process,
+ * however many times it is called" IS the memo, and a memo can only be
+ * observed from a fresh instance. What it no longer costs is a re-TRANSFORM:
+ * resetting clears the execution cache, not vite's transform cache, so the
+ * per-test re-import merely re-runs the module bodies.
+ */
+await import("./schema");
+await import("~/features/crm/jobs");
+
 beforeEach(() => {
   vi.resetModules();
   db.reset();
@@ -88,61 +107,77 @@ beforeEach(() => {
 const SCHEMA_TEST_TIMEOUT_MS = 30_000;
 
 describe("ensureCrmSchema", () => {
-  it("creates all 30 tables exactly once across two calls", async () => {
-    const { ensureCrmSchema, CRM_TABLES } = await import("./schema");
-    await ensureCrmSchema();
-    await ensureCrmSchema();
+  it(
+    "creates all 30 tables exactly once across two calls",
+    async () => {
+      const { ensureCrmSchema, CRM_TABLES } = await import("./schema");
+      await ensureCrmSchema();
+      await ensureCrmSchema();
 
-    const created = createdTables();
-    expect(created.length).toBe(30);
-    expect(new Set(created).size).toBe(30);
-    expect([...created].sort()).toEqual([...EXPECTED_TABLES].sort());
-    expect([...CRM_TABLES].sort()).toEqual([...EXPECTED_TABLES].sort());
-  }, SCHEMA_TEST_TIMEOUT_MS);
+      const created = createdTables();
+      expect(created.length).toBe(30);
+      expect(new Set(created).size).toBe(30);
+      expect([...created].sort()).toEqual([...EXPECTED_TABLES].sort());
+      expect([...CRM_TABLES].sort()).toEqual([...EXPECTED_TABLES].sort());
+    },
+    SCHEMA_TEST_TIMEOUT_MS,
+  );
 
-  it("a sub's own ensure before the aggregator does not double its CREATE", async () => {
-    const { ensureJobsSchema } = await import("~/features/crm/jobs");
-    await ensureJobsSchema();
-    const { ensureCrmSchema } = await import("./schema");
-    await ensureCrmSchema();
-    expect(createdTables().filter((t) => t === "crm_jobs")).toHaveLength(1);
-    expect(createdTables().length).toBe(30);
-  }, SCHEMA_TEST_TIMEOUT_MS);
+  it(
+    "a sub's own ensure before the aggregator does not double its CREATE",
+    async () => {
+      const { ensureJobsSchema } = await import("~/features/crm/jobs");
+      await ensureJobsSchema();
+      const { ensureCrmSchema } = await import("./schema");
+      await ensureCrmSchema();
+      expect(createdTables().filter((t) => t === "crm_jobs")).toHaveLength(1);
+      expect(createdTables().length).toBe(30);
+    },
+    SCHEMA_TEST_TIMEOUT_MS,
+  );
 
-  it("every table has created_at or is a keyed row (the conventions), and ids are TEXT where BMI ids live", async () => {
-    const { ensureCrmSchema } = await import("./schema");
-    await ensureCrmSchema();
-    const ddl = db.matching(/CREATE TABLE IF NOT EXISTS/).map((s) => s.text);
-    const leads = ddl.find((t) => t.includes("crm_leads ("))!;
-    for (const col of [
-      "bmi_project_id TEXT",
-      "bmi_state_id TEXT",
-      "bmi_person_id TEXT",
-      "capture_payload JSONB NOT NULL",
-    ]) {
-      expect(leads).toContain(col);
-    }
-    const mirror = ddl.find((t) => t.includes("crm_bmi_projects ("))!;
-    expect(mirror).toContain("project_id TEXT PRIMARY KEY");
-    expect(mirror).toContain("responsible_user_id TEXT");
-    const jobs = ddl.find((t) => t.includes("crm_jobs ("))!;
-    expect(jobs).toContain("idempotency_key TEXT NOT NULL UNIQUE");
-    expect(jobs).toContain("max_attempts INTEGER NOT NULL DEFAULT 20");
-  }, SCHEMA_TEST_TIMEOUT_MS);
+  it(
+    "every table has created_at or is a keyed row (the conventions), and ids are TEXT where BMI ids live",
+    async () => {
+      const { ensureCrmSchema } = await import("./schema");
+      await ensureCrmSchema();
+      const ddl = db.matching(/CREATE TABLE IF NOT EXISTS/).map((s) => s.text);
+      const leads = ddl.find((t) => t.includes("crm_leads ("))!;
+      for (const col of [
+        "bmi_project_id TEXT",
+        "bmi_state_id TEXT",
+        "bmi_person_id TEXT",
+        "capture_payload JSONB NOT NULL",
+      ]) {
+        expect(leads).toContain(col);
+      }
+      const mirror = ddl.find((t) => t.includes("crm_bmi_projects ("))!;
+      expect(mirror).toContain("project_id TEXT PRIMARY KEY");
+      expect(mirror).toContain("responsible_user_id TEXT");
+      const jobs = ddl.find((t) => t.includes("crm_jobs ("))!;
+      expect(jobs).toContain("idempotency_key TEXT NOT NULL UNIQUE");
+      expect(jobs).toContain("max_attempts INTEGER NOT NULL DEFAULT 20");
+    },
+    SCHEMA_TEST_TIMEOUT_MS,
+  );
 
-  it("seeds lazily when crm_reps is empty, and not when it is not", async () => {
-    db.respond = (stmt) =>
-      /SELECT count\(\*\)::int AS n FROM crm_reps/.test(stmt.text) ? [{ n: 0 }] : [];
-    const fresh = await import("./schema");
-    await fresh.ensureCrmSchema();
-    expect(seed.calls).toBe(1);
+  it(
+    "seeds lazily when crm_reps is empty, and not when it is not",
+    async () => {
+      db.respond = (stmt) =>
+        /SELECT count\(\*\)::int AS n FROM crm_reps/.test(stmt.text) ? [{ n: 0 }] : [];
+      const fresh = await import("./schema");
+      await fresh.ensureCrmSchema();
+      expect(seed.calls).toBe(1);
 
-    vi.resetModules();
-    db.reset();
-    db.respond = (stmt) =>
-      /SELECT count\(\*\)::int AS n FROM crm_reps/.test(stmt.text) ? [{ n: 7 }] : [];
-    const again = await import("./schema");
-    await again.ensureCrmSchema();
-    expect(seed.calls).toBe(1);
-  }, SCHEMA_TEST_TIMEOUT_MS);
+      vi.resetModules();
+      db.reset();
+      db.respond = (stmt) =>
+        /SELECT count\(\*\)::int AS n FROM crm_reps/.test(stmt.text) ? [{ n: 7 }] : [];
+      const again = await import("./schema");
+      await again.ensureCrmSchema();
+      expect(seed.calls).toBe(1);
+    },
+    SCHEMA_TEST_TIMEOUT_MS,
+  );
 });

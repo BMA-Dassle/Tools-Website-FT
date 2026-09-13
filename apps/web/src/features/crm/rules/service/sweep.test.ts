@@ -1,15 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SweepDecision } from "../contracts";
 import type { SweepCandidate } from "../data/volume-db";
-import { PROTOTYPE_NOW, PROTOTYPE_NOW_AFTERNOON, prototypeContext } from "../test-support";
+import { PROTOTYPE_NOW, prototypeContext } from "../test-support";
 import {
   SWEEP_APPLIED_REASON,
-  SWEEP_BUSINESS_HOURS,
   SWEEP_DISABLED_REASON,
-  SWEEP_HELD_REASON,
   SWEEP_NOT_APPLIED_REASON,
   applySweepDecisions,
-  isAfterHours,
   mirrorIdempotencyKey,
   runAssignSweep,
   sweepIdempotencyKey,
@@ -17,9 +14,10 @@ import {
 } from "./sweep";
 
 /**
- * Idempotency per ET hour; the delay window; the after-hours hold; the kill
- * switch; and the live rail — `applySweepDecisions` calls `assignLead` once per
- * decision that resolved a rep, skips the rest, and survives one that throws.
+ * Idempotency per ET hour; the retry window; the kill switch; the fact that it
+ * runs AT ALL HOURS now that the hold-until-9-AM branch is gone; and the live
+ * rail — `applySweepDecisions` calls `assignLead` once per decision that
+ * resolved a rep, skips the rest, and survives one that throws.
  *
  * `~/features/crm/leads` is mocked because the rail reaches it through a
  * DYNAMIC import (the edge that would otherwise close a cycle between two
@@ -84,20 +82,6 @@ describe("idempotency keys", () => {
   });
 });
 
-describe("isAfterHours (9 AM – 9 PM ET)", () => {
-  it("business hours are a NAMED constant — 9 AM to 9 PM ET (owner to confirm, §5.7b)", () => {
-    expect(SWEEP_BUSINESS_HOURS).toEqual({ start: 9, end: 21 });
-  });
-
-  it("is false at 14:00 and 19:30 ET, true at 21:00 and 08:59 ET", () => {
-    expect(isAfterHours(PROTOTYPE_NOW_AFTERNOON)).toBe(false);
-    expect(isAfterHours(PROTOTYPE_NOW)).toBe(false);
-    expect(isAfterHours(new Date("2026-09-12T21:00:00-04:00"))).toBe(true);
-    expect(isAfterHours(new Date("2026-09-12T08:59:00-04:00"))).toBe(true);
-    expect(isAfterHours(new Date("2026-09-12T09:00:00-04:00"))).toBe(false);
-  });
-});
-
 describe("runAssignSweep", () => {
   it("asks for leads older than now − delay, decides each with the engine, hands them to the rail", async () => {
     let askedOlderThan: Date | null = null;
@@ -111,7 +95,7 @@ describe("runAssignSweep", () => {
         return ds.filter((d) => d.rep).length;
       },
       now: PROTOTYPE_NOW,
-      settings: { delayMinutes: 60, afterHours: "assign" },
+      settings: { delayMinutes: 60 },
       async listCandidates(olderThan, limit) {
         askedOlderThan = olderThan;
         askedLimit = limit;
@@ -142,7 +126,6 @@ describe("runAssignSweep", () => {
     // ending on the rule that decided.
     expect(handedTraces!.get("101")!.at(-1)!.code).toBe("R6");
     expect(handedTraces!.get("102")!.at(-1)!.code).toBe("R1");
-    expect(result.held).toBe(false);
     expect(result.candidates).toBe(2);
     expect(
       result.decisions.map((d) => [d.publicId, d.rep?.slug ?? null, d.outcome, d.reason]),
@@ -165,43 +148,32 @@ describe("runAssignSweep", () => {
     ]);
   });
 
-  it("hold9am outside business hours: decisions computed, run marked held, nothing applied even with a rail", async () => {
-    let applied = 0;
+  // The hold-until-9-AM branch is GONE (owner, 2026-09-13 14:50). 22:15 ET and
+  // 03:00 ET both used to be "held"; both now hand the lead over, because R5
+  // already narrows to whoever works the next shift.
+  it.each([
+    ["late evening", "2026-09-12T22:15:00-04:00"],
+    ["the small hours", "2026-09-13T03:00:00-04:00"],
+  ])("runs at %s — nothing is held until 9 AM any more", async (_label, iso) => {
+    const now = new Date(iso);
     const result = await runAssignSweep({
-      now: new Date("2026-09-12T22:15:00-04:00"),
-      settings: { delayMinutes: 30, afterHours: "hold9am" },
+      now,
+      settings: { delayMinutes: 30 },
       listCandidates: async () => [candidate({})],
-      loadContext: async () => prototypeContext({ now: new Date("2026-09-12T22:15:00-04:00") }),
-      applyDecisions: async (ds) => {
-        applied += ds.length;
-        return ds.length;
-      },
-    });
-    expect(result.held).toBe(true);
-    expect(result.reason).toBe(SWEEP_HELD_REASON);
-    expect(result.decisions).toHaveLength(1);
-    expect(result.applied).toBe(0);
-    expect(applied).toBe(0);
-  });
-
-  it("`assign` after hours runs; a wired rail is applied and counted", async () => {
-    const result = await runAssignSweep({
-      now: new Date("2026-09-12T22:15:00-04:00"),
-      settings: { delayMinutes: 30, afterHours: "assign" },
-      listCandidates: async () => [candidate({})],
-      loadContext: async () => prototypeContext({ now: new Date("2026-09-12T22:15:00-04:00") }),
+      loadContext: async () => prototypeContext({ now }),
       applyDecisions: async (ds) => ds.length,
     });
-    expect(result.held).toBe(false);
     expect(result.applied).toBe(1);
-    expect(result.reason).toBe("applied");
+    expect(result.reason).toBe(SWEEP_APPLIED_REASON);
+    expect(result).not.toHaveProperty("held");
+    expect(result).not.toHaveProperty("afterHours");
   });
 
   it("no candidates → no context load, empty decisions", async () => {
     let loaded = 0;
     const result = await runAssignSweep({
       now: PROTOTYPE_NOW,
-      settings: { delayMinutes: 60, afterHours: "hold9am" },
+      settings: { delayMinutes: 60 },
       listCandidates: async () => [],
       loadContext: async () => {
         loaded++;
@@ -219,7 +191,7 @@ describe("runAssignSweep", () => {
     let called = 0;
     const result = await runAssignSweep({
       now: PROTOTYPE_NOW,
-      settings: { delayMinutes: 60, afterHours: "assign" },
+      settings: { delayMinutes: 60 },
       listCandidates: async () => [candidate({})],
       loadContext: async () => prototypeContext({ now: PROTOTYPE_NOW }),
       autoAssignEnabled: () => false,
@@ -236,10 +208,50 @@ describe("runAssignSweep", () => {
     expect(result.decisions[0].rep?.slug).toBe("kelsea");
   });
 
+  /**
+   * The safety net's whole job. A lead the engine could not resolve at capture
+   * stays unassigned; the next sweep re-runs the rules against a roster that
+   * has since changed (somebody came back on shift, a rule was edited) and
+   * hands it over.
+   */
+  it("a lead the engine could not resolve at capture is picked up on the NEXT run", async () => {
+    const settings = { delayMinutes: 60 };
+    const listCandidates = async () => [candidate({})];
+
+    const first = await runAssignSweep({
+      now: PROTOTYPE_NOW,
+      settings,
+      listCandidates,
+      // Nobody on the roster → nobody to name, exactly as at capture time.
+      loadContext: async () =>
+        prototypeContext({ now: PROTOTYPE_NOW, reps: [], openVolumeByRepMonth: {} }),
+      applyDecisions: async (ds) => ds.filter((d) => d.rep).length,
+    });
+    expect(first.decisions[0]!.rep).toBeNull();
+    expect(first.applied).toBe(0);
+
+    const handed: string[] = [];
+    const second = await runAssignSweep({
+      now: PROTOTYPE_NOW,
+      settings,
+      listCandidates,
+      // The roster is back.
+      loadContext: async () => prototypeContext({ now: PROTOTYPE_NOW }),
+      applyDecisions: async (ds) => {
+        handed.push(...ds.filter((d) => d.rep).map((d) => d.publicId));
+        return handed.length;
+      },
+    });
+    expect(second.decisions[0]!.rep?.slug).toBe("kelsea");
+    expect(second.applied).toBe(1);
+    expect(handed).toEqual(["L-1061"]);
+    expect(second.reason).toBe(SWEEP_APPLIED_REASON);
+  });
+
   it("a lead the fallback rule parks (no rep) is reported but never handed over", async () => {
     const result = await runAssignSweep({
       now: PROTOTYPE_NOW,
-      settings: { delayMinutes: 60, afterHours: "assign" },
+      settings: { delayMinutes: 60 },
       // No rep sells at this centre for a 1-guest holiday party in the seeded
       // roster? The fallback rule answers "waits for Jacob" — rep null.
       listCandidates: async () => [candidate({ guests: 500, type: "corporate" })],

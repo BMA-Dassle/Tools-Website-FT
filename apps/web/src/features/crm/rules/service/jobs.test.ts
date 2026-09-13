@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * The two job handlers: the mirror PARKS without a token (never retries into a
  * void); the sweep honours the CRM_AUTO_ASSIGN kill switch and reports
- * `applied: 0` with the B3 reason. Neon is stubbed at the `@ft/db` boundary.
+ * `applied: 0` with "nothing to apply" — the ordinary state of a safety net
+ * now that the rules assign at capture. Neon is stubbed at the `@ft/db`
+ * boundary.
  */
 
 const db = await vi.hoisted(async () =>
@@ -84,7 +86,7 @@ describe("assign-sweep", () => {
     expect(db.statements).toHaveLength(0);
   });
 
-  it("with no candidates returns applied 0 and the B3 reason; the delay comes from crm_settings (default 60)", async () => {
+  it("with nothing left unassigned returns applied 0; the retry delay comes from crm_settings (default 60)", async () => {
     db.respond = () => [];
     const out = await assignSweepHandler(ctx());
     expect(out.ok).toBe(true);

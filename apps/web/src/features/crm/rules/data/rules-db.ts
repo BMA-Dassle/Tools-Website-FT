@@ -45,6 +45,14 @@ export interface RuleSeed {
   why: string;
   when: RuleWhen;
   then: RuleThen;
+  /**
+   * Labels this rule used to ship with. The label is the seed's idempotency
+   * handle, so renaming one would otherwise INSERT a second copy of the rule
+   * beside the row production already has. A row still carrying the exact old
+   * text is renamed in place first; a row a director has edited is left alone,
+   * because its label no longer matches any of these.
+   */
+  previousLabels?: readonly string[];
 }
 
 /**
@@ -58,6 +66,14 @@ export async function seedRules(rows: readonly RuleSeed[]): Promise<number> {
   const q = sql();
   let inserted = 0;
   for (const r of rows) {
+    for (const old of r.previousLabels ?? []) {
+      await q`
+        UPDATE crm_assignment_rules
+           SET label = ${r.label}, why = ${r.why}, updated_by = 'seed', updated_at = NOW()
+         WHERE label = ${old}
+           AND NOT EXISTS (SELECT 1 FROM crm_assignment_rules WHERE label = ${r.label})
+      `;
+    }
     const out = (await q`
       INSERT INTO crm_assignment_rules (position, enabled, kind, label, why, when_json, then_json, updated_by)
       SELECT ${r.position}, TRUE, ${r.kind}, ${r.label}, ${r.why},

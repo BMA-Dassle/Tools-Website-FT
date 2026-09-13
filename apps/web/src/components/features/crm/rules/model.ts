@@ -264,7 +264,15 @@ export function monthOptions(todayYmd: string, count = 12): { value: string; lab
   return out;
 }
 
-/** The prototype's three delays; the current value is kept even when it is not one of them. */
+/**
+ * How long a lead that arrived unassigned waits before the safety net retries
+ * it — the prototype's three delays, kept as the choices. The current value is
+ * kept even when it is not one of them.
+ *
+ * The prototype's second select ("Outside business hours: Hold until 9 AM /
+ * Assign anyway") is GONE with the rail it drove: the rules assign at capture
+ * at all hours (owner, 2026-09-13 14:50).
+ */
 export const SWEEP_DELAY_OPTIONS: { value: number; label: string }[] = [
   { value: 60, label: "60 minutes" },
   { value: 30, label: "30 minutes" },
@@ -275,11 +283,6 @@ export function delayOptions(current: number): { value: number; label: string }[
   if (SWEEP_DELAY_OPTIONS.some((o) => o.value === current)) return SWEEP_DELAY_OPTIONS;
   return [{ value: current, label: `${current} minutes` }, ...SWEEP_DELAY_OPTIONS];
 }
-
-export const AFTER_HOURS_OPTIONS: { value: "hold9am" | "assign"; label: string }[] = [
-  { value: "hold9am", label: "Hold until 9 AM" },
-  { value: "assign", label: "Assign anyway" },
-];
 
 /** The wire trace → the `RuleTrace` primitive's rows (codes as the visible id). */
 export function traceRows(decision: DecisionWire): { steps: RuleTraceRow[]; finalRuleId?: string } {

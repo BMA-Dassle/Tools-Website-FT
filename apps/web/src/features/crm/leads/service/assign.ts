@@ -19,6 +19,18 @@
  *
  * `reason` normalises itself: "manual" onto an already-assigned lead is a
  * "reassign"; `repId: null` is a "release" back to the queue.
+ *
+ * A HELD LEAD IS NOT AN ASSIGNED LEAD. A rep whose `role` is 'hold' — today
+ * only the Marketing Director, who `assignableReps()` already refuses to list
+ * — PARKS the lead: `held_for_rep_id` is stamped, `assigned_rep_id` stays
+ * NULL, the status stays where it was and no first-touch clock starts. That is
+ * not a nicety: `listUnassignedLeads` is the queue, so an assigned hold would
+ * vanish from the board it was parked on, never show its "Held for the
+ * Marketing Director" pill, and — because `listSweepCandidates` skips anything
+ * with `held_for_rep_id` — be invisible to the safety net for ever. The
+ * `crm_assignments` row and the diary line are still written, so the park has
+ * exactly the same audit trail as a hand-off; only the lead's ownership
+ * differs. Releasing it is the ordinary `repId: null` release.
  */
 
 import { putProjectFields } from "@/lib/bmi-office-actions";
@@ -141,6 +153,8 @@ export async function assignLead(
 
   const now = deps.now();
   const reason = normalizeReason(input.reason, lead, input.repId);
+  /** Non-null when this hand-off is a PARK rather than a hand-over (see the header). */
+  const held = rep && rep.role === "hold" ? rep : null;
 
   // 1. the hand-off row
   const assignment = await deps.insertAssignment({
@@ -154,17 +168,18 @@ export async function assignLead(
     note: input.note ?? null,
   });
 
-  // 2. the lead row
+  // 2. the lead row — a hold parks it, anybody else owns it
   const targetMinutes = responseTargetFromSetting(
     await deps.getSettingValue("response_target_minutes"),
   );
-  const next = rep && !lead.firstTouchAt ? nextActionForAssignment(now, targetMinutes) : null;
+  const owner = held ? null : rep;
+  const next = owner && !lead.firstTouchAt ? nextActionForAssignment(now, targetMinutes) : null;
   const after =
     (await deps.updateLeadFields(lead.id, {
-      assignedRepId: rep?.id ?? null,
-      assignedAt: rep ? now : null,
-      heldForRepId: rep?.role === "hold" ? rep.id : null,
-      statusId: rep
+      assignedRepId: owner?.id ?? null,
+      assignedAt: owner ? now : null,
+      heldForRepId: held?.id ?? null,
+      statusId: owner
         ? lead.status === "new"
           ? "assigned"
           : lead.status
@@ -173,19 +188,21 @@ export async function assignLead(
           : lead.status,
       ...(next
         ? { nextActionKind: next.kind, nextActionDue: next.due, nextActionLabel: next.label }
-        : rep
+        : owner
           ? {}
           : { nextActionKind: null, nextActionDue: null, nextActionLabel: null }),
     })) ?? lead;
 
   // 3. the diary line
-  const line = rep
-    ? lead.rep && lead.rep !== rep.id
-      ? `Reassigned to ${rep.firstName} by ${input.actor}`
-      : reason === "rule" || reason === "auto"
-        ? `Auto-assigned to ${rep.firstName} (${reason})`
-        : `Assigned to ${rep.firstName} by ${input.actor}`
-    : `Released to the queue by ${input.actor}`;
+  const line = held
+    ? `Held for ${held.displayName} by ${input.actor}`
+    : owner
+      ? lead.rep && lead.rep !== owner.id
+        ? `Reassigned to ${owner.firstName} by ${input.actor}`
+        : reason === "rule" || reason === "auto"
+          ? `Auto-assigned to ${owner.firstName} (${reason})`
+          : `Assigned to ${owner.firstName} by ${input.actor}`
+      : `Released to the queue by ${input.actor}`;
   await deps.recordActivity({
     leadId: lead.id,
     contactId: lead.contactId,
@@ -198,15 +215,18 @@ export async function assignLead(
       reason,
       fromRepId: lead.rep,
       toRepId: rep?.id ?? null,
+      held: held !== null,
       ruleId: input.ruleId ?? null,
       trace: input.trace ?? null,
       assignmentId: assignment.id,
     },
   });
 
-  // 4. Office responsible — the single writer
-  const bmi = rep
-    ? await syncResponsible(after, rep, assignment, input.actor, deps)
+  // 4. Office responsible — the single writer. A park has no owner to write
+  //    (the Marketing Director has no Office user in either tenant), so the
+  //    project keeps whoever Pandora put on it until the lead is released.
+  const bmi = owner
+    ? await syncResponsible(after, owner, assignment, input.actor, deps)
     : { status: "skipped" as const };
 
   const refreshed = (await deps.getLead(lead.id)) ?? after;

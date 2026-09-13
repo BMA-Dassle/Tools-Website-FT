@@ -1,8 +1,12 @@
 /**
  * The Lead queue (direction-b.html `queue`): unassigned leads oldest first
- * with their age and the engine's pick, plus one column per assignable rep
- * with their open volume by party month and the leads they were handed but
- * have not touched.
+ * with their age, the engine's pick and WHY they are still here, plus one
+ * column per assignable rep with their open volume by party month and the
+ * leads they were handed but have not touched.
+ *
+ * Since 2026-09-13 the rules assign at capture, so this board holds only
+ * deliberately-parked leads — see `parkFor`. The prototype's "auto-assign in
+ * 52m" countdown is gone with the delay it counted.
  *
  * Pure builders (tested) over the data functions; `loadQueue` wires them.
  *
@@ -20,7 +24,14 @@ import { shiftYmd, todayEasternYmd } from "../../core/dates";
 import type { CrmRep } from "../../core/types";
 import { assignableReps, listReps } from "~/features/crm/reps";
 import { loadEngineContext, type EngineContext } from "~/features/crm/rules";
-import type { LeadView, QueueLead, QueueRepColumn, QueueResponse, VolumeCell } from "../contracts";
+import type {
+  LeadView,
+  QueueLead,
+  QueuePark,
+  QueueRepColumn,
+  QueueResponse,
+  VolumeCell,
+} from "../contracts";
 import {
   listAssignedAwaitingTouch,
   listUnassignedLeads,
@@ -46,35 +57,59 @@ export function ageMinutes(iso: string, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - new Date(iso).getTime()) / 60_000));
 }
 
-/** Minutes until the sweep would take the OLDEST waiting lead; 0 when overdue; null when nothing waits. */
-export function autoAssignInMinutes(
-  unassigned: readonly { createdAt: string }[],
-  delayMinutes: number,
-  now: Date,
-): number | null {
-  if (unassigned.length === 0) return null;
-  const oldest = Math.max(...unassigned.map((l) => ageMinutes(l.createdAt, now)));
-  return Math.max(0, delayMinutes - oldest);
+/**
+ * WHY a lead is still on this board.
+ *
+ * There is no countdown any more. The rules assign at capture, so nothing sits
+ * here waiting for a timer to run out — everything here was parked, and the
+ * pill says by what:
+ *
+ *   held    a hold rule parked it with somebody who does not work leads (the
+ *           Marketing Director). Only a human releases it; the safety-net
+ *           sweep skips it by construction.
+ *   no-rep  the engine named nobody — the fallback rule, or no rule matched.
+ *           It needs a director, or a roster that changes.
+ *   retry   the engine CAN name somebody, so the capture-time assign did not
+ *           happen: it threw, or `CRM_AUTO_ASSIGN` was off when the lead came
+ *           in. The sweep is the net under exactly this case.
+ */
+export function parkFor(
+  lead: Pick<LeadView, "heldForRep">,
+  suggestion: QueueLead["suggestion"],
+  reps: readonly CrmRep[],
+): QueuePark {
+  if (lead.heldForRep) {
+    const who = reps.find((r) => r.id === lead.heldForRep);
+    return { kind: "held", label: `Held for ${who?.displayName ?? "a hold rule"}` };
+  }
+  if (!suggestion) return { kind: "no-rep", label: "No eligible rep — assign by hand" };
+  return {
+    kind: "retry",
+    label: `Not assigned yet — the sweep will hand it to ${suggestion.rep.firstName}`,
+  };
 }
 
 export function buildQueueLeads(
   unassigned: readonly LeadView[],
   suggestions: ReadonlyMap<string, SuggestResult>,
+  reps: readonly CrmRep[],
   now: Date,
 ): QueueLead[] {
   return unassigned.map((lead) => {
     const s = suggestions.get(lead.id) ?? NO_SUGGESTION;
+    const suggestion = s.suggestion
+      ? {
+          rep: publicRep(s.suggestion.rep)!,
+          reason: s.suggestion.reason,
+          ruleId: s.suggestion.ruleId,
+          finalRuleCode: s.suggestion.finalRuleLabel,
+        }
+      : null;
     return {
       lead,
       ageMinutes: ageMinutes(lead.createdAt, now),
-      suggestion: s.suggestion
-        ? {
-            rep: publicRep(s.suggestion.rep)!,
-            reason: s.suggestion.reason,
-            ruleId: s.suggestion.ruleId,
-            finalRuleCode: s.suggestion.finalRuleLabel,
-          }
-        : null,
+      suggestion,
+      park: parkFor(lead, suggestion, reps),
       trace: s.trace,
     };
   });
@@ -166,10 +201,9 @@ export async function loadQueue(deps: QueueDeps = defaultQueueDeps()): Promise<Q
     suggestions.set(lead.id, await deps.suggest(lead, { now, reps, engine }));
   }
   return {
-    unassigned: buildQueueLeads(unassigned, suggestions, now),
+    unassigned: buildQueueLeads(unassigned, suggestions, reps, now),
     reps: buildRepColumns(reps, volume, assigned, months),
     months,
-    autoAssignInMinutes: autoAssignInMinutes(unassigned, settings.sweep.delayMinutes, now),
     sweepDelayMinutes: settings.sweep.delayMinutes,
   };
 }
