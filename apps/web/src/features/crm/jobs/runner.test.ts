@@ -172,10 +172,11 @@ describe("noop and notImplemented", () => {
   });
 
   it("every kind without a PR → failed with {ok:false, error:'not implemented'}, never done", async () => {
-    const pending = (Object.keys(HANDLERS) as JobKind[]).filter(
-      (k) => k !== "noop" && k !== "seed",
-    );
-    expect(pending.length).toBe(12);
+    // PR1: noop, seed · B2: assign-sweep, sevenshifts-mirror. A PR that fills a
+    // handler adds its kinds here and lowers the count.
+    const IMPLEMENTED = new Set<JobKind>(["noop", "seed", "assign-sweep", "sevenshifts-mirror"]);
+    const pending = (Object.keys(HANDLERS) as JobKind[]).filter((k) => !IMPLEMENTED.has(k));
+    expect(pending.length).toBe(10);
     for (const kind of pending) {
       const { job, result } = await runJobInline({ kind, actorEmail: "eric@headpinz.com" }, deps());
       expect(job.status, kind).toBe("failed");

@@ -13,6 +13,7 @@
 
 import { runSeed } from "../core/seed";
 import { JOB_KINDS, type JobKind, type JobRow } from "../core/types";
+import { assignSweepHandler, sevenShiftsMirrorHandler } from "~/features/crm/rules";
 
 export interface JobContext {
   job: JobRow;
@@ -56,8 +57,8 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   noop: noopHandler,
   seed: seedHandler,
   "mint-bmi-project": notImplemented("mint-bmi-project"),
-  "assign-sweep": notImplemented("assign-sweep"),
-  "sevenshifts-mirror": notImplemented("sevenshifts-mirror"),
+  "assign-sweep": assignSweepHandler,
+  "sevenshifts-mirror": sevenShiftsMirrorHandler,
   "bmi-mirror-delta": notImplemented("bmi-mirror-delta"),
   "bmi-mirror-backfill": notImplemented("bmi-mirror-backfill"),
   "graph-renew": notImplemented("graph-renew"),

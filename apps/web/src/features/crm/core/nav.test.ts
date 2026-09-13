@@ -67,9 +67,11 @@ describe("the nav is the prototype's (direction-b.html:51-57,121)", () => {
     expect(isDirectorOnlyScreen("pipeline")).toBe(false);
   });
 
-  it("ships only statuses with ready: true — the one screen PR1 builds a body for", () => {
+  it("ready: true only for the screens whose PR has landed on this branch", () => {
+    // PR1: statuses · B2: rules. A feature PR adds its own id here when it flips its line.
+    const READY = new Set(["statuses", "rules"]);
     for (const i of [...NAV_GROUPS.flatMap((g) => g.items), ...PHONE_TABS, ...MORE_ITEMS]) {
-      expect(i.ready, i.id).toBe(i.id === "statuses");
+      expect(i.ready, i.id).toBe(READY.has(i.id));
     }
   });
 });
