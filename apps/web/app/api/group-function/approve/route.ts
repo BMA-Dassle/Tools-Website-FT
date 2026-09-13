@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getGfQuoteByShortId } from "@/lib/group-function-db";
 import {
-  getGfQuoteByShortId,
-  updateGfContractSent,
-  updateGfQuoteDetails,
-  appendAuditLog,
-} from "@/lib/group-function-db";
-import { sql } from "@/lib/db";
-import { notifyContractSent, notifyPostPaidDenied } from "@/lib/group-function-notify";
-import { firePortalWebhookAsync } from "@/lib/portal-webhook";
+  QuoteNotPendingApprovalError,
+  approveQuote,
+  denyQuote,
+} from "@/lib/group-function-approve";
 
 /**
  * POST /api/group-function/approve
@@ -18,6 +15,11 @@ import { firePortalWebhookAsync } from "@/lib/portal-webhook";
  * Only pending_approval quotes can be approved/denied.
  * Approve: sends the contract to the customer.
  * Deny: emails the planner with the reason, CCs management.
+ *
+ * v1 SURFACE, UNCHANGED (brief R16): this route keeps its own two-address
+ * allowlist and its request/response shapes. What approving DOES now lives in
+ * `lib/group-function-approve.ts`, shared with the CRM's approve route — which
+ * takes its approver from the signed-in SSO session instead of the body.
  */
 
 const ALLOWED_APPROVERS = ["eric@headpinz.com", "jacob@headpinz.com"];
@@ -57,103 +59,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Not authorized to approve/deny" }, { status: 403 });
   }
 
-  const q = sql();
-
-  if (action === "approve") {
-    await q`UPDATE group_function_quotes SET
-      approved_at = NOW(),
-      approved_by = ${approverEmail},
-      approval_memo = ${memo || null},
-      updated_at = NOW()
-    WHERE id = ${quote.id}`;
-
-    await updateGfContractSent(quote.id, {
-      contract_short_id: quote.contract_short_id!,
-      contract_status: "sent",
-      contract_sent_at: new Date().toISOString(),
-    });
-
-    await appendAuditLog({
-      quoteId: quote.id,
-      event: "postpaid_approved",
-      actorEmail: approverEmail,
-      metadata: { memo: memo || null },
-    });
-
-    const updatedQuote = await getGfQuoteByShortId(shortId);
-    if (updatedQuote) {
-      notifyContractSent(updatedQuote).catch((err) =>
-        console.error("[approve] notify error:", err),
-      );
-    }
-
-    try {
-      const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
-      await appendProjectPrivateNote({
-        centerCode: quote.center_code,
-        projectId: quote.bmi_reservation_id,
-        note: `[${noteTimestamp()}] Post-paid approved by ${approverEmail}${memo ? ` | Memo: ${memo}` : ""}`,
-      });
-    } catch {
-      /* non-fatal */
-    }
-
-    firePortalWebhookAsync("approval.approved", {
-      documentId: quote.contract_short_id,
-      bmiCode: quote.bmi_reservation_id,
-      venue: quote.center_code,
-      status: "contract_sent",
-    });
-
-    console.log(`[approve] approved quote=${quote.id} by ${approverEmail}`);
-    return NextResponse.json({ ok: true, action: "approved" });
-  }
-
-  // Deny
-  if (!reason) {
+  if (action === "deny" && !reason) {
     return NextResponse.json({ error: "reason required for denial" }, { status: 400 });
   }
 
-  await q`UPDATE group_function_quotes SET
-    denied_at = NOW(),
-    denied_by = ${approverEmail},
-    denial_reason = ${reason},
-    status = 'denied',
-    updated_at = NOW()
-  WHERE id = ${quote.id}`;
-
-  await appendAuditLog({
-    quoteId: quote.id,
-    event: "postpaid_denied",
-    actorEmail: approverEmail,
-    metadata: { reason },
-  });
-
-  const deniedQuote = await getGfQuoteByShortId(shortId);
-  if (deniedQuote) {
-    notifyPostPaidDenied(deniedQuote).catch((err) =>
-      console.error("[approve] deny notify error:", err),
-    );
-  }
-
   try {
-    const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
-    await appendProjectPrivateNote({
-      centerCode: quote.center_code,
-      projectId: quote.bmi_reservation_id,
-      note: `[${noteTimestamp()}] Post-paid denied by ${approverEmail} | Reason: ${reason}`,
-    });
-  } catch {
-    /* non-fatal */
+    if (action === "approve") {
+      await approveQuote(quote, { approverEmail, memo });
+      return NextResponse.json({ ok: true, action: "approved" });
+    }
+    await denyQuote(quote, { approverEmail, reason: reason! });
+    return NextResponse.json({ ok: true, action: "denied" });
+  } catch (err) {
+    if (err instanceof QuoteNotPendingApprovalError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
+    throw err;
   }
-
-  firePortalWebhookAsync("document.denied", {
-    documentId: quote.contract_short_id,
-    bmiCode: quote.bmi_reservation_id,
-    venue: quote.center_code,
-    status: "denied",
-  });
-
-  console.log(`[approve] denied quote=${quote.id} by ${approverEmail}: ${reason}`);
-  return NextResponse.json({ ok: true, action: "denied" });
 }
