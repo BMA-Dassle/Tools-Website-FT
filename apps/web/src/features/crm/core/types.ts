@@ -484,6 +484,12 @@ export const JOB_KINDS = [
   "email-send-retry",
   "sms-send-retry",
   "pandora-goals-sync",
+  // B5 (append-only, brief §4 "Shared files"): the contract rail's two kinds.
+  // `contract-cancel-verify` proves a `-4` that Pandora answered 200 to but
+  // Office had not yet shown; `seed-test-quote` makes the director-only
+  // pending_approval fixture the approve smoke needs.
+  "contract-cancel-verify",
+  "seed-test-quote",
 ] as const;
 
 export type JobKind = (typeof JOB_KINDS)[number];

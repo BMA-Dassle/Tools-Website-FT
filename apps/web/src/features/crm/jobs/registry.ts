@@ -69,6 +69,25 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   "email-send-retry": notImplemented("email-send-retry"),
   "sms-send-retry": notImplemented("sms-send-retry"),
   "pandora-goals-sync": notImplemented("pandora-goals-sync"),
+  "contract-cancel-verify": (ctx) =>
+    import("~/features/crm/contracts").then((m) => m.runCancelVerifyJob(ctx.payload)),
+  // Director-only by construction: `/api/admin/crm/jobs/run` is the only way
+  // in and it is `{ director: true }`. A bad payload PARKS rather than retries
+  // — "you did not give me a mailbox" will not become true on the fifth try.
+  "seed-test-quote": (ctx) =>
+    import("~/features/crm/contracts").then(async (m) => {
+      try {
+        return {
+          ok: true as const,
+          result: await m.runSeedTestQuoteJob(ctx.payload, ctx.actorEmail),
+        };
+      } catch (err) {
+        if (err instanceof m.ContractActionError) {
+          return { ok: false as const, error: err.code, park: true };
+        }
+        throw err;
+      }
+    }),
 };
 
 /** Kinds a director may run from the Statuses screen — everything registered. */

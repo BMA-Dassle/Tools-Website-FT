@@ -312,3 +312,21 @@ export const neonJobStore: JobStore = {
     return rows.map(mapJobRow);
   },
 };
+
+/**
+ * One job by its idempotency key — "is the retry for X still outstanding?".
+ *
+ * Deliberately NOT a method on `JobStore`: that interface is implemented by
+ * the runner's in-memory fake, and widening it would make every implementor
+ * grow a method only one caller wants. A standalone read against the same
+ * table is honest about being exactly that.
+ */
+export async function getJobByIdempotencyKey(key: string): Promise<JobRow | null> {
+  if (!isDbConfigured()) return null;
+  await ensureJobsSchema();
+  const q = sql();
+  const rows = (await q.query(`SELECT ${COLUMNS} FROM crm_jobs WHERE idempotency_key = $1`, [
+    key,
+  ])) as JobRowRaw[];
+  return rows[0] ? mapJobRow(rows[0]) : null;
+}

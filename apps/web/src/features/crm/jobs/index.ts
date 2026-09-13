@@ -4,6 +4,7 @@ export {
   MAX_BACKOFF_SECONDS,
   backoffSeconds,
   ensureJobsSchema,
+  getJobByIdempotencyKey,
   isJobKind,
   mapJobRow,
   neonJobStore,
