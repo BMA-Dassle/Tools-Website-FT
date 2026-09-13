@@ -14,7 +14,34 @@ vi.mock("~/features/crm/reps", () => ({
   ],
 }));
 
-const { repIndex, toMirrorEvent } = await import("./history");
+const calls = vi.hoisted(() => ({
+  accounts: 0,
+  events: 0,
+  counts: 0,
+}));
+
+vi.mock("~/features/crm/leads", () => ({
+  searchAccounts: async () => {
+    calls.accounts++;
+    return { items: [], nextCursor: "acc-2" };
+  },
+}));
+
+vi.mock("../data/projects-mirror-db", () => ({
+  searchMirrorProjects: async () => {
+    calls.events++;
+    return { items: [], nextCursor: "ev-2" };
+  },
+  countMirrorProjects: async () => {
+    calls.counts++;
+    return { total: 12, groupEvents: 4 };
+  },
+  listSyncRuns: async () => [],
+  listLastYearHosts: async () => ({ items: [], nextCursor: null }),
+  listMirrorProjectsForAccount: async () => ({ items: [], nextCursor: null }),
+}));
+
+const { historySearch, repIndex, toMirrorEvent } = await import("./history");
 
 const ROW: MirrorProject = {
   projectId: "58454076",
@@ -60,5 +87,29 @@ describe("toMirrorEvent", () => {
     });
     expect(toMirrorEvent({ ...ROW, responsibleUserId: "1" }, reps).rep).toBeNull();
     expect(toMirrorEvent({ ...ROW, locationId: null }, reps).centre).toBeNull();
+  });
+});
+
+describe("historySearch skips the work the screen already has", () => {
+  it("a finished list is not re-read, and the mirror counts are a first-page-only cost", async () => {
+    const first = await historySearch({ q: "acme" });
+    expect(first.mirror).toMatchObject({ projects: 12, groupEvents: 4 });
+    expect([calls.accounts, calls.events, calls.counts]).toEqual([1, 1, 1]);
+
+    // Page two of the events only: accounts are done and the counts are on screen.
+    const next = await historySearch({
+      q: "acme",
+      accounts: false,
+      status: false,
+      eventsCursor: "ev-2",
+    });
+    expect(next.accounts).toEqual([]);
+    expect(next.accountsNextCursor).toBeNull();
+    expect(next.mirror).toBeNull();
+    expect([calls.accounts, calls.events, calls.counts]).toEqual([1, 2, 1]);
+
+    // An empty query has no events to search at all.
+    await historySearch({ q: "", status: false });
+    expect(calls.events).toBe(2);
   });
 });

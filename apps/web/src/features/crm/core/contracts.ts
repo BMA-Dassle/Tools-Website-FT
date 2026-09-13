@@ -282,7 +282,8 @@ export type HistoryResponse = ApiOk<{
   /** Empty unless `q` was given. */
   events: MirrorEvent[];
   eventsNextCursor: string | null;
-  mirror: MirrorStatus;
+  /** Null on a `status=0` read: the counts were already fetched for the screen. */
+  mirror: MirrorStatus | null;
 }>;
 
 /** GET /accounts/[id]?limit=&cursor= */
@@ -306,4 +307,33 @@ export interface BackfillJobPayload {
   clientKey: OfficeClientKey;
   from: string;
   until: string;
+}
+
+/**
+ * What `POST /jobs/run {kind:"bmi-mirror-backfill"}` puts in `result`.
+ *
+ * `nextPayload` IS the chain: the cursor the next run must be given (the same
+ * window with the detail offset advanced, or the next window), or null when
+ * the span is finished. The card posts it straight back, so one press walks a
+ * whole span run by run with nothing left pending behind it — on a preview,
+ * where the cron that would otherwise drain the queue never fires at all.
+ */
+export interface BackfillRunSummary {
+  ok: boolean;
+  clientKey: string;
+  window: { from: string; until: string };
+  span: { from: string; until: string };
+  projectsInWindow: number;
+  groupEvents: number;
+  detailOffset: number;
+  detailsThisRun: number;
+  inserted: number;
+  updated: number;
+  onlineBookings: number;
+  onlineInserted: number;
+  failed: { projectId: string; error: string }[];
+  runId: string;
+  next: string | null;
+  nextPayload: Record<string, unknown> | null;
+  elapsedMs: number;
 }
