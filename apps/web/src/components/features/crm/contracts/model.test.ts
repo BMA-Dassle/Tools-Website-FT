@@ -7,6 +7,7 @@ import {
   depositCell,
   depositNote,
   emptyMessage,
+  notesText,
   pagerSummary,
   rowMeta,
   sentBannerText,
@@ -191,5 +192,48 @@ describe("the Contract tab's money notes", () => {
     expect(depositNote(row({ depositPaidAt: "2026-09-01T13:00:00.000Z" }))).toContain("paid ");
     expect(depositNote(row({ postPaid: true }))).toBe("none — post-paid");
     expect(depositNote(row())).toBe("due at signing");
+  });
+});
+
+describe('"what the guest sees" — the notes block', () => {
+  const STORED = "Arrive 15 minutes early for waivers.";
+  const LIVE = "Arrive 20 minutes early for waivers and helmets.";
+
+  it("shows BMI's own text, and says it is live, when the two agree", () => {
+    const v = notesText(STORED, { live: STORED, stored: STORED, drifted: false, error: null });
+    expect(v.body).toBe(STORED);
+    expect(v.caption).toContain("Live from BMI public notes");
+    expect(v.warn).toBe(false);
+  });
+
+  it("shows BMI's text AND warns when the guest's page has not caught up", () => {
+    const v = notesText(STORED, { live: LIVE, stored: STORED, drifted: true, error: null });
+    expect(v.body).toBe(LIVE);
+    expect(v.warn).toBe(true);
+    expect(v.caption).toContain("still showing the previous text");
+  });
+
+  it("never captions a STORED note as live — that is the failure it exists to catch", () => {
+    const failed = notesText(STORED, {
+      live: null,
+      stored: STORED,
+      drifted: false,
+      error: "Office 503",
+    });
+    expect(failed.body).toBe(STORED);
+    expect(failed.caption).not.toContain("Live from BMI");
+    expect(failed.caption).toContain("BMI could not be reached");
+
+    const pending = notesText(STORED, undefined);
+    expect(pending.body).toBe(STORED);
+    expect(pending.caption).not.toContain("Live from BMI");
+    expect(pending.caption).toContain("not read from BMI yet");
+  });
+
+  it("an empty note reads as a sentence, never as a blank block", () => {
+    expect(notesText(null, { live: "   ", stored: null, drifted: false, error: null }).body).toBe(
+      "No notes on this event yet.",
+    );
+    expect(notesText(null, undefined).body).toBe("No notes on this event yet.");
   });
 });

@@ -55,7 +55,7 @@ import {
   type GroupFunctionQuote,
   type RuleContext,
 } from "../transport";
-import { cancelVerifyJobKey } from "./detail";
+import { cancelVerifyJobKey, clientKeyForCenterCode } from "./detail";
 import { getContractRow } from "./list";
 
 export const CONTRACT_ENTITY = "contract";
@@ -472,11 +472,6 @@ export async function pollProjectState(
   return observed;
 }
 
-/** `center_code` → the Office tenant; Fort Myers is the fallback, as elsewhere. */
-export function clientKeyForCenterCode(centerCode: string): string {
-  return CENTRE_LIST.find((c) => c.centerCode === centerCode)?.clientKey ?? "headpinzftmyers";
-}
-
 /**
  * Cancel the event: flip the BMI project to Cancellation (`-4`) and PROVE it.
  *
@@ -644,5 +639,5 @@ export function centreCodeForQuote(quote: Pick<GroupFunctionQuote, "center_code"
   return CENTRE_LIST.find((c) => c.centerCode === quote.center_code)?.code ?? null;
 }
 
-/** Re-exported so a route can name the same centre helper the rows use. */
-export { centreByCode };
+/** Re-exported so a route can name the same centre helpers the rows use. */
+export { centreByCode, clientKeyForCenterCode };

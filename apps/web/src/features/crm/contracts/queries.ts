@@ -13,6 +13,8 @@ export const contractsKeys = {
   detail: (shortId: string) => ["crm", "contracts", "detail", shortId] as const,
   payments: (shortId: string) => ["crm", "contracts", "payments", shortId] as const,
   history: (shortId: string) => ["crm", "contracts", "history", shortId] as const,
+  /** The live BMI public notes behind "what the guest sees". */
+  notes: (shortId: string) => ["crm", "contracts", "notes", shortId] as const,
 };
 
 export type ContractsKey =
@@ -21,7 +23,8 @@ export type ContractsKey =
   | ReturnType<(typeof contractsKeys)["counts"]>
   | ReturnType<(typeof contractsKeys)["detail"]>
   | ReturnType<(typeof contractsKeys)["payments"]>
-  | ReturnType<(typeof contractsKeys)["history"]>;
+  | ReturnType<(typeof contractsKeys)["history"]>
+  | ReturnType<(typeof contractsKeys)["notes"]>;
 
 /** The badge poll cadence, while the tab is visible. */
 export const CONTRACT_BADGES_POLL_MS = 60_000;

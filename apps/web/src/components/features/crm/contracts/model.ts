@@ -157,3 +157,59 @@ export function depositNote(row: ContractRow): string {
   if (row.depositPaidAt) return `paid ${fDate(row.depositPaidAt)}`;
   return row.postPaid ? "none — post-paid" : "due at signing";
 }
+
+// ---------------------------------------------------------------------------
+// "What the guest sees" — the notes block
+// ---------------------------------------------------------------------------
+
+/** What `?notes=1` answers; declared here so the helper stays pure and testable. */
+export interface LiveNotes {
+  live: string | null;
+  stored: string | null;
+  drifted: boolean;
+  error: string | null;
+}
+
+export interface NotesView {
+  /** The text to render. */
+  body: string;
+  /** The caption under it — it must always say WHICH text this is. */
+  caption: string;
+  /** True when BMI and the guest's page disagree; the caption says so louder. */
+  warn: boolean;
+}
+
+const NO_NOTES = "No notes on this event yet.";
+
+/**
+ * Pick the text the preview shows and the caption that tells the truth about
+ * it. Three cases, and the caption differs in every one:
+ *
+ *  - live read OK, in step   → BMI's text, "live from BMI public notes".
+ *  - live read OK, DRIFTED   → BMI's text, plus a warning that the guest's page
+ *                              is still serving the older copy until
+ *                              `group-quote-dispatch` picks the edit up.
+ *  - live read failed / not  → the stored copy, SAID to be the stored copy.
+ *    loaded yet
+ *
+ * The third case is the one that matters: the prototype's caption reads "Live
+ * from BMI public notes", and printing a stale note under that caption is
+ * exactly the failure this preview exists to catch.
+ */
+export function notesText(stored: string | null, notes: LiveNotes | undefined): NotesView {
+  if (notes && notes.error === null && notes.live !== null) {
+    return {
+      body: notes.live.trim() || NO_NOTES,
+      caption: notes.drifted
+        ? "Live from BMI public notes — the guest's page is still showing the previous text; it catches up within a few minutes of the next sync."
+        : "Live from BMI public notes · grammar lightly cleaned by AI before the guest sees it",
+      warn: notes.drifted,
+    };
+  }
+  const why = notes?.error ? "BMI could not be reached" : "not read from BMI yet";
+  return {
+    body: (notes?.stored ?? stored)?.trim() || NO_NOTES,
+    caption: `The copy the guest's page is serving (${why}) · grammar lightly cleaned by AI before the guest sees it`,
+    warn: false,
+  };
+}

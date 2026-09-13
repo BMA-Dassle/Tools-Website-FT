@@ -3,43 +3,25 @@
 import { IconBolt, IconFile, IconFlag, IconLayersIntersect } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import type { ContractHistoryEntry } from "~/features/daily-events/types";
 import { CONTRACT_TEST_IDS } from "~/features/crm/contracts/contracts";
 import { contractsKeys } from "~/features/crm/contracts/queries";
 import { fStamp } from "~/features/crm/core/dates";
-import type { CrmActivity } from "~/features/crm/core/types";
 import { fetchContractHistory } from "../contracts/queries";
 import { errorMessage } from "../lib/crm-fetch";
 import { useCrmFetch } from "../lib/use-crm-user";
 import { ICON } from "../primitives/icon-props";
 import { EmptyState, ErrorState, LoadingState } from "../primitives/States";
+import { mergeHistory } from "./history-model";
 import type { DealTabProps } from "./tabs";
 
 /**
  * The deal's History tab (crm-events.js:172) — "contract audit log · versions ·
- * status changes · BMI syncs", newest first.
- *
- * Two sources, merged: the CONTRACT's own history, which
- * `daily-events/service.ts getContractHistory` already assembles for the
- * reservations-admin board (audit ledger + versions + milestones, with
- * consecutive guest views collapsed), and the CRM's own `crm_activities` rows
- * for this lead. Reusing the first rather than rebuilding it is why the two
- * boards cannot drift apart.
+ * status changes · BMI syncs", newest first. The merge itself is pure and
+ * lives in `history-model.ts`, where a test can hold it (R12).
  *
  * A lead with no contract still has a history — its CRM activities — so this
  * tab is never empty just because a contract has not been sent.
  */
-type Merged = {
-  key: string;
-  at: string;
-  kind: "contract" | "version" | "status" | "bmi" | "system";
-  text: string;
-  detail: string | null;
-  who: string | null;
-  count?: number;
-  pdfUrl?: string | null;
-};
-
 const KIND_ICON = {
   contract: IconFile,
   version: IconLayersIntersect,
@@ -47,40 +29,6 @@ const KIND_ICON = {
   bmi: IconBolt,
   system: IconBolt,
 } as const;
-
-/** The CRM activity kinds this tab shows — the others live on the Overview timeline. */
-const ACTIVITY_KINDS = new Set(["status", "bmi", "system", "payment", "assign"]);
-
-export function mergeHistory(
-  entries: readonly ContractHistoryEntry[],
-  activities: readonly CrmActivity[],
-): Merged[] {
-  const rows: Merged[] = [];
-  for (const e of entries) {
-    rows.push({
-      key: `c-${e.kind}-${e.at}-${e.label}`,
-      at: e.at,
-      kind: e.kind === "version" ? "version" : "contract",
-      text: e.label,
-      detail: e.detail ?? null,
-      who: e.actor ?? null,
-      count: e.count,
-      pdfUrl: e.pdfUrl ?? null,
-    });
-  }
-  for (const a of activities) {
-    if (!ACTIVITY_KINDS.has(a.kind)) continue;
-    rows.push({
-      key: `a-${a.id}`,
-      at: a.occurredAt,
-      kind: a.kind === "bmi" ? "bmi" : a.kind === "status" ? "status" : "system",
-      text: a.body ?? a.subject ?? a.kind,
-      detail: null,
-      who: a.actorEmail ?? null,
-    });
-  }
-  return rows.sort((x, y) => Date.parse(y.at) - Date.parse(x.at));
-}
 
 export default function HistoryTab({ detail }: DealTabProps) {
   const crmFetch = useCrmFetch();

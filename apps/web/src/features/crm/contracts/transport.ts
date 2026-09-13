@@ -59,3 +59,11 @@ export {
 } from "@/lib/bmi-office-actions";
 
 export { getContractHistory, getSquareTimeline } from "~/features/daily-events/service";
+
+/**
+ * The LIVE project read behind "what the guest sees". `officeGet` underneath,
+ * so the 17-digit ids in the payload come back through `parseWithRawIds` as
+ * strings — never `res.json()`, never `JSON.parse`, which is how the
+ * production off-by-one happened.
+ */
+export { fetchProjectRaw } from "~/features/daily-events/data/bmi-office";

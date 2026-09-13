@@ -4,6 +4,7 @@ import {
   contractDetail,
   contractHistory,
   contractPayments,
+  contractPublicNotes,
 } from "~/features/crm/contracts";
 import { CrmHttpError, withCrmRoute } from "~/features/crm/core/http";
 
@@ -15,6 +16,9 @@ import { CrmHttpError, withCrmRoute } from "~/features/crm/core/http";
  *     Contract tab opens whether or not Square answers.
  *   ?history=1  → `{ok, entries}` — the audit + versions + milestones rail the
  *     reservations-admin board already builds; reused, not rebuilt.
+ *   ?notes=1    → `{ok, live, stored, drifted, error}` — the LIVE BMI public
+ *     notes behind "what the guest sees", plus the stored copy the guest page
+ *     is actually rendering, so the preview can say when the two have drifted.
  */
 
 export const runtime = "nodejs";
@@ -37,6 +41,12 @@ export const GET = withCrmRoute(ContractDetailQuerySchema, async ({ input, param
     const entries = await contractHistory(shortId);
     if (!entries) throw new CrmHttpError(404, "contract_not_found");
     return { entries };
+  }
+
+  if (isOn(input.notes)) {
+    const notes = await contractPublicNotes(shortId);
+    if (!notes) throw new CrmHttpError(404, "contract_not_found");
+    return { live: notes.live, stored: notes.stored, drifted: notes.drifted, error: notes.error };
   }
 
   const contract = await contractDetail(shortId);
