@@ -6,6 +6,7 @@ import {
   NewTextSchema,
   ThreadsListQuerySchema,
   contactKey,
+  conversationScopeFor,
   getThread,
   loadConversations,
   phoneKey,
@@ -36,8 +37,11 @@ export const dynamic = "force-dynamic";
 export const GET = withCrmRoute(ThreadsListQuerySchema, async ({ input, user }) => {
   const reps = await listRoster();
   const teamWide = input.all === "1" && isDirector(user);
+  // A signed-in sales user with no `crm_reps` row scopes to NOTHING, not to the
+  // whole team: `identity.ts` degrades `rep` to null on a Neon hiccup, and that
+  // must not hand an ordinary rep everyone's conversations.
   const page = await loadConversations({
-    repId: teamWide ? null : (user.rep?.id ?? null),
+    scope: conversationScopeFor(user.rep, teamWide),
     reps,
     limit: input.limit,
     cursor: input.cursor ?? null,

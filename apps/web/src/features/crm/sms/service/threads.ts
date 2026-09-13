@@ -19,6 +19,8 @@
 
 import type { CrmRep } from "../../core/types";
 import {
+  decodeMessageCursor,
+  encodeMessageCursor,
   hasInboundFrom,
   lastMessagePerThread,
   listMessagesForThreads,
@@ -34,6 +36,8 @@ import {
   leadsByContactIds,
 } from "../data/links-db";
 import {
+  decodeThreadCursor,
+  encodeThreadCursor,
   listThreads,
   markThreadsRead,
   threadsForContact,
@@ -43,6 +47,8 @@ import {
 import { contactKey, e164FromDigits, parseConversationKey, phoneKey } from "../keys";
 import type {
   ConversationDetail,
+  ConversationRep,
+  ConversationScope,
   ConversationSummary,
   LinkedContact,
   LinkedLead,
@@ -50,6 +56,16 @@ import type {
   SmsThread,
 } from "../types";
 import { consentFor } from "./consent";
+
+/**
+ * The scope a signed-in person gets. A director who asked for the team gets the
+ * team; anyone else gets their OWN rep row; a person without one gets nothing.
+ * Never `null` for two different reasons — see `ConversationScope`.
+ */
+export function conversationScopeFor(rep: CrmRep | null, teamWide: boolean): ConversationScope {
+  if (teamWide) return { kind: "team" };
+  return rep ? { kind: "rep", repId: rep.id } : { kind: "none" };
+}
 
 export interface FoldInput {
   threads: readonly SmsThread[];
@@ -64,6 +80,10 @@ function fullName(c: LinkedContact | null): string | null {
   if (!c) return null;
   const name = `${c.firstName} ${c.lastName}`.trim();
   return name || null;
+}
+
+function repBadge(rep: CrmRep): ConversationRep {
+  return { slug: rep.slug, initials: rep.initials, name: rep.displayName };
 }
 
 /** `leadTitle(l)` (crm-shared.js:83): the business if there is one, else the person. */
@@ -100,7 +120,7 @@ export function foldConversations(input: FoldInput): ConversationSummary[] {
         leadPublicId: lead?.publicId ?? null,
         leadStatus: lead?.statusId ?? null,
         leadTitle: captionFor(contact, name),
-        repSlugs: rep ? [rep.slug] : [],
+        reps: rep ? [repBadge(rep)] : [],
         threadIds: [t.id],
         lastMessageAt: t.lastMessageAt,
         lastBody: last?.body ?? null,
@@ -112,7 +132,7 @@ export function foldConversations(input: FoldInput): ConversationSummary[] {
     }
 
     existing.threadIds.push(t.id);
-    if (rep && !existing.repSlugs.includes(rep.slug)) existing.repSlugs.push(rep.slug);
+    if (rep && !existing.reps.some((r) => r.slug === rep.slug)) existing.reps.push(repBadge(rep));
     existing.unread += t.unreadCount;
     existing.stopped = existing.stopped || t.stoppedAt !== null;
     const newer =
@@ -137,8 +157,8 @@ export interface ConversationsPage {
 }
 
 export interface LoadConversationsInput {
-  /** A rep sees their own threads; a director may pass null and see the team. */
-  repId: string | null;
+  /** Whose threads — team, one rep's, or nobody's (`conversationScopeFor`). */
+  scope: ConversationScope;
   reps: readonly CrmRep[];
   limit?: number;
   cursor?: string | null;
@@ -149,18 +169,20 @@ export interface LoadConversationsInput {
 export async function loadConversations(input: LoadConversationsInput): Promise<ConversationsPage> {
   const limit = Math.max(1, Math.min(input.limit ?? 50, MESSAGE_PAGE_MAX));
   const threads = await listThreads({
-    repId: input.repId,
+    scope: input.scope,
     limit,
-    before: input.cursor ?? null,
+    before: decodeThreadCursor(input.cursor),
     unreadOnly: input.unreadOnly,
   });
   const page = await hydrate(threads, input.reps);
-  const oldest =
-    threads.length === limit ? (threads[threads.length - 1]?.lastMessageAt ?? null) : null;
+  const last = threads.length === limit ? threads[threads.length - 1] : undefined;
   return {
     conversations: page,
-    nextCursor: oldest,
-    unread: await unreadTotal(input.repId),
+    nextCursor:
+      last?.lastMessageAt != null
+        ? encodeThreadCursor({ lastMessageAt: last.lastMessageAt, id: last.id })
+        : null,
+    unread: await unreadTotal(input.scope),
   };
 }
 
@@ -192,6 +214,16 @@ export interface LoadConversationInput {
   key: string;
   /** The signed-in person's rep row; null for a director with none. */
   rep: CrmRep | null;
+  /**
+   * Whose conversations this person may open. `{kind:"none"}` — signed in with
+   * a sales role but no `crm_reps` row — reads nothing, the same as the list.
+   * A rep and a director both see the whole PERSON: the screen is one entry per
+   * person and folds the threads of every rep they have texted, and the consent
+   * basis is the person's too ("a guest who replied to Lori has given Kelsea
+   * the same basis"), so scoping the detail per rep would show a rep half a
+   * conversation and a consent verdict that did not match it.
+   */
+  scope: ConversationScope;
   reps: readonly CrmRep[];
   smsEnabled: boolean;
   limit?: number;
@@ -212,6 +244,9 @@ export class UnknownConversationError extends Error {
 export async function loadConversation(input: LoadConversationInput): Promise<ConversationDetail> {
   const parsed = parseConversationKey(input.key);
   if (!parsed) throw new UnknownConversationError(input.key);
+  // Nobody we can identify: the same empty answer the list gives, rather than
+  // a readable conversation for a session whose rep row we could not load.
+  if (input.scope.kind === "none") throw new UnknownConversationError(input.key);
 
   let contact: LinkedContact | null = null;
   let threads: SmsThread[] = [];
@@ -241,7 +276,10 @@ export async function loadConversation(input: LoadConversationInput): Promise<Co
   const threadIds = threads.map((t) => t.id);
   const [lastByThread, messages, hasInbound] = await Promise.all([
     lastMessagePerThread(threadIds),
-    listMessagesForThreads(threadIds, { limit: input.limit ?? 50, before: input.cursor ?? null }),
+    listMessagesForThreads(threadIds, {
+      limit: input.limit ?? 50,
+      before: decodeMessageCursor(input.cursor),
+    }),
     hasInboundFrom(threadIds),
   ]);
 
@@ -263,7 +301,7 @@ export async function loadConversation(input: LoadConversationInput): Promise<Co
     leadPublicId: lead?.publicId ?? null,
     leadStatus: lead?.statusId ?? null,
     leadTitle: captionFor(contact, fullName(contact)),
-    repSlugs: [],
+    reps: [],
     threadIds: [],
     lastMessageAt: null,
     lastBody: null,
@@ -282,12 +320,14 @@ export async function loadConversation(input: LoadConversationInput): Promise<Co
     hasRep: input.rep !== null,
   });
 
-  const oldest = messages.length > 0 ? messages[messages.length - 1].occurredAt : null;
+  const oldest = messages.length === (input.limit ?? 50) ? messages[messages.length - 1] : null;
   return {
     summary,
     // Oldest first: a thread reads downwards, and the composer sits at the end.
     messages: [...messages].reverse(),
-    nextCursor: messages.length === (input.limit ?? 50) ? oldest : null,
+    nextCursor: oldest
+      ? encodeMessageCursor({ occurredAt: oldest.occurredAt, id: oldest.id })
+      : null,
     myDid: input.rep?.voxDid ?? null,
     myThreadId: myThread?.id ?? null,
     consent,
@@ -314,9 +354,12 @@ export async function markConversationRead(
     const phone = e164FromDigits(parsed.digits);
     if (phone) threads = await threadsForGuest(phone);
   }
-  // A rep clears their OWN unread; a director reading over a shoulder does not
-  // mark someone else's conversation as read for them.
-  const mine = rep ? threads.filter((t) => t.repId === rep.id) : threads;
+  // A rep clears their OWN unread; a director reading over a shoulder clears
+  // NOTHING — which is what the sentence above always said and what the code
+  // did the opposite of: `rep === null` used to mark every thread of that
+  // person read, for every colleague at once, and `identity.ts` hands us a null
+  // rep whenever the roster lookup throws.
+  const mine = rep ? threads.filter((t) => t.repId === rep.id) : [];
   await markThreadsRead(mine.map((t) => t.id));
-  return { unread: await unreadTotal(rep?.id ?? null) };
+  return { unread: await unreadTotal(conversationScopeFor(rep, false)) };
 }
