@@ -116,7 +116,7 @@ export function DealBody({ detail, query, setQuery, refresh }: DealBodyProps) {
         onMint={() => mint.mutate()}
         minting={mint.isPending}
       />
-      <QuickActions lead={lead} />
+      <QuickActions lead={lead} onDone={refresh} />
       <div
         className="deal-tabs"
         role="group"

@@ -6,6 +6,7 @@ import {
   IconZzz,
   type TablerIcon,
 } from "@tabler/icons-react";
+import type { ComponentType } from "react";
 import type { LeadView } from "~/features/crm/leads/contracts";
 import { contactHrefs } from "../leads/model";
 
@@ -23,7 +24,10 @@ import { contactHrefs } from "../leads/model";
  *              with the reason, never faked.
  *   B4         `note` → the Note sheet, `snooze` → the Snooze sheet.
  *   C1         `text` → the rep's Vox DID composer (`sms/service/send.ts`).
- *   C2         `email` → the Graph draft-then-send composer.
+ *   C2 (done)  `email` → the Graph draft-then-send composer, opened as a
+ *              SHEET rather than handing the guest to the device's mail app:
+ *              a `mailto:` send never reaches Neon, never records first touch
+ *              and never carries the `X-HP-Lead` header a reply is matched by.
  *   C3         `call` → 3CX click-to-dial on the rep's extension.
  *
  * `resolve` returning null disables the button and shows `disabledTitle`; a
@@ -34,8 +38,32 @@ export const QUICK_ACTION_IDS = ["call", "text", "email", "note", "snooze"] as c
 
 export type QuickActionId = (typeof QUICK_ACTION_IDS)[number];
 
-/** What pressing the button does. `href` is a device hand-off (`tel:` / `sms:` / `mailto:`). */
-export type QuickActionTarget = { kind: "href"; href: string };
+/**
+ * What pressing the button does: hand the lead to the device (`tel:` / `sms:`
+ * / `mailto:`), or open the slot's own sheet inside the CRM.
+ */
+export type QuickActionTarget =
+  | { kind: "href"; href: string }
+  | { kind: "sheet"; id: QuickActionId };
+
+/** Props every quick-action sheet receives from `QuickActions`. */
+export interface QuickActionSheetProps {
+  lead: LeadView;
+  onCancel: () => void;
+  onDone: () => void;
+}
+
+/**
+ * The sheet behind a `{kind:"sheet"}` target. Lazily loaded so a screen that
+ * never opens one pays nothing, and so the registry itself stays a pure module
+ * its unit test can import without React.
+ */
+export interface QuickActionSheetSlot {
+  title: (lead: LeadView) => string;
+  wide: boolean;
+  testId?: string;
+  load: () => Promise<{ default: ComponentType<QuickActionSheetProps> }>;
+}
 
 export interface QuickActionSlot {
   id: QuickActionId;
@@ -77,7 +105,7 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
     id: "email",
     label: "Email",
     Icon: IconMail,
-    resolve: (lead) => href(contactHrefs(lead).mailto),
+    resolve: (lead) => (lead.guest.email ? { kind: "sheet", id: "email" } : null),
     disabledTitle: "No email on file",
     owner: "C2",
   },
@@ -98,6 +126,25 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
     owner: "B4",
   },
 };
+
+/**
+ * The sheets a `{kind:"sheet"}` target opens. Pre-populated only where a PR
+ * has shipped one, so C1 (`text`), C3 (`call`) and B4 (`note`, `snooze`) each
+ * add exactly their own key.
+ */
+export const QUICK_ACTION_SHEETS: Partial<Record<QuickActionId, QuickActionSheetSlot>> = {
+  // Prototype title, verbatim (crm-shared.js:267 `Email ${l.guest.first}`).
+  email: {
+    title: (lead) => `Email ${lead.guest.first || "guest"}`,
+    wide: true,
+    testId: "crm-email-sheet",
+    load: () => import("../conversations/email/EmailSheet"),
+  },
+};
+
+export function sheetSlotFor(id: QuickActionId): QuickActionSheetSlot | null {
+  return QUICK_ACTION_SHEETS[id] ?? null;
+}
 
 /** The rail, in the prototype's order, with each slot resolved for this lead. */
 export function quickActionsFor(

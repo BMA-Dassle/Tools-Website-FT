@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { makeLead } from "~/features/crm/leads/test-support";
-import { QUICK_ACTIONS, QUICK_ACTION_IDS, quickActionsFor } from "./actions";
+import {
+  QUICK_ACTIONS,
+  QUICK_ACTION_IDS,
+  QUICK_ACTION_SHEETS,
+  quickActionsFor,
+  sheetSlotFor,
+} from "./actions";
 
 /**
  * The rail registry C1/C2/C3/B4 flip one line of: the prototype's five
- * buttons in order (crm-shared.js:245), Call/Text/Email handing off to the
- * device today, Note and Snooze disabled with a reason rather than faked.
+ * buttons in order (crm-shared.js:245), Call and Text handing off to the
+ * device today, Email opening C2's composer, Note and Snooze disabled with a
+ * reason rather than faked.
  */
 describe("quick-action slot registry", () => {
   it("is the prototype's five buttons, in order, each labelled and owned", () => {
@@ -28,7 +35,7 @@ describe("quick-action slot registry", () => {
     expect(QUICK_ACTIONS.note.owner).toBe("B4");
   });
 
-  it("a guest with a phone and an email gets tel: / sms: / mailto:; Note and Snooze stay disabled", () => {
+  it("a guest with a phone gets tel: / sms:, an email opens the composer, Note and Snooze stay disabled", () => {
     const lead = makeLead({
       id: "5001",
       guest: {
@@ -40,13 +47,50 @@ describe("quick-action slot registry", () => {
         prefers: null,
       },
     });
-    expect(quickActionsFor(lead).map((a) => [a.slot.id, a.target?.href ?? null])).toEqual([
-      ["call", "tel:+12395551234"],
-      ["text", "sms:+12395551234"],
-      ["email", "mailto:crm-test@example.com"],
+    expect(quickActionsFor(lead).map((a) => [a.slot.id, a.target])).toEqual([
+      ["call", { kind: "href", href: "tel:+12395551234" }],
+      ["text", { kind: "href", href: "sms:+12395551234" }],
+      // C2: a `mailto:` send never reaches Neon, never records first touch and
+      // never carries the X-HP-Lead header a reply is matched by.
+      ["email", { kind: "sheet", id: "email" }],
       ["note", null],
       ["snooze", null],
     ]);
+  });
+
+  it("every sheet target has a registered sheet behind it", () => {
+    for (const id of QUICK_ACTION_IDS) {
+      const target = QUICK_ACTIONS[id].resolve(
+        makeLead({
+          id: "5003",
+          guest: {
+            first: "CRM",
+            last: "Test",
+            phone: "+12395551234",
+            email: "crm-test@example.com",
+            company: null,
+            prefers: null,
+          },
+        }),
+      );
+      if (target?.kind === "sheet") expect(sheetSlotFor(target.id), id).not.toBeNull();
+    }
+    expect(Object.keys(QUICK_ACTION_SHEETS)).toEqual(["email"]);
+    expect(
+      QUICK_ACTION_SHEETS.email!.title(
+        makeLead({
+          id: "5004",
+          guest: {
+            first: "Dana",
+            last: "Acme",
+            phone: null,
+            email: "dana@example.com",
+            company: null,
+            prefers: null,
+          },
+        }),
+      ),
+    ).toBe("Email Dana");
   });
 
   it("no phone, no email → those three are disabled with the reason, never a dead link", () => {
