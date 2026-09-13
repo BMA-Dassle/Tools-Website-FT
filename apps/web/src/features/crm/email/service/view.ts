@@ -10,7 +10,7 @@
  * for inbound and the first lines of what WE composed for outbound.
  */
 
-import type { EmailMatchedBy, EmailMessageView } from "../contracts";
+import { shortErrorClause, type EmailMatchedBy, type EmailMessageView } from "../contracts";
 import type { EmailLink } from "../data/email-links-db";
 
 const MATCHED_BY = new Set<string>(["from", "in-reply-to", "x-hp-lead", "composer"]);
@@ -35,7 +35,10 @@ export function toMessageView(link: EmailLink): EmailMessageView {
     at: link.sentAt ?? link.createdAt,
     sendStatus: link.sendStatus,
     provider: link.provider,
-    sendError: link.sendError,
+    // The leading clause only: `send_error` can hold two thousand characters of
+    // a Graph or SendGrid reply, and this field is rendered in the thread. The
+    // full text stays on the row for a director (C2-9).
+    sendError: shortErrorClause(link.sendError),
     matchedBy: matchedByOf(link.matchedBy),
     webLink: link.webLink,
   };

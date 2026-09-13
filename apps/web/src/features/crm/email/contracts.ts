@@ -101,10 +101,19 @@ export type EmailSendResponse = ApiOk<{
   message: EmailMessageView;
   /** True when the message went out on the SendGrid fallback rail. */
   fellBack: boolean;
-  /** Graph's complaint when we fell back because of it; null otherwise. */
+  /** The leading clause of Graph's complaint; never its raw body (C2-9). */
   graphError: string | null;
   firstTouchRecorded: boolean;
+  /**
+   * Graph accepted the draft but `/send` failed: the message is NOT on
+   * SendGrid (that would be a second copy) and a retry job owns it.
+   */
+  sendPending: boolean;
 }>;
+
+/** Shown when a send is parked mid-flight — the honest state, not a failure. */
+export const SEND_PENDING_CHIP =
+  "Outlook took the draft but has not confirmed the send — we are retrying it";
 
 export interface EmailThreadView {
   leadId: string;
@@ -121,6 +130,58 @@ export type EmailThreadsResponse = ApiOk<{
   threads: EmailThreadView[];
   nextCursor: string | null;
 }>;
+
+// ---------------------------------------------------------------------------
+// Job kinds and their idempotency keys
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure, and deliberately HERE rather than beside the handlers: the public
+ * webhook route calls `graphFetchIdempotencyKey` directly, and a route test
+ * that stubs the sub's barrel would otherwise be asserting its own stub's
+ * output instead of the shipped function (it lowercases the mailbox; a stub
+ * that forgot to would pass a test the real route fails).
+ */
+export const GRAPH_RENEW_KIND = "graph-renew";
+export const GRAPH_FETCH_MESSAGE_KIND = "graph-fetch-message";
+export const EMAIL_SEND_RETRY_KIND = "email-send-retry";
+
+/** One fetch per (mailbox, message) — a retried webhook reuses the same row. */
+export function graphFetchIdempotencyKey(mailbox: string, messageId: string): string {
+  return `${GRAPH_FETCH_MESSAGE_KIND}:${mailbox.toLowerCase()}:${messageId}`;
+}
+
+/** One retry per link row: a draft Graph accepted but never sent. */
+export function emailSendRetryIdempotencyKey(linkId: string): string {
+  return `${EMAIL_SEND_RETRY_KIND}:${linkId}`;
+}
+
+// ---------------------------------------------------------------------------
+// Upstream error text
+// ---------------------------------------------------------------------------
+
+/** How much of an upstream complaint a browser is allowed to see. */
+export const ERROR_CLAUSE_MAX = 120;
+
+/**
+ * The leading clause of an upstream error, for a chip.
+ *
+ * `core/http.ts` answers a fixed `unexpected` on a 500 precisely because
+ * upstream bodies carry hostnames, tenant GUIDs, app ids and body snippets;
+ * a Graph or SendGrid reply reaching the thread verbatim would walk straight
+ * past that rule. The full text stays on the row (`send_error`, `graph_error`)
+ * where a director reads it, and in the server log.
+ */
+export function shortErrorClause(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const firstLine = text.split(/[\r\n]/, 1)[0].trim();
+  if (!firstLine) return null;
+  // `.` and `;` end a clause; `:` does NOT — an upstream code like
+  // "AADSTS7000215: Invalid client secret provided." would otherwise be cut to
+  // the code alone, which tells a rep nothing.
+  const clause = firstLine.split(/(?<=[.;])\s/, 1)[0].trim() || firstLine;
+  return clause.length > ERROR_CLAUSE_MAX ? `${clause.slice(0, ERROR_CLAUSE_MAX - 1)}…` : clause;
+}
 
 export const EMAIL_TEST_IDS = {
   thread: "crm-email-thread",

@@ -187,6 +187,16 @@ export interface GraphReadiness {
 
 export const GRAPH_NOT_CONFIGURED_REASON = "CRM_GRAPH_* is not set on this deployment yet";
 
+/**
+ * FIXED, and it has to be. Azure's token endpoint answers with AADSTS codes,
+ * the tenant GUID, the app id and a correlation id; `graphReason` is rendered
+ * in a rep's browser, and `core/http.ts` returns a fixed `unexpected` on a 500
+ * for exactly this reason. The actionable half is the env var name, which is
+ * ours; the upstream half goes to the server log (C2-9).
+ */
+export const GRAPH_CREDENTIALS_REASON =
+  "Microsoft Graph refused our credentials — check CRM_GRAPH_CLIENT_SECRET";
+
 export function readinessFromRoles(roles: string[]): GraphReadiness {
   const missing = [GRAPH_DRAFT_ROLE, GRAPH_SEND_ROLE].filter((r) => !roles.includes(r));
   return {
@@ -224,14 +234,10 @@ export async function graphSendReadiness(now: () => number = Date.now): Promise<
   try {
     value = readinessFromRoles(tokenRoles(await getGraphToken()));
   } catch (err) {
-    value = {
-      ready: false,
-      roles: [],
-      missing: [],
-      reason: `Microsoft Graph refused our credentials: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    };
+    console.error("[crm] graph token refused", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    value = { ready: false, roles: [], missing: [], reason: GRAPH_CREDENTIALS_REASON };
   }
   readinessCache = { at: now(), value };
   return value;

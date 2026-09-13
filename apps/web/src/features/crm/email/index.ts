@@ -15,6 +15,7 @@ export {
   listLeadEmails,
   listSubscriptions,
   markLinkFailed,
+  markLinkPending,
   markLinkSent,
   mapEmailLinkRow,
   recordSubscription,
@@ -94,6 +95,7 @@ export {
   NoRecipientError,
   STATUS_ON_FIRST_TOUCH,
   defaultSendDeps,
+  enqueueSendRetry,
   sendCrmEmail,
   shouldFallBack,
   textToHtml,
@@ -162,10 +164,13 @@ export {
 } from "./service/threads";
 
 export {
+  EMAIL_SEND_RETRY_KIND,
   GRAPH_FETCH_MESSAGE_KIND,
   GRAPH_RENEW_KIND,
+  emailSendRetryIdempotencyKey,
   graphFetchIdempotencyKey,
   graphRenewIdempotencyKey,
+  runEmailSendRetryJob,
   runGraphFetchMessageJob,
   runGraphRenewJob,
   subscribedMailboxes,

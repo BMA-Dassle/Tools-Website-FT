@@ -66,7 +66,8 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
     import("~/features/crm/email").then((m) => m.runGraphFetchMessageJob(ctx)),
   "threecx-reconcile": notImplemented("threecx-reconcile"),
   "share-link-expire": notImplemented("share-link-expire"),
-  "email-send-retry": notImplemented("email-send-retry"),
+  "email-send-retry": (ctx) =>
+    import("~/features/crm/email").then((m) => m.runEmailSendRetryJob(ctx)),
   "sms-send-retry": notImplemented("sms-send-retry"),
   "pandora-goals-sync": notImplemented("pandora-goals-sync"),
 };
