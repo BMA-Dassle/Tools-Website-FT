@@ -36,7 +36,12 @@ import {
   type ContractWindow,
 } from "../contracts";
 import { ensureGfSchema } from "../transport";
-import { ATTENTION_SQL, PAST_UNPAID_DAYOF_SQL, UNSIGNED_AGE_MINUTES } from "./attention";
+import {
+  ATTENTION_SQL,
+  PAST_UNPAID_DAYOF_SQL,
+  UNSIGNED_AGE_MINUTES,
+  attentionSql,
+} from "./attention";
 import { repIndexByEmail, toContractRow, type QuoteRowSource, type RowContext } from "./rows";
 
 export const QUOTE_COLUMNS = `
@@ -126,9 +131,15 @@ interface WhereBuild {
 }
 
 /**
- * Every filter except the cursor, as SQL. `$1` (today ET) and `$2` (the
- * unsigned cut-off) are bound FIRST so `ATTENTION_SQL` — which names them
- * positionally — can be dropped in verbatim.
+ * Every filter except the cursor, as SQL.
+ *
+ * A clock value is bound ONLY by the branch that uses it. Postgres types a
+ * parameter from where it appears, so binding today and the unsigned cut-off
+ * up front and then building "All dates" (which mentions neither) or "Next 30
+ * days" (which mentions only today) leaves a parameter with no type and the
+ * statement is rejected outright — "could not determine data type of parameter
+ * $2". That took out five of the six windows; `attention`, the default, was
+ * the only one whose clause happened to reference both.
  */
 export function buildContractWhere(
   filter: ContractListFilter,
@@ -137,16 +148,20 @@ export function buildContractWhere(
   now: Date,
 ): WhereBuild {
   const b = binder();
-  b.add(todayYmd); // $1
-  b.add(new Date(now.getTime() - UNSIGNED_AGE_MINUTES * 60_000).toISOString()); // $2
-
   const where: string[] = [];
   const win = filter.win ?? "attention";
 
-  if (win === "attention") where.push(ATTENTION_SQL);
-  else if (win === "past") where.push(`q.event_date < $1::date`);
-  else if (win !== "all") {
-    where.push(`q.event_date >= $1::date AND q.event_date <= ($1::date + ${Number(win)})`);
+  if (win === "attention") {
+    const today = b.add(todayYmd);
+    const cutoff = b.add(new Date(now.getTime() - UNSIGNED_AGE_MINUTES * 60_000).toISOString());
+    where.push(attentionSql(today, cutoff));
+  } else if (win === "past") {
+    where.push(`q.event_date < ${b.add(todayYmd)}::date`);
+  } else if (win !== "all") {
+    const today = b.add(todayYmd);
+    where.push(
+      `q.event_date >= ${today}::date AND q.event_date <= (${today}::date + ${Number(win)})`,
+    );
   }
 
   // The prototype hides closed contracts everywhere but the Past window, and

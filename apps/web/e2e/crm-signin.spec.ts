@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { E2E } from "../playwright.config";
+import { CONTRACT_TEST_IDS } from "../src/features/crm/contracts/contracts";
 import {
   ADMIN_NAV_GROUP_ID,
   DIRECTOR_ONLY_SCREENS,
@@ -278,6 +279,59 @@ test.describe.serial("eric — sales-director", () => {
     await expect(page.locator(byTestId(TEST_IDS.statusesTable))).toContainText("Contract sent");
     expect(countOf(await documentBytes(page), TOKEN)).toBe(0);
     await shoot(page, "director-statuses");
+  });
+
+  test("/admin/crm/contracts — the board opens on Needs attention, at both widths", async () => {
+    // The default view is the whole point of this screen (brief §4, B5): it
+    // opens on what a human has to do, not on a list of everything. So the
+    // assertion is that the bare URL — no query string — lands on the
+    // attention window with its own segmented control pressed, and that the
+    // four tiles, the status folders and the pager are all really there.
+    //
+    // Row COUNT is deliberately not asserted: it comes out of production Neon
+    // and is whatever the day holds. What must hold at 390 px is the layout —
+    // the contracts table is the widest thing in the tool and may only scroll
+    // inside its own `overflow-x: auto` box, never the document — and `shoot()`
+    // proves that by trying to scroll the window.
+    await page.goto("/admin/crm/contracts", { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    expect(new URL(page.url()).pathname).toBe("/admin/crm/contracts");
+
+    const screen = page.locator(byTestId(CONTRACT_TEST_IDS.screen));
+    await expect(screen).toBeVisible();
+    await expect(page.locator(byTestId(CONTRACT_TEST_IDS.tiles))).toBeVisible();
+    await expect(page.locator(byTestId(CONTRACT_TEST_IDS.pager))).toBeVisible();
+
+    // "Needs attention" is the default, and it is the PRESSED one.
+    const windows = page.locator(byTestId(CONTRACT_TEST_IDS.windows));
+    await expect(windows).toBeVisible();
+    await expect(windows.locator('button[aria-pressed="true"]')).toHaveText(/Needs attention/);
+
+    // All eleven statuses reach the folder row — the old board omitted five.
+    const folders = page.locator(byTestId(CONTRACT_TEST_IDS.statusFolders));
+    await expect(folders).toBeVisible();
+    for (const label of ["Needs approval", "Re-sign required", "Cancelled", "Balance funded"]) {
+      await expect(folders).toContainText(label);
+    }
+    // …and `balance_charged` is never "Fully Paid", which is what v1 called it.
+    await expect(screen).not.toContainText("Fully Paid");
+
+    expect(countOf(await documentBytes(page), TOKEN)).toBe(0);
+    await shoot(page, "director-contracts");
+  });
+
+  test("/admin/crm/contracts?win=30 — the dated windows band rows by week", async () => {
+    // The other half of the owner's "do not let this screen sprawl": outside
+    // the attention queue the rows are grouped under week headers, so a
+    // 90-day window reads as a calendar rather than as 200 undifferentiated
+    // lines. A window with no contracts in it is a legitimate outcome here,
+    // so this asserts the CONTROL moved and the screen still renders.
+    await page.goto("/admin/crm/contracts?win=30", { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    const windows = page.locator(byTestId(CONTRACT_TEST_IDS.windows));
+    await expect(windows.locator('button[aria-pressed="true"]')).toHaveText(/Next 30 days/);
+    await expect(page.locator(byTestId(CONTRACT_TEST_IDS.screen))).toBeVisible();
+    await shoot(page, "director-contracts-30");
   });
 
   test("/admin/crm/history — one scroller, the content column (the 2026-09-13 report)", async () => {

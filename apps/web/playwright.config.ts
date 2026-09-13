@@ -37,8 +37,20 @@ const ENABLED = process.env.E2E_ADMIN_SSO === "1";
 const GATEWAY_DIR = process.env.SSO_GATEWAY_DIR || "C:/GIT/tools-auth/.claude/worktrees/sso";
 
 /** Ports. 3111 is the port registered as this client's dev redirect_uri with
- *  the gateway (`src/config/clients.ts`) — it is not a free choice. */
-const WEB_PORT = 3111;
+ *  the gateway (`src/config/clients.ts`) — it is not a free choice.
+ *
+ *  `E2E_WEB_PORT` may move it to the ONE other port the gateway also
+ *  registers, 3001, so two agents' rigs can run at once: this programme has
+ *  a dozen feature worktrees, all sharing these ports, and a run that finds
+ *  3111 already serving ANOTHER branch's build either fails outright or —
+ *  much worse — screenshots the wrong code. Any other value is refused here
+ *  rather than at the redirect, where it surfaces as an opaque OIDC error. */
+const WEB_PORT = Number(process.env.E2E_WEB_PORT || 3111);
+if (WEB_PORT !== 3111 && WEB_PORT !== 3001) {
+  throw new Error(
+    `E2E_WEB_PORT=${process.env.E2E_WEB_PORT} is not registered as a redirect_uri; use 3111 or 3001.`,
+  );
+}
 const GATEWAY_PORT = 3100;
 const MOCK_ENTRA_PORT = 3200;
 

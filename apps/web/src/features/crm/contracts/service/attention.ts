@@ -96,25 +96,48 @@ export function attentionTone(reasons: readonly AttentionReason[]): AttentionKin
 type AttentionKindOrNull = "warn" | "crit" | null;
 
 /**
- * The same set, for Postgres. `$1` is today's ET calendar day (YYYY-MM-DD) and
- * `$2` is the "unsigned for two days" cut-off as an ISO instant; the caller
- * binds both so the clock is still an input, never `now()` inside the database
- * (where it is UTC and would slide the ET day boundary).
+ * The same set, for Postgres — branch for branch with `attentionReasons`
+ * above, in the same order.
  *
- * Branch for branch with `attentionReasons` above, in the same order.
+ * The two clock inputs arrive as PLACEHOLDER TOKENS rather than a hard-coded
+ * `$1` / `$2`, and that is load-bearing rather than tidiness. Postgres infers
+ * a parameter's type from where it is used, so a parameter the statement never
+ * mentions has no type and the whole statement is rejected with "could not
+ * determine data type of parameter $N". When the caller binds today and the
+ * unsigned cut-off up front but then builds a window that mentions neither —
+ * "All dates" — or only today — "Next 30 days" — the cut-off is exactly such a
+ * parameter, and every window except this one 500s. So the caller allocates a
+ * placeholder only for the clock value the clause it is building actually
+ * uses, and passes the tokens in here.
+ *
+ * `today` is the ET calendar day (YYYY-MM-DD) and `cutoff` the "unsigned for
+ * two days" boundary as an ISO instant — both bound by the caller so the clock
+ * stays an input, never `now()` inside the database (where it is UTC and would
+ * slide the ET day boundary).
  */
-export const ATTENTION_SQL = `(
+export function attentionSql(today: string, cutoff: string): string {
+  return `(
      status = 'pending_approval'
-  OR (status = 'contract_sent' AND contract_sent_at IS NOT NULL AND contract_sent_at < $2::timestamptz)
-  OR (status = 'contract_sent' AND event_date <= ($1::date + 7))
+  OR (status = 'contract_sent' AND contract_sent_at IS NOT NULL AND contract_sent_at < ${cutoff}::timestamptz)
+  OR (status = 'contract_sent' AND event_date <= (${today}::date + 7))
   OR status = 'resign_required'
   OR status = 'balance_link_sent'
-  OR (status = 'deposit_paid' AND event_date <= ($1::date + 3) AND balance_cents > 0)
-  OR (square_dayof_order_id IS NOT NULL AND square_settled_order_id IS NULL AND event_date < $1::date)
-  OR (event_date < $1::date AND status NOT IN ('completed','cancelled','denied'))
+  OR (status = 'deposit_paid' AND event_date <= (${today}::date + 3) AND balance_cents > 0)
+  OR (square_dayof_order_id IS NOT NULL AND square_settled_order_id IS NULL AND event_date < ${today}::date)
+  OR (event_date < ${today}::date AND status NOT IN ('completed','cancelled','denied'))
 )`;
+}
 
 /** The day-of half of the prototype's count expression, on its own. */
-export const PAST_UNPAID_DAYOF_SQL = `(
-  square_dayof_order_id IS NOT NULL AND square_settled_order_id IS NULL AND event_date < $1::date
+export function pastUnpaidDayofSql(today: string): string {
+  return `(
+  square_dayof_order_id IS NOT NULL AND square_settled_order_id IS NULL AND event_date < ${today}::date
 )`;
+}
+
+/**
+ * The counts query binds today as `$1` and the cut-off as `$2` and references
+ * both, so it can keep using the constants.
+ */
+export const ATTENTION_SQL = attentionSql("$1", "$2");
+export const PAST_UNPAID_DAYOF_SQL = pastUnpaidDayofSql("$1");
