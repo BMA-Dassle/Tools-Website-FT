@@ -196,6 +196,25 @@ describe("POST /api/sales-lead/submit", () => {
     expect(String(input.specialRequests)).toContain("Event subtype: Kids birthday");
   });
 
+  it("the planner the guest picked reaches createLead as a slug; a junk value is dropped, not a 400", async () => {
+    const ok = await post(formBody({ eventType: "corporate", requestedPlanner: "kelsea" }));
+    expect(ok.status).toBe(200);
+    expect((bag.calls[0] as [Record<string, unknown>])[0].requestedPlannerSlug).toBe("kelsea");
+
+    bag.calls = [];
+    const junk = await post(
+      formBody({ eventType: "corporate", requestedPlanner: "Kelsea Kosco!" }),
+    );
+    expect(junk.status).toBe(200);
+    expect((bag.calls[0] as [Record<string, unknown>])[0].requestedPlannerSlug).toBeNull();
+  });
+
+  it("a body without the planner key at all is unchanged — the five pages before this PR", async () => {
+    const res = await post(BODY);
+    expect(res.status).toBe(200);
+    expect((bag.calls[0] as [Record<string, unknown>])[0].requestedPlannerSlug).toBeNull();
+  });
+
   it("Pandora down → 502 {error} (the legacy error shape) even though the lead row exists", async () => {
     bag.result = {
       ...minted(),
