@@ -56,6 +56,14 @@ export interface SalesLeadFormProps {
   initialEventType?: string;
 }
 
+/**
+ * The id `aria-describedby` on the planner select points at. One form is open
+ * at a time (it is a modal), so a stable literal is correct and keeps the help
+ * line out of the select's accessible NAME — which is what putting it inside
+ * `Field`'s `<label>` would have done.
+ */
+const PLANNER_HELP_ID = "sales-lead-planner-help";
+
 const EVENT_TYPES_GROUP = [
   { value: "corporate", label: "Corporate event" },
   { value: "team-building", label: "Team building" },
@@ -666,25 +674,37 @@ export function SalesLeadForm({
                   the Guest Services team, so offering a choice we cannot keep
                   would be a promise broken at the first phone call. */}
               {plannerChoices.length > 0 && (
-                <Field label={PLANNER_FIELD_LABEL}>
-                  <select
-                    value={effectivePlanner}
-                    onChange={(e) => setRequestedPlanner(e.target.value)}
-                    className={inputCls(accent)}
-                  >
-                    <option value="" style={{ backgroundColor: "#0a1628" }}>
-                      {FIRST_AVAILABLE_OPTION}
-                    </option>
-                    {plannerChoices.map((p) => (
-                      <option key={p.slug} value={p.slug} style={{ backgroundColor: "#0a1628" }}>
-                        {p.firstName}
+                <>
+                  <Field label={PLANNER_FIELD_LABEL}>
+                    <select
+                      value={effectivePlanner}
+                      onChange={(e) => setRequestedPlanner(e.target.value)}
+                      className={inputCls(accent)}
+                      aria-describedby={PLANNER_HELP_ID}
+                    >
+                      <option value="" style={{ backgroundColor: "#0a1628" }}>
+                        {FIRST_AVAILABLE_OPTION}
                       </option>
-                    ))}
-                  </select>
-                  <p className="mt-1.5 text-white/60" style={{ fontSize: "11px", lineHeight: 1.4 }}>
+                      {plannerChoices.map((p) => (
+                        <option key={p.slug} value={p.slug} style={{ backgroundColor: "#0a1628" }}>
+                          {p.firstName}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  {/* OUTSIDE the <label>: `Field` renders its children inside
+                      one, so a permanent help line placed there would become
+                      part of the select's accessible name (and a <p> inside a
+                      <label> is invalid markup besides). `aria-describedby`
+                      attaches it as a description instead. */}
+                  <p
+                    id={PLANNER_HELP_ID}
+                    className="mt-1.5 text-white/60"
+                    style={{ fontSize: "11px", lineHeight: 1.4 }}
+                  >
                     {PLANNER_FIELD_HELP}
                   </p>
-                </Field>
+                </>
               )}
             </>
           )}
