@@ -168,12 +168,63 @@ implementer of any later change must know about that body:
 
 ## SMS consent basis (placeholder — C1 fills the enforcement table)
 
-| Lead source                                      | Text allowed?                                                                    | Basis                                                           |
-| ------------------------------------------------ | -------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `web`, `phone`, `walkin`, `referral`             | yes, `category:"transactional"` from the rep's DID                               | the guest gave us this number for THIS enquiry                  |
-| any source with an inbound message on file       | yes                                                                              | the guest texted us first                                       |
-| `cold`, or `is_prospect` with no inbound message | **no** — Call / Email only; the service answers `{ok:false, error:"no_consent"}` | no consent exists; `"marketing"` is always blocked by `voxSend` |
-| STOP / START / HELP                              | handled by the existing `/api/sms-webhook/vox/inbound`                           | replies from the DID the guest texted                           |
+| Lead source                                      | Text allowed?                                                                                                                                         | Basis                                                           |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `web`, `phone`, `walkin`, `referral`             | yes, `category:"transactional"` from the rep's DID                                                                                                    | the guest gave us this number for THIS enquiry                  |
+| any source with an inbound message on file       | yes                                                                                                                                                   | the guest texted us first                                       |
+| `cold`, or `is_prospect` with no inbound message | **no** — Call / Email only; the service answers `{ok:false, error:"no_consent"}`. The cold dialling list (C8) has no text button at all and says why. | no consent exists; `"marketing"` is always blocked by `voxSend` |
+| STOP / START / HELP                              | handled by the existing `/api/sms-webhook/vox/inbound`                                                                                                | replies from the DID the guest texted                           |
+
+## Cold lists (C8)
+
+A cold row is a **prospect, not a lead**: nothing is written to BMI at import.
+The mint and the assignment rules run when a rep converts one on real interest
+(`cold/service/dispositions.ts` `convertColdRow` → `createLead(..., {source:
+"cold", isProspect: false})`), which is what the deal screen's own banner
+promises — "Saving converts it into a lead: creates the Office project (state
+New Lead), attaches ... as the host, and assigns it by the rules".
+
+**Import is four steps, and the order is the rule.** The browser parses the CSV
+(`cold/csv.ts`), then:
+
+1. `POST /api/admin/crm/cold {action:"create"}` — the list row.
+2. `POST /api/admin/crm/cold/[id]/rows` — every record, in chunks of 400, stored
+   verbatim in `crm_cold_rows.raw`. **This happens before any column is mapped
+   and before anything is matched** (CLAUDE.md "persist guest-provided data at
+   capture"). Closing the browser mid-mapping loses nothing; a mis-mapped list
+   is re-mapped from the stored records rather than re-uploaded.
+3. `POST /api/admin/crm/cold/[id] {action:"map", columnMap}` — project the
+   stored records and de-duplicate. Re-runnable, and it never touches a row a
+   rep has already dispositioned.
+4. `POST /api/admin/crm/cold/[id] {action:"commit", decisions}` — the operator's
+   link / skip / import-anyway choices, then the list opens for dialling.
+
+There is **no multipart upload**: Vercel refuses a request body over 4.5 MB, so
+the brief's "multipart CSV <= 5 MB" could not have worked on this deployment.
+
+**No column is assumed.** Decision D9 (which columns the owner's real files
+have) is still open, so `cold/mapping.ts` only _suggests_ a map from header
+spellings and the operator confirms every field on the Import sheet. A file
+whose headers match nothing still imports, with every field starting at
+"(skip)". Files with a BOM, CRLF, semicolons/tabs/pipes, quoted delimiters and
+newlines, blank rows, ragged rows and duplicate or blank headers are all read
+(`cold/csv.test.ts` runs the ugly fixture in `cold/test-support.ts`).
+
+**De-duplication runs before the import completes, in the CRM's own order** —
+`bmi_person_id`, then `phone_e164`, then `email_key`, then the account's
+`name_key` (`cold/dedupe.ts`), the same order `upsertContact` uses. A match is
+shown to the operator with a per-row choice and defaults to _link_; a row that
+repeats a number or email from earlier in the SAME file is flagged `in_file`
+and defaults to _skip_. Nothing is ever deleted — a skipped row keeps its data
+and can be brought back.
+
+**Dispositions reuse the Calls vocabulary.** `COLD_DISPOSITIONS` is
+`calls/contracts.ts`'s six outcomes with "Interested" in front, so
+Accountability and the KPI screens count a cold call with no special case:
+every disposition writes a `crm_activities` row with `kind:'call'`,
+`direction:'out'` and `outcome:<the disposition>`, keyed
+`coldrow:<rowId>:<touchCount>` so a double tap writes one row and three real
+calls write three.
 
 ## Local wrappers (never deliverables)
 
