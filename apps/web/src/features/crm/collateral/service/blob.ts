@@ -20,7 +20,7 @@
  * silently replacing the other's.
  */
 
-import { put } from "@vercel/blob";
+import { del, put } from "@vercel/blob";
 import { BLOB_NOT_CONFIGURED, COLLATERAL_MAX_BYTES, type CollateralType } from "../contracts";
 import { collateralTypeFromName, extensionOf } from "./library";
 
@@ -85,6 +85,46 @@ export interface BlobPutDeps {
 
 export function liveBlobDeps(): BlobPutDeps {
   return { put, now: () => new Date() };
+}
+
+export interface BlobDelDeps {
+  del: typeof del;
+}
+
+export function liveBlobDelDeps(): BlobDelDeps {
+  return { del };
+}
+
+/**
+ * Undo a `put` whose Neon row never landed.
+ *
+ * R2 is "Neon row first, external second", and this route cannot obey it
+ * literally: `crm_collateral.blob_url` is NOT NULL and the URL only exists
+ * once Blob has the bytes. So the order is put → insert → and, if the insert
+ * fails, delete the object we just made. Without this, a Neon hiccup leaves a
+ * public blob with no row: invisible to the library, referenced by nothing,
+ * billed forever, findable only in the Blob dashboard.
+ *
+ * NEVER THROWS. It runs inside a failure path that already has an answer for
+ * the rep; a second failure here must not replace that answer with a 500. It
+ * returns whether the object is known to be gone, and logs when it is not, so
+ * an orphan is at least named in the logs.
+ */
+export async function deleteCollateralFile(
+  url: string,
+  deps: BlobDelDeps = liveBlobDelDeps(),
+): Promise<boolean> {
+  if (!url || !blobConfigured()) return false;
+  try {
+    await deps.del(url);
+    return true;
+  } catch (err) {
+    console.error("[crm] orphaned collateral blob — delete failed", {
+      url,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
 }
 
 /**

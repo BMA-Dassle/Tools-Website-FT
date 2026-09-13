@@ -42,7 +42,7 @@ export {
   recordShareOpen,
 } from "./data/share-links-db";
 
-export { findShareLead, type ShareLeadRef } from "./data/lead-lookup-db";
+export { findShareLead, type ShareLeadRef } from "./service/lead-ref";
 
 export {
   CRM_SHARE_PATH,
@@ -70,14 +70,17 @@ export {
   UPLOAD_ERRORS,
   blobConfigured,
   blobPathFor,
+  deleteCollateralFile,
   uploadCollateralFile,
 } from "./service/blob";
 
 export {
   MERGE_FIELDS,
   MERGE_FIELD_KEYS,
+  PREVIEW_GAP_FIELDS,
   gsm7Verdict,
   mergeFieldsIn,
+  previewValues,
   renderSegments,
   renderTemplate,
   sampleValues,
@@ -85,6 +88,7 @@ export {
   type MergeFieldDef,
   type MergeSegment,
   type MergeValues,
+  type PreviewLead,
 } from "./service/merge";
 
 export {

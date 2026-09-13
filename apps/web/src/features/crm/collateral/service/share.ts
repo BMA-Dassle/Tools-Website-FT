@@ -24,6 +24,13 @@
  * an unknown token is a 404, an expired or revoked one a 410, and neither
  * answer reveals whether a file exists.
  *
+ * WHAT EXPIRY CANNOT DO. The blob is stored `access: "public"`, so the URL the
+ * 302 points at is permanent. Expiry, revoke and archive close the TOKENISED
+ * HOP — they do not reach a guest who already opened the link, or a rep who
+ * forwarded the card's Preview URL. The ShareSheet says so in those words;
+ * making revocation real would mean streaming the bytes through this route
+ * instead of redirecting, which is a deliberate trade nobody has asked for.
+ *
  * R2 (Neon first): the row is written before anything is handed to a guest, so
  * a link that reaches a phone always has a row behind it.
  */
@@ -31,7 +38,7 @@
 import { randomBytes, createHash } from "node:crypto";
 import { CRM_SHARE_PATH, type ShareChannel, type ShareLink } from "../contracts";
 import { bumpCollateralShares, getCollateral } from "../data/collateral-db";
-import { findShareLead, type ShareLeadRef } from "../data/lead-lookup-db";
+import { findShareLead, type ShareLeadRef } from "./lead-ref";
 import {
   expireDueShareLinks,
   getShareLinkForOpen,
@@ -300,9 +307,17 @@ function liveShareDeps(): ShareDeps {
     findShareLead,
     insertShareLink,
     bumpCollateralShares,
+    /**
+     * The timeline row goes through the activities sub's OWN writer
+     * (`recordActivity`, B3) — one writer per table, so the
+     * `(external_kind, external_ref)` idempotency and the `actor_email`
+     * requirement (R9) live in one place rather than in every sub that files a
+     * touch. Imported lazily so the collateral barrel does not pull the leads
+     * graph in for callers that never share.
+     */
     recordActivity: async (a) => {
-      const { insertActivity } = await import("~/features/crm/activities");
-      await insertActivity({
+      const { recordActivity } = await import("~/features/crm/activities");
+      await recordActivity({
         leadId: a.leadId,
         contactId: a.contactId,
         repId: a.repId,

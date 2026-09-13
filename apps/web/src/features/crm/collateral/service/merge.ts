@@ -154,9 +154,44 @@ export function renderTemplate(body: string, values: MergeValues = {}): MergeRes
   return { text, missing, unknown };
 }
 
-/** The editor's preview values when no lead is selected. */
+/** Every field filled — what a template looks like on its luckiest lead. */
 export function sampleValues(): Record<string, string> {
   return Object.fromEntries(MERGE_FIELDS.map((f) => [f.key, f.sample]));
+}
+
+/**
+ * The fields a REAL lead most often has nothing behind. The prototype's own
+ * preview lead (Lee Health, L-1042) has no lane hold, no event with us last
+ * year and no quote sent yet — so these three are exactly where a template
+ * silently goes blank in practice.
+ */
+export const PREVIEW_GAP_FIELDS: readonly string[] = [
+  "hold.until",
+  "lastYear.date",
+  "quote.sentAgo",
+];
+
+export type PreviewLead = "typical" | "complete";
+
+/**
+ * What the editor previews against.
+ *
+ * `"typical"` is the DEFAULT and it is the point: previewing against a value
+ * set where all twelve fields are present means `segment.missing` is false for
+ * every known token, the `<mark>` never paints, and the caption's promise —
+ * "a missing field is highlighted rather than rendered blank" — is one nobody
+ * can ever see kept. A director writing "your lanes are held until
+ * {{hold.until}}" has to see what that looks like on the leads that have no
+ * hold, because that is the message that goes out wrong.
+ *
+ * `"complete"` stays available behind the editor's toggle for reading the copy
+ * as a lucky guest receives it.
+ */
+export function previewValues(lead: PreviewLead = "typical"): MergeValues {
+  const values: MergeValues = sampleValues();
+  if (lead === "complete") return values;
+  for (const key of PREVIEW_GAP_FIELDS) values[key] = null;
+  return values;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,8 +203,11 @@ export function sampleValues(): Record<string, string> {
  * marketing body: anything outside 7-bit ASCII pushes the whole message into
  * UCS-2, which halves the segment length (70 chars, not 160) and doubles the
  * bill. Re-stated here rather than imported because `assertGsm7Safe` THROWS,
- * and a template list has to be able to SHOW a bad row rather than die on it —
- * `assertTemplateGsm7Safe` below is the throwing form the send path uses.
+ * and a template list has to be able to SHOW a bad row rather than die on it.
+ * `gsm7Verdict` is the only form: the refusal that matters is the server's,
+ * and `/collateral/templates` raises it as a 422 `not_gsm7` from this verdict
+ * (there is no throwing wrapper in this module — an earlier version of this
+ * comment named one that never existed).
  *
  * This is not hypothetical: the seeded template "Quote nudge (48 h)"
  * (`core/seed.ts` T-2, copied verbatim from the prototype) contains an em dash.

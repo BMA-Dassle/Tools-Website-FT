@@ -35,12 +35,21 @@ describe("COLLATERAL_EXTRA_CARDS", () => {
     expect(shippedExtraCards()).toEqual([]);
   });
 
+  /**
+   * The flip is driven through the REGISTRY ITSELF and read back through
+   * `shippedExtraCards()` — the same function `CollateralScreen` builds its
+   * slot list from. An earlier version of this test re-implemented the lookup
+   * inline, so it would have passed even if the helper had stopped working.
+   */
   it("surfaces a slot the moment its line is flipped, in declaration order", () => {
-    const flipped: Record<string, unknown> = {
-      ...COLLATERAL_EXTRA_CARDS,
-      "quote-templates": () => Promise.resolve({ default: () => null }),
-    };
-    const shipped = COLLATERAL_EXTRA_CARD_IDS.filter((id) => flipped[id]);
-    expect(shipped).toEqual(["quote-templates"]);
+    const before = COLLATERAL_EXTRA_CARDS["quote-templates"];
+    const load = () => Promise.resolve({ default: () => null });
+    try {
+      COLLATERAL_EXTRA_CARDS["quote-templates"] = load;
+      expect(shippedExtraCards()).toEqual([{ id: "quote-templates", load }]);
+    } finally {
+      COLLATERAL_EXTRA_CARDS["quote-templates"] = before;
+    }
+    expect(shippedExtraCards()).toEqual([]);
   });
 });
