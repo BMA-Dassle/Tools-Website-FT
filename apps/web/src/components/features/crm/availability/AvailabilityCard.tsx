@@ -3,9 +3,9 @@
 import { IconAlertTriangle, IconCheck, IconLayersSubtract } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { fmtMin } from "~/features/crm/availability";
 import { AVAILABILITY_TEST_IDS } from "~/features/crm/availability/contracts";
 import { availabilityKeys } from "~/features/crm/availability/queries";
+import { fmtMin } from "~/features/crm/availability/service/engine";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import { errorMessage } from "../lib/crm-fetch";
 import { useCrmFetch } from "../lib/use-crm-user";

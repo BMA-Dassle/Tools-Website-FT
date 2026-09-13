@@ -5,7 +5,7 @@ import {
   type DayBounds,
   type LaneBlock,
   type LaneOccupancy,
-} from "~/features/crm/availability";
+} from "~/features/crm/availability/service/engine";
 import type {
   AvailabilityPlacement,
   AvailabilitySection,
