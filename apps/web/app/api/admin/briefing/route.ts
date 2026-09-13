@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { del } from "@vercel/blob";
 import {
+  briefingBoardPulse,
   briefingBoardStatus,
   clearRoom,
   handOverSessionHost,
@@ -89,6 +90,14 @@ async function authed(req: NextRequest): Promise<boolean> {
 
 export async function GET(req: NextRequest) {
   if (!(await authed(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // THE FAST LANE: rooms + lanes + crew, Redis only. The board polls this every
+  // two seconds and merges it over the full status below, which stays on its
+  // slower cadence with the Neon folds — see briefingBoardPulse.
+  if (req.nextUrl.searchParams.get("pulse") === "1") {
+    return NextResponse.json(await briefingBoardPulse(), {
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
   const status = await briefingBoardStatus();
   // The push identity travels with the board: the gear needs the public key to
   // register a device, and `configured: false` is what lets it say "not set up"

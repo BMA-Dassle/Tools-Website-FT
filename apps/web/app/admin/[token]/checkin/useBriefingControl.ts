@@ -22,8 +22,9 @@
  * and the panels became a pure renderer of it. The flash can take the whole
  * screen (it should) without costing anything underneath.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import { laneSignature, mergeBoardPulse, type BoardPulse } from "./board-pulse";
 // The kind list is named ONCE, in desk-alarm.ts. Retyping it here is how `pull`
 // came to exist on the board and not in the endpoint's shape check.
 import type { AlarmKind } from "~/features/signage/briefing/desk-alarm";
@@ -481,6 +482,35 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     enabled,
   );
 
+  /**
+   * THE FAST LANE (owner 2026-09-12: "show them available as soon as race is
+   * posted"). The rooms, the lanes and the Track Ops crew — the half of the
+   * board that changes at a PRESS — every two seconds from a Redis-only read,
+   * merged over the full board when newer. Same split, same cadence and same
+   * merge rule as the walls' pulse; the rule itself is pure and tested in
+   * ./board-pulse. A dropped beat keeps the last pulse rather than clearing
+   * anything, and a beat still in flight after 8s is not going to be news.
+   */
+  const [pulse, setPulse] = useState<BoardPulse | null>(null);
+  useVisibleInterval(
+    async (signal) => {
+      try {
+        const res = await fetch(`/api/admin/briefing?token=${encodeURIComponent(token)}&pulse=1`, {
+          cache: "no-store",
+          signal,
+        });
+        if (!res.ok || signal.aborted) return;
+        setPulse((await res.json()) as BoardPulse);
+      } catch {
+        /* keep the last pulse */
+      }
+    },
+    2_000,
+    enabled,
+    8_000,
+  );
+  const merged = useMemo(() => mergeBoardPulse(board, pulse), [board, pulse]);
+
   const post = useCallback(
     async (
       body: Record<string, unknown>,
@@ -762,14 +792,18 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   );
 
   /**
-   * The wait-time strip's own poll, at a MINUTE rather than the board's five
-   * seconds. These are today's averages over the whole night: they move when a
-   * heat finishes, not between two blinks, and each read folds the day's events
-   * — so polling it at board speed would be twelve times the work for a number
-   * that had not changed.
+   * The wait-time numbers: today's averages over the whole night. They move
+   * when a GROUP moves — a race goes green, a race is posted — not between two
+   * blinks, and each read folds the day's events out of Neon, so they are not
+   * polled at board speed. Instead (owner 2026-09-12: "stats… update faster"):
+   *
+   *   • a 30-second backstop poll, and
+   *   • an IMMEDIATE refetch whenever the lanes' occupancy changes (below) — so
+   *     the moment a post empties the pit slot, "Total experience" for that heat
+   *     is on the panel with the next paint, not up to a minute later.
    */
-  useVisibleInterval(
-    async (signal) => {
+  const loadWaitTimes = useCallback(
+    async (signal?: AbortSignal) => {
       try {
         const res = await fetch(`/api/admin/wait-times?token=${encodeURIComponent(token)}`, {
           cache: "no-store",
@@ -782,9 +816,27 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
         /* a dropped poll must not blank the strip */
       }
     },
-    60_000,
-    enabled,
+    [token],
   );
+  useVisibleInterval(loadWaitTimes, 30_000, enabled);
+
+  /**
+   * WHO IS WHERE, as one string; when it changes, the wait times are re-read.
+   * Skips the very first value — the poll above has already loaded once — and
+   * a floor that has not moved costs nothing.
+   */
+  const floor = laneSignature(merged?.lanes);
+  const lastFloor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    if (lastFloor.current === null) {
+      lastFloor.current = floor;
+      return;
+    }
+    if (lastFloor.current === floor) return;
+    lastFloor.current = floor;
+    void loadWaitTimes();
+  }, [floor, enabled, loadWaitTimes]);
 
   /**
    * The seven-day baseline, polled every TEN MINUTES.
@@ -848,7 +900,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   );
 
   return {
-    board,
+    board: merged,
     note,
     busy,
     pending,

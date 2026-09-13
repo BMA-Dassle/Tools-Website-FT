@@ -1,5 +1,6 @@
 # Open Tasks
 
+<<<<<<< Updated upstream
 ## A signed contract re-signs when the DATE or VENUE moves, not just the price (2026-09-13) — branch `worktree-resign-on-material-change` — BUILT, gates green, NOT deployed
 
 Owner question: "https://headpinz.com/contract/c31e3aec — this contract changed date and it's not
@@ -66,6 +67,43 @@ asked to sign again.
       money doesn't) also require a re-sign? Same class as the date. Not built.
 - [ ] Non-material edits (notes / contacts / planner) still never regenerate the signed PDF, so a
       corrected note leaves the executed document stale. Deliberately left alone — flagging it.
+=======
+## Track Ops + wait-time stats on the fast lane (2026-09-12) — branch `fix/track-ops-fast-lane`
+
+Owner: "I need track ops rotation and stats to update faster as I need to show them available as
+soon as race is posted." Diagnosis: the SERVER already frees the marshal at the post press —
+`markRacePitted` empties all four lane slots for the returning session, and the room was cleared
+at send-to-holding — so the lag is entirely in what reads it: the walls' TRACK OPS row rides the
+15s full feed, the desk/tablet board polls at 5s, and the Wait times panel polls at 60s.
+
+- [x] `~/lib/helpers/swr-cache.ts` (PURE, 8 tests) — one stale-while-revalidate cache: fresh →
+      value; stale with a last-good → the last-good NOW and a deduped background refresh; cold →
+      await the load; a failed refresh is remembered so a dead upstream costs one attempt per TTL,
+      never one per poll. Keyed, so the counts can roll with the business day.
+- [x] `staff/portal-roster.ts` (5 tests) + `staff/crew.server.ts` — the two slow crew inputs (portal GET,
+      Neon GROUP BY) go through it. Nobody polling a board ever waits on the portal again except the
+      very first read of an isolate; this is what makes the crew board affordable on a 2s pulse.
+- [x] TV pulse carries `crew` (FT only; lanes + rooms already in hand) and `useTvFeed` merges
+      `pulse.crew ?? feed.crew` — the briefing-room idle wall, camera boards and Mega tracker see
+      the marshal go green within ~2s of the post instead of ≤15s.
+- [x] `/api/admin/briefing?pulse=1` → `briefingBoardPulse()` = `{ now, rooms, lanes, crew }`, Redis
+      + cached inputs only. `useBriefingControl` polls it at 2s and merges it over the 5s board
+      (pulse wins only when newer; `groupOut` kept from the full board). Desk strip, Holding/On-track
+      boxes and the tablet's room panels move together.
+- [x] Wait times: poll 60s → 30s AND an immediate refetch whenever the lanes' occupancy signature
+      changes (a group promoted, a race back, a post played) — "Total experience" for the heat lands
+      the moment the race is posted rather than up to a minute later.
+- [x] Gates: vitest 521 files / 7677 tests green (the 6 failing files — auth.config, middleware.*,
+      waiver-short-link, sso/session — fail identically on the untouched tree: `next-auth` /
+      `@auth/core` are not installed in this checkout); tsc 54 errors before AND after, all the
+      same missing modules, none in touched files; eslint clean on every changed file.
+      `next build` could not run locally for the same missing-module reason — Vercel preview is
+      the build gate for this branch.
+- [ ] Not committed yet (owner to review the diff), not live-verified: watch a post press on the
+      desk strip, a briefing-room idle wall and the Wait times panel.
+- [ ] NOT in scope here: the portal pit board's own poll of `GET /api/portal/briefings` — that
+      endpoint is uncached; its cadence lives in Tools-Team-Member-Portal.
+>>>>>>> Stashed changes
 
 ## Pit station: "PA busy" frozen-cache fix + cue sync (2026-09-10) — branches `fix/pit-pa-busy-frozen-cache`, `feat/pit-cue-sync`
 
