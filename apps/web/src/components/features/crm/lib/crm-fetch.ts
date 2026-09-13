@@ -88,6 +88,7 @@ export const KNOWN_ROUTES = [
   "/leads",
   "/sms",
   "/templates",
+  "/email",
 ] as const;
 
 export function isKnownRoute(path: string): boolean {
