@@ -79,17 +79,70 @@ async function shoot(page: Page, name: string) {
     // No horizontal overflow at either width (the phone rule in CLAUDE.md /
     // brief §6.3: zero horizontal scroll at 390). Tables and boards may be
     // wider only inside their own `overflow-x: auto` box, never the document.
-    const metrics = await page.evaluate(() => ({
-      scrollWidth: document.documentElement.scrollWidth,
-      clientWidth: document.documentElement.clientWidth,
-      scrollHeight: document.documentElement.scrollHeight,
-      innerHeight: window.innerHeight,
-    }));
+    //
+    // MEASURED BY TRYING TO SCROLL, not by `documentElement.scrollWidth`: with
+    // the shell at 100dvh and `.content` as the scroller, Chromium still
+    // reports the clipped descendants' extent on the root element (1646 px
+    // tall / 699 px wide for the statuses page) while the window itself cannot
+    // move a pixel — `scrollTo` is what a thumb does, so it is what we assert.
+    const metrics = await page.evaluate(() => {
+      const de = document.documentElement;
+      const cw = de.clientWidth;
+      const ih = window.innerHeight;
+      const describe = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        const cls = (el.getAttribute("class") ?? "").split(/\s+/).slice(0, 3).join(".");
+        return `${el.tagName.toLowerCase()}${cls ? "." + cls : ""} ${Math.round(r.left)}..${Math.round(r.right)} x ${Math.round(r.top)}..${Math.round(r.bottom)}`;
+      };
+      // Outermost offenders first: anything painted past the right edge or
+      // below the shell is what makes the DOCUMENT scroll instead of `.content`.
+      // …and only the UNCLIPPED ones count: a box inside an `overflow:auto|hidden`
+      // ancestor is that ancestor's scroll content, not the document's.
+      const clipped = (el: Element) => {
+        for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+          const o = getComputedStyle(p);
+          if (o.overflow !== "visible" || o.overflowX !== "visible" || o.overflowY !== "visible")
+            return true;
+        }
+        return false;
+      };
+      const wide: string[] = [];
+      const tall: string[] = [];
+      for (const el of Array.from(document.querySelectorAll("body *"))) {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) continue;
+        if (clipped(el)) continue;
+        if (r.right > cw + 1 && wide.length < 8) wide.push(describe(el));
+        if (r.bottom > ih + 1 && tall.length < 8) tall.push(describe(el));
+      }
+      window.scrollTo(cw * 4, ih * 4);
+      const scrolledTo = { x: window.scrollX, y: window.scrollY };
+      window.scrollTo(0, 0);
+      const sizes: Record<string, string> = {};
+      for (const sel of [".crm-root", ".shell", ".main", ".content"]) {
+        const el = document.querySelector(sel);
+        if (!el) continue;
+        const cs = getComputedStyle(el);
+        sizes[sel] = `h=${cs.height} minH=${cs.minHeight} ov=${cs.overflow} disp=${cs.display}`;
+      }
+      return {
+        scrollWidth: de.scrollWidth,
+        clientWidth: cw,
+        scrollHeight: de.scrollHeight,
+        innerHeight: ih,
+        bodyScrollHeight: document.body.scrollHeight,
+        scrolledTo,
+        wide,
+        tall,
+        sizes,
+      };
+    });
     console.log(`[layout] ${name}@${width}: ${JSON.stringify(metrics)}`);
     expect(
-      metrics.scrollWidth,
-      `${name}@${width}: the document scrolls horizontally`,
-    ).toBeLessThanOrEqual(metrics.clientWidth);
+      metrics.scrolledTo.x,
+      `${name}@${width}: the window scrolls horizontally; unclipped offenders: ${metrics.wide.join(" | ")}`,
+    ).toBe(0);
+    expect(metrics.wide, `${name}@${width}: boxes painted past the right edge`).toEqual([]);
     await page.screenshot({ path: path.join(SHOTS, `${name}-${width}.png`), fullPage: true });
   }
   await page.setViewportSize({ width: 1280, height: 900 });
