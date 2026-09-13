@@ -168,6 +168,9 @@ export function toContractRow(q: QuoteRowSource, ctx: RowContext): ContractRow {
     rep: rep ? repRef(rep) : null,
     leadPublicId,
     daysOut: daysOut(eventDate, ctx.now),
+    sentAgoDays: base.sentAt
+      ? Math.max(0, Math.floor((ctx.now.getTime() - Date.parse(base.sentAt)) / 86_400_000))
+      : null,
     reasons: attentionReasons(base, ctx.now),
     createdAt: base.createdAt,
     updatedAt: iso(q.updated_at) ?? base.createdAt,
