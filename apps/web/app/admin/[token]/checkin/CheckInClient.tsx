@@ -21,7 +21,6 @@ import { GREETING_TIMING_DEFAULTS } from "~/features/signage/briefing/return-gre
 // — no server import behind either (see crew-list.ts's header).
 import { CrewPill } from "~/components/features/crew/CrewPill";
 import { nextUp, type CrewBoard } from "~/features/staff/crew-list";
-import { CREW_GREEN, CREW_PILL_INK } from "~/lib/constants/crew";
 import { PORTAL_PIT_BOARD_TV_URL } from "~/lib/constants/admin-tools";
 import { useBuildUpdate } from "~/hooks/useBuildUpdate";
 import {
@@ -295,20 +294,36 @@ function TimingChip({ timing, serverNowMs }: { timing?: TimingFeedStatus; server
  * WHO IS NEXT, AND WHO IS BEHIND THEM (owner 2026-09-10: "so the check in team
  * knows who is next").
  *
- * THE PILLS ALREADY SAY THIS — the list is in queue order, so the leftmost
- * available pill IS next. This says it in words anyway, and that is the point:
- * "first in a row of eight pills" is a thing you work out, and the desk is
- * reading this strip mid-conversation with a guest. A name is a thing you see.
+ * IT CARRIES THE PILLS THEMSELVES, NOT THEIR NAMES (owner 2026-09-12, on the
+ * live desk board: "shouldn't have names in this top portion twice… move the
+ * next pill to next to the word NEXT instead of just putting the name").
+ *
+ * The first cut printed the names here as text — "NEXT Kassandra · QUEUED
+ * Dominic" — and then drew Kassandra's and Dominic's pills again immediately
+ * to the right of it. The same two people appeared twice within a few
+ * centimetres, and the duplicate was leftmost, so it was the first thing the
+ * eye hit. Worse, the text copy carried none of what the pill carries: no
+ * flag, no group count, no idle clock.
+ *
+ * So NEXT and QUEUED now hold the REAL pills, and `TrackOpsStrip` draws only
+ * the people this line did not already show. Each person appears exactly once
+ * on the strip, and the person the desk is about to send is the one wearing a
+ * full pill beside the word NEXT.
  *
  * IT IS NOT A SECOND OPINION. `nextUp` is the fold's own function, off the
  * same sorted list the pills are drawn from, so this line and the pill order
- * cannot drift apart (features/staff/crew-list.ts).
+ * cannot drift apart (features/staff/crew-list.ts). It is also what makes the
+ * split safe: `next` + `queued` is exactly the available set, so the remainder
+ * the strip draws is exactly everybody else, with nobody dropped or doubled.
  *
  * DESK ONLY. The walls get the new order and the clocks; they do not get this,
  * because a marshal reading a pit sign from thirty feet needs to know who is
  * free, and the desk is the one that decides who goes.
+ *
+ * @param nowMs the board poll's own `now` — the pills here are the same pills
+ *   as the row's, and must be told the same time. See the call site.
  */
-function NextUpLine({ crew }: { crew: CrewBoard }) {
+function NextUpLine({ crew, nowMs }: { crew: CrewBoard; nowMs: number }) {
   const { next, queued } = nextUp(crew.list);
   const label = (text: string, first: boolean) => (
     <span
@@ -322,9 +337,7 @@ function NextUpLine({ crew }: { crew: CrewBoard }) {
     <span className="inline-flex items-center gap-1.5 text-[13px]" style={{ marginRight: 4 }}>
       {label("Next", true)}
       {next ? (
-        <b className="font-extrabold" style={{ color: CREW_GREEN }}>
-          {next.firstName}
-        </b>
+        <CrewPill entry={next} density="desk" nowMs={nowMs} />
       ) : (
         /* Nobody free. Said plainly rather than left blank — an empty slot
            beside the word NEXT reads as a board that has not loaded. */
@@ -340,9 +353,9 @@ function NextUpLine({ crew }: { crew: CrewBoard }) {
         <>
           {label("Queued", false)}
           {queued.length > 0 ? (
-            <span style={{ color: CREW_PILL_INK }}>
-              {queued.map((e) => e.firstName).join(" · ")}
-            </span>
+            queued.map((entry) => (
+              <CrewPill key={entry.userId} entry={entry} density="desk" nowMs={nowMs} />
+            ))
           ) : (
             <span style={{ color: TV_DARK.muted }}>—</span>
           )}
@@ -372,11 +385,20 @@ function TrackOpsStrip({ crew, nowMs }: { crew: CrewBoard; nowMs: number }) {
           Nobody on Track Ops right now
         </span>
       )}
-      {/* Ahead of the pills: the answer first, the evidence after it. */}
-      {crew.list.length > 0 && <NextUpLine crew={crew} />}
-      {crew.list.map((entry) => (
-        <CrewPill key={entry.userId} entry={entry} density="desk" nowMs={nowMs} />
-      ))}
+      {/* Ahead of the row: the people the desk can actually send, each as a
+          full pill beside NEXT / QUEUED. */}
+      {crew.list.length > 0 && <NextUpLine crew={crew} nowMs={nowMs} />}
+      {/* EVERYBODY ELSE, in the same order they were already in. `nextUp`
+          returns exactly the available entries, so filtering them out here
+          leaves precisely the people NextUpLine did not draw — out on a group,
+          on a break, or not yet clocked in. Filtering by STATE rather than by
+          "is this one of the ids above" keeps the two sides reading off the
+          same rule instead of one checking the other's output. */}
+      {crew.list
+        .filter((entry) => entry.state !== "available")
+        .map((entry) => (
+          <CrewPill key={entry.userId} entry={entry} density="desk" nowMs={nowMs} />
+        ))}
       {/* THE PORTAL COULD NOT BE REACHED. Said out loud, because the list is
           then only the people holding a group — a short strip that would
           otherwise read as a quiet floor. */}
