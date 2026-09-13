@@ -9,6 +9,7 @@ import { EVENT_TYPE_LABEL } from "~/features/crm/rules/labels";
 import { rulesKeys } from "~/features/crm/rules/queries";
 import { errorMessage } from "../lib/crm-fetch";
 import { useCrmFetch } from "../lib/use-crm-user";
+import { useDebouncedValue } from "../lib/use-debounced";
 import { Banner } from "../primitives/Banner";
 import { ICON } from "../primitives/icon-props";
 import { RuleTrace } from "../primitives/RuleTrace";
@@ -25,6 +26,9 @@ import { fetchTryLead } from "./queries";
  * this re-runs when the roster changes — "Change the roster above and this
  * re-runs."
  */
+/** Long enough to swallow a typed number, short enough to feel live. */
+export const TRY_DEBOUNCE_MS = 300;
+
 export interface TryLeadProps {
   centres: CentreOption[];
   values: { guests: string; type: EventType; centre: CentreCode; eventDate: string };
@@ -41,11 +45,19 @@ export function TryLead({ centres, values, onChange }: TryLeadProps) {
     centre: values.centre,
     eventDate: values.eventDate || undefined,
   };
+  // Every run is four Neon queries (reps · rules · shifts · open volume), so
+  // the fields settle before they reach the query key — typing "120" fires one
+  // request, not three. The URL still updates immediately: the link is live.
+  const settled = useDebouncedValue(
+    params,
+    TRY_DEBOUNCE_MS,
+    `${params.guests}|${params.type}|${params.centre}|${params.eventDate ?? ""}`,
+  );
 
   const tryQ = useQuery({
-    queryKey: rulesKeys.try(params),
-    queryFn: () => fetchTryLead(crmFetch, params),
-    enabled: guests !== null,
+    queryKey: rulesKeys.try(settled),
+    queryFn: () => fetchTryLead(crmFetch, settled),
+    enabled: settled.guests >= 1,
     placeholderData: (prev) => prev,
   });
 

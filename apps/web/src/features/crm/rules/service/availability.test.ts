@@ -8,8 +8,10 @@ import {
   SHIFTS_TOMORROW,
 } from "../test-support";
 import {
+  dayWindows,
   fmtHour,
   fmtWindow,
+  mergeWindows,
   nextStart,
   onShiftNow,
   rosterForDate,
@@ -141,6 +143,7 @@ describe("rosterFromShiftRows — crm_shifts rows → ET windows", () => {
     const r = rosterFromShiftRows(rows, { todayYmd: "2026-09-12", tomorrowYmd: "2026-09-13" });
     expect(r.shiftsToday[REP_ID.kelsea]).toEqual({
       window: { startHour: 10, endHour: 18 },
+      windows: [{ startHour: 10, endHour: 18 }],
       off: false,
       offReason: null,
     });
@@ -148,7 +151,7 @@ describe("rosterFromShiftRows — crm_shifts rows → ET windows", () => {
     expect(r.shiftsTomorrow).toEqual({});
   });
 
-  it("two shifts on one day merge into one window; a shift past midnight ends at hour + 24", () => {
+  it("two shifts on one day: the hull spans both, the windows stay separate, a shift past midnight ends at hour + 24", () => {
     const rows = [
       row({ startsAt: "2026-09-12T09:00:00-04:00", endsAt: "2026-09-12T13:00:00-04:00" }),
       row({
@@ -158,10 +161,52 @@ describe("rosterFromShiftRows — crm_shifts rows → ET windows", () => {
         endsAt: "2026-09-13T01:00:00-04:00",
       }),
     ];
-    expect(rosterForDate(rows, "2026-09-12")[REP_ID.kelsea]?.window).toEqual({
-      startHour: 9,
-      endHour: 25,
+    const day = rosterForDate(rows, "2026-09-12")[REP_ID.kelsea];
+    expect(day?.window).toEqual({ startHour: 9, endHour: 25 });
+    // The GAP is the point: the hull is what the table prints, the windows are
+    // what "on shift now" reads (the Guest Services bucket is a whole
+    // department's shifts, so it really can be on, off and on again).
+    expect(day?.windows).toEqual([
+      { startHour: 9, endHour: 13 },
+      { startHour: 17, endHour: 25 },
+    ]);
+    const clock = (iso: string) => ({
+      shiftsToday: rosterForDate(rows, "2026-09-12"),
+      shiftsTomorrow: {},
+      now: new Date(iso),
     });
+    expect(onShiftNow(REP_ID.kelsea, clock("2026-09-12T11:00:00-04:00"))).toBe(true);
+    expect(onShiftNow(REP_ID.kelsea, clock("2026-09-12T15:00:00-04:00"))).toBe(false);
+    expect(onShiftNow(REP_ID.kelsea, clock("2026-09-12T18:00:00-04:00"))).toBe(true);
+    // …and the next start inside a gap is the LATER window, not the hull's start.
+    expect(nextStart(REP_ID.kelsea, clock("2026-09-12T15:00:00-04:00"))).toEqual({
+      when: "today",
+      hour: 17,
+    });
+  });
+
+  it("overlapping or touching windows collapse into one", () => {
+    expect(
+      mergeWindows([
+        { startHour: 15, endHour: 22 },
+        { startHour: 9, endHour: 17 },
+      ]),
+    ).toEqual([{ startHour: 9, endHour: 22 }]);
+    expect(
+      mergeWindows([
+        { startHour: 9, endHour: 13 },
+        { startHour: 13, endHour: 18 },
+      ]),
+    ).toEqual([{ startHour: 9, endHour: 18 }]);
+    expect(mergeWindows([])).toEqual([]);
+  });
+
+  it("dayWindows falls back to the hull for a day built by hand", () => {
+    expect(
+      dayWindows({ window: { startHour: 9, endHour: 17 }, off: false, offReason: null }),
+    ).toEqual([{ startHour: 9, endHour: 17 }]);
+    expect(dayWindows({ window: null, off: true, offReason: "PTO" })).toEqual([]);
+    expect(dayWindows(undefined)).toEqual([]);
   });
 
   it("a manual off row marks the day off without touching the 7shifts window; manual on-row does nothing", () => {
@@ -186,10 +231,16 @@ describe("rosterFromShiftRows — crm_shifts rows → ET windows", () => {
     const today = rosterForDate(rows, "2026-09-12");
     expect(today[REP_ID.kelsea]).toEqual({
       window: { startHour: 10, endHour: 18 },
+      windows: [{ startHour: 10, endHour: 18 }],
       off: true,
       offReason: "PTO",
     });
-    expect(today[REP_ID.lori]).toEqual({ window: null, off: false, offReason: null });
+    expect(today[REP_ID.lori]).toEqual({
+      window: null,
+      windows: [],
+      off: false,
+      offReason: null,
+    });
   });
 
   it("rows for other dates are ignored", () => {

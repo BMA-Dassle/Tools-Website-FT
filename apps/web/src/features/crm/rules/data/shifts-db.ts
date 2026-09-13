@@ -162,26 +162,59 @@ export async function upsertSevenShifts(rows: readonly SevenShiftUpsert[]): Prom
   return written;
 }
 
+/** One mirrored row as it still exists upstream — the full identity, not just the shift id. */
+export interface KeptShift {
+  repId: string;
+  shiftDate: string;
+  sevenShiftsShiftId: string;
+}
+
 export interface PruneInput {
   locationId: number;
   dates: readonly string[];
-  /** 7shifts shift ids still present upstream for that location and window. */
-  keepShiftIds: readonly string[];
+  /**
+   * The (rep, date, shift id) TRIPLES still present upstream for that location
+   * and window — the same identity the upsert conflicts on.
+   */
+  keep: readonly KeptShift[];
 }
 
-/** Drop mirrored rows the upstream no longer has. Manual rows are untouched by construction. */
+/**
+ * Drop mirrored rows the upstream no longer has. Manual rows are untouched by
+ * construction (the `source` filter).
+ *
+ * Pruning by shift ID ALONE was a bug: when 7shifts moves an existing shift
+ * from today to tomorrow it keeps its id, so the id was still in the keep list
+ * and the old day's row survived beside the new one — the rep then read as on
+ * shift on a day they were not working, and `onShiftNow` / `nextStart` could
+ * pick someone who was off. The rep id matters for the same reason: a member
+ * dropped from the Guest Services department leaves a bucket row whose shift
+ * id is still live under their own rep row.
+ */
 export async function pruneSevenShifts(input: PruneInput): Promise<number> {
   if (!isDbConfigured() || input.dates.length === 0) return 0;
   await ensureShiftsSchema();
   const q = sql();
   const rows = (await q.query(
-    `DELETE FROM crm_shifts
-      WHERE source = '7shifts'
-        AND location_id = $1
-        AND shift_date = ANY($2::date[])
-        AND NOT (seven_shifts_shift_id = ANY($3::text[]))
+    `DELETE FROM crm_shifts s
+      WHERE s.source = '7shifts'
+        AND s.location_id = $1
+        AND s.shift_date = ANY($2::date[])
+        AND NOT EXISTS (
+          SELECT 1
+            FROM unnest($3::bigint[], $4::date[], $5::text[]) AS k(rep_id, shift_date, shift_id)
+           WHERE k.rep_id = s.rep_id
+             AND k.shift_date = s.shift_date
+             AND k.shift_id = s.seven_shifts_shift_id
+        )
       RETURNING id`,
-    [input.locationId, input.dates, input.keepShiftIds],
+    [
+      input.locationId,
+      input.dates,
+      input.keep.map((k) => k.repId),
+      input.keep.map((k) => k.shiftDate),
+      input.keep.map((k) => k.sevenShiftsShiftId),
+    ],
   )) as { id: string }[];
   return rows.length;
 }

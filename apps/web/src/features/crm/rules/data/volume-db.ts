@@ -11,9 +11,28 @@
  */
 
 import { isDbConfigured, sql } from "@ft/db";
-import { ensureLeadsSchema } from "~/features/crm/leads";
 import type { CentreCode, EventType, LeadSource } from "../../core/types";
 import type { VolumeByRepMonth } from "../service/engine";
+
+/**
+ * The leads sub owns this DDL, and the import is LAZY on purpose: B3's
+ * `leads/service/assign.ts` consumes the engine through the rules index, so a
+ * static `rules → leads` edge would close a runtime cycle between two eager
+ * re-export barrels (§3.2 "never cyclically"). A dynamic import inside the
+ * query keeps the edge out of the module graph; the promise is memoised, and a
+ * failure clears it so the next call retries instead of caching the rejection.
+ */
+let leadsSchemaReady: Promise<void> | null = null;
+
+function ensureLeadsSchema(): Promise<void> {
+  leadsSchemaReady ??= import("~/features/crm/leads")
+    .then((m) => m.ensureLeadsSchema())
+    .catch((err: unknown) => {
+      leadsSchemaReady = null;
+      throw err;
+    });
+  return leadsSchemaReady;
+}
 
 interface VolumeRowRaw {
   rep_id: string;

@@ -199,6 +199,60 @@ export async function seedReps(rows: readonly RepSeed[]): Promise<number> {
   return written;
 }
 
+/** One `crm_rep_logins` row. */
+export interface RepLoginRow {
+  email: string;
+  repId: string;
+}
+
+/**
+ * Every explicit login mapping. The Rules screen needs them to answer "does
+ * this call-centre agent already act as somebody?" — a rep's OWN mailbox is
+ * not in here, so a caller that wants the full picture unions this with
+ * `crm_reps.email`, the same precedence `findRepByLoginEmail` uses (login rows
+ * win).
+ */
+export async function listRepLogins(): Promise<RepLoginRow[]> {
+  if (!isDbConfigured()) return [];
+  await ensureRepsSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT lower(email) AS email, rep_id::text AS rep_id
+      FROM crm_rep_logins
+     ORDER BY email ASC
+  `) as { email: string; rep_id: string }[];
+  return rows.map((r) => ({ email: r.email, repId: String(r.rep_id) }));
+}
+
+/**
+ * Point one sign-in address at a rep, or remove the mapping (`slug: null`).
+ * Returns whether a row was written or deleted. A slug with no rep row writes
+ * nothing — the caller's guard has already decided this is allowed (see
+ * `rules/service/gs-members.ts`: department membership alone never maps an
+ * address, or the directors in the call-centre department would sign in as the
+ * Guest Services bucket).
+ */
+export async function setRepLogin(email: string, slug: string | null): Promise<boolean> {
+  const key = email.trim().toLowerCase();
+  if (!key || !isDbConfigured()) return false;
+  await ensureRepsSchema();
+  const q = sql();
+  if (slug === null) {
+    const gone =
+      (await q`DELETE FROM crm_rep_logins WHERE lower(email) = ${key} RETURNING email`) as {
+        email: string;
+      }[];
+    return gone.length > 0;
+  }
+  const out = (await q`
+    INSERT INTO crm_rep_logins (email, rep_id)
+    SELECT ${key}, id FROM crm_reps WHERE slug = ${slug}
+    ON CONFLICT (email) DO UPDATE SET rep_id = EXCLUDED.rep_id
+    RETURNING email
+  `) as { email: string }[];
+  return out.length > 0;
+}
+
 /** Insert login → rep rows that do not exist yet; a slug with no rep row is skipped. */
 export async function seedRepLogins(
   rows: ReadonlyArray<{ email: string; slug: string }>,

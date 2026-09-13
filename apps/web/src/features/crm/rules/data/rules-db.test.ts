@@ -201,12 +201,38 @@ describe("shifts-db", () => {
     await shiftsDb.pruneSevenShifts({
       locationId: 332160,
       dates: ["2026-09-12", "2026-09-13"],
-      keepShiftIds: ["8801234501"],
+      keep: [
+        { repId: "1", shiftDate: "2026-09-13", sevenShiftsShiftId: "8801234501" },
+        { repId: "4", shiftDate: "2026-09-13", sevenShiftsShiftId: "8801234501" },
+      ],
     });
     const del = db.matching(/^DELETE FROM crm_shifts/)[0];
-    expect(del.text).toContain("WHERE source = '7shifts'");
-    expect(del.text).toContain("NOT (seven_shifts_shift_id = ANY($3::text[]))");
-    expect(del.params).toEqual([332160, ["2026-09-12", "2026-09-13"], ["8801234501"]]);
+    expect(del.text).toContain("WHERE s.source = '7shifts'");
+    // The identity is the TRIPLE, not the shift id: a shift that moves from
+    // today to tomorrow keeps its id, and pruning by id alone left the old
+    // day's row behind — the rep then read as on shift on a day off.
+    expect(del.text).toContain("unnest($3::bigint[], $4::date[], $5::text[])");
+    expect(del.text).toContain("k.rep_id = s.rep_id");
+    expect(del.text).toContain("k.shift_date = s.shift_date");
+    expect(del.text).toContain("k.shift_id = s.seven_shifts_shift_id");
+    expect(del.params).toEqual([
+      332160,
+      ["2026-09-12", "2026-09-13"],
+      ["1", "4"],
+      ["2026-09-13", "2026-09-13"],
+      ["8801234501", "8801234501"],
+    ]);
+  });
+
+  it("pruneSevenShifts with nothing left upstream sends empty keep arrays (delete every mirrored row in the window)", async () => {
+    db.reset();
+    await shiftsDb.pruneSevenShifts({
+      locationId: 467486,
+      dates: ["2026-09-12"],
+      keep: [],
+    });
+    const del = db.matching(/^DELETE FROM crm_shifts/)[0];
+    expect(del.params).toEqual([467486, ["2026-09-12"], [], [], []]);
   });
 
   it("setOffToday upserts the manual row through the partial index; reason defaults to 'manual' when off, NULL when back on", async () => {

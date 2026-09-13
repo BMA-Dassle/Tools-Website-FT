@@ -1,14 +1,15 @@
 import type { PublicRep } from "~/features/crm/core/contracts";
 import type { DecisionWire, RuleInputWire } from "~/features/crm/rules/contracts";
 import { EVENT_TYPE_LABEL, LEAD_SOURCE_LABEL } from "~/features/crm/rules/labels";
-import type {
-  AssignmentRule,
-  CentreCode,
-  EventType,
-  LeadSource,
-  RuleKind,
-  RuleThen,
-  RuleWhen,
+import {
+  EVENT_TYPES,
+  type AssignmentRule,
+  type CentreCode,
+  type EventType,
+  type LeadSource,
+  type RuleKind,
+  type RuleThen,
+  type RuleWhen,
 } from "~/features/crm/core/types";
 import type { RuleTraceRow } from "../primitives/RuleTrace";
 
@@ -295,6 +296,88 @@ export function traceRows(decision: DecisionWire): { steps: RuleTraceRow[]; fina
 
 /** Parse the guests field of "Try a lead"; null when it is not a positive whole number. */
 export function parseGuests(value: string): number | null {
-  const n = Number(value.trim());
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
   return Number.isInteger(n) && n >= 1 && n <= 100_000 ? n : null;
+}
+
+// ---------------------------------------------------------------------------
+// "Try a lead" fields: component state, mirrored to the URL
+// ---------------------------------------------------------------------------
+
+export interface TryFields {
+  /** The RAW text of the guests box — "" while the director is retyping it. */
+  guests: string;
+  type: EventType;
+  centre: CentreCode;
+  eventDate: string;
+}
+
+/**
+ * The scenario a link restores. `guests` is read back only when it parses, so a
+ * URL never carries a half-typed number.
+ */
+export function tryFieldsFromQuery(
+  query: Record<string, string>,
+  defaults: TryFields,
+  centres: readonly CentreOption[],
+): TryFields {
+  const type = query.type;
+  const centre = query.centre;
+  return {
+    guests:
+      query.guests !== undefined && parseGuests(query.guests) !== null
+        ? query.guests
+        : defaults.guests,
+    type: isEventType(type) ? type : defaults.type,
+    centre: centres.some((c) => c.code === centre) ? (centre as CentreCode) : defaults.centre,
+    eventDate: /^\d{4}-\d{2}-\d{2}$/.test(query.eventDate ?? "")
+      ? (query.eventDate as string)
+      : defaults.eventDate,
+  };
+}
+
+function isEventType(v: string | undefined): v is EventType {
+  return !!v && (EVENT_TYPES as readonly string[]).includes(v);
+}
+
+/**
+ * "635186, 730648" → `[635186, 730648]`; null when the text is not a list of
+ * whole numbers (the Save button stays disabled). An empty box is an empty
+ * list — a director saying no department covers the bucket.
+ */
+export function parseDepartmentIds(text: string): number[] | null {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  const out: number[] = [];
+  for (const part of trimmed.split(",")) {
+    const n = Number(part.trim());
+    if (!Number.isInteger(n) || n <= 0 || n > 2_147_483_647) return null;
+    if (!out.includes(n)) out.push(n);
+  }
+  return out;
+}
+
+export function applyTryPatch(prev: TryFields, patch: Partial<TryFields>): TryFields {
+  return { ...prev, ...patch };
+}
+
+/**
+ * The URL patch for the current fields.
+ *
+ * The guests box is the reason this exists: the URL helper drops any key set to
+ * "", so reading the field straight back out of the query made it SNAP BACK to
+ * the default the moment it was cleared — backspacing "42" to type "120" gave
+ * "4", then "42", then "427…". The raw text now lives in component state and
+ * only a value that parses is mirrored; an unparseable one removes the key, so
+ * a shared link falls back to the default instead of restoring nonsense.
+ */
+export function tryUrlPatch(fields: TryFields): Record<string, string | null> {
+  return {
+    guests: parseGuests(fields.guests) === null ? null : fields.guests.trim(),
+    type: fields.type,
+    centre: fields.centre,
+    eventDate: fields.eventDate || null,
+  };
 }

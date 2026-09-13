@@ -5,10 +5,13 @@
 export {
   ensureRepsSchema,
   findRepByLoginEmail,
+  listRepLogins,
   listReps,
   mapRepRow,
   seedRepLogins,
   seedReps,
+  setRepLogin,
+  type RepLoginRow,
   type RepRowRaw,
   type RepSeed,
 } from "./data/reps-db";

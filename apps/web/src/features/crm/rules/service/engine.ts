@@ -31,6 +31,7 @@
  */
 
 import { monthKey } from "~/features/crm/core/dates";
+import type { DecisionOutcome } from "../contracts";
 import type {
   AssignDecision,
   AssignmentRule,
@@ -78,7 +79,8 @@ export interface EngineContext extends RosterClock {
   now: Date;
 }
 
-export type DecisionOutcome = "hold" | "route" | "assign" | "queue" | "none";
+/** Defined in `../contracts` (client-safe); re-exported here where the engine uses it. */
+export type { DecisionOutcome };
 
 /** `AssignDecision` plus what kind of answer it is (the sweep and B3's assign read it). */
 export interface EngineDecision extends AssignDecision {
