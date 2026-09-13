@@ -99,7 +99,10 @@ export default function HistoryScreen({ query }: ScreenProps) {
         />
       </div>
 
-      <div className="grid grid-2" style={{ gridTemplateColumns: "1fr 1.2fr" }}>
+      {/* `.grid-2` alone, never an inline grid-template: the phone rule that
+          collapses this to one column (crm.css @media max-width 768px) loses
+          to an inline style, and the two cards would ride off the screen. */}
+      <div className="grid grid-2">
         <div className="card" data-testid={HISTORY_TEST_IDS.accounts}>
           <div className="card-h">
             <h2>Accounts</h2>
