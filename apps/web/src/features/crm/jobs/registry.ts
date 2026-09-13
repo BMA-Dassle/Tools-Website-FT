@@ -14,6 +14,7 @@
 import { runSeed } from "../core/seed";
 import { JOB_KINDS, type JobKind, type JobRow } from "../core/types";
 import { bmiMirrorBackfillHandler, bmiMirrorDeltaHandler } from "~/features/crm/bmi";
+import { shareLinkExpireHandler } from "~/features/crm/collateral";
 import { assignSweepHandler, sevenShiftsMirrorHandler } from "~/features/crm/rules";
 
 export interface JobContext {
@@ -65,7 +66,7 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   "graph-renew": notImplemented("graph-renew"),
   "graph-fetch-message": notImplemented("graph-fetch-message"),
   "threecx-reconcile": notImplemented("threecx-reconcile"),
-  "share-link-expire": notImplemented("share-link-expire"),
+  "share-link-expire": shareLinkExpireHandler,
   "email-send-retry": notImplemented("email-send-retry"),
   "sms-send-retry": notImplemented("sms-send-retry"),
   "pandora-goals-sync": notImplemented("pandora-goals-sync"),
