@@ -15,16 +15,34 @@ import {
 import { CENTRES, CENTRE_CODES } from "~/features/crm/core/centres";
 import { errorMessage } from "../lib/crm-fetch";
 import { Banner } from "../primitives/Banner";
-import { collateralMessage } from "./model";
+import {
+  collateralMessage,
+  collateralPatch,
+  formValuesOf,
+  type CollateralFormValues,
+} from "./model";
 
 /**
- * Add a file to the library. ONE sheet with two ways in, because there are two
- * realities:
+ * Add a file to the library — or edit the metadata of one that is already in
+ * it. ONE sheet, because the fields are the same ones.
+ *
+ * ADDING has two ways in, because there are two realities:
  *
  *   Upload      the normal path, when Vercel Blob has a token;
  *   Add by URL  the honest degrade when it does not (brief C6: the screen says
  *               so plainly), and also the way a director points at something
  *               already hosted — a menu on the marketing site, say.
+ *
+ * EDITING (`initial` present) is metadata only, and that is deliberate. The
+ * bytes behind a row are what guests already hold links to; swapping them
+ * under an existing row would change what a link delivered yesterday. So the
+ * file picker is not offered — the sheet says to add the new file and archive
+ * this one, which is what archive-not-delete exists for — and the URL field
+ * stays editable for a row that points at somewhere else entirely.
+ *
+ * ONLY WHAT CHANGED IS SENT (`collateralPatch`). `updateCollateral` treats a
+ * `null` as "clear this field", so posting the whole form would wipe `centre`,
+ * `tags` and the season dates every time the sheet opened without them.
  *
  * The size and extension checks run HERE as well as on the server, from the
  * SAME table (`service/library.ts`), so a rep learns that a 40 MB video is not
@@ -35,15 +53,12 @@ import { collateralMessage } from "./model";
  */
 export interface UploadSheetProps {
   blobConfigured: boolean;
+  /** Present → edit this row's metadata instead of adding a new one. */
+  initial?: CollateralItem;
   onUpload: (form: FormData) => Promise<CollateralItem>;
-  onCreateByUrl: (input: {
-    title: string;
-    centre: CentreCode | null;
-    blobUrl: string;
-    tags: string[];
-    validFrom: string | null;
-    validUntil: string | null;
-  }) => Promise<CollateralItem>;
+  onCreateByUrl: (input: CollateralFormValues) => Promise<CollateralItem>;
+  /** Edit mode only: the fields that actually changed. */
+  onSave?: (patch: Partial<CollateralFormValues>) => Promise<CollateralItem>;
   onDone: (item: CollateralItem) => void;
   onCancel: () => void;
 }
@@ -52,20 +67,24 @@ const YMD = /^\d{4}-\d{2}-\d{2}$/;
 
 export function UploadSheet({
   blobConfigured,
+  initial,
   onUpload,
   onCreateByUrl,
+  onSave,
   onDone,
   onCancel,
 }: UploadSheetProps) {
   const ids = useId();
-  const [mode, setMode] = useState<"file" | "url">(blobConfigured ? "file" : "url");
+  const editing = Boolean(initial);
+  const start = initial ? formValuesOf(initial) : null;
+  const [mode, setMode] = useState<"file" | "url">(blobConfigured && !initial ? "file" : "url");
   const [file, setFile] = useState<File | null>(null);
-  const [url, setUrl] = useState("");
-  const [title, setTitle] = useState("");
-  const [centre, setCentre] = useState<string>("");
-  const [tags, setTags] = useState("");
-  const [validFrom, setValidFrom] = useState("");
-  const [validUntil, setValidUntil] = useState("");
+  const [url, setUrl] = useState(start?.blobUrl ?? "");
+  const [title, setTitle] = useState(start?.title ?? "");
+  const [centre, setCentre] = useState<string>(start?.centre ?? "");
+  const [tags, setTags] = useState(start ? start.tags.join(", ") : "");
+  const [validFrom, setValidFrom] = useState(start?.validFrom ?? "");
+  const [validUntil, setValidUntil] = useState(start?.validUntil ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +98,15 @@ export function UploadSheet({
     }
   };
 
+  const values = (): CollateralFormValues => ({
+    title: title.trim(),
+    centre: (centre || null) as CentreCode | null,
+    blobUrl: url.trim(),
+    tags: parseTagInput(tags),
+    validFrom: validFrom || null,
+    validUntil: validUntil || null,
+  });
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const cleanTitle = title.trim();
@@ -88,7 +116,12 @@ export function UploadSheet({
     setError(null);
     setPending(true);
     try {
-      if (mode === "file") {
+      if (start && initial && onSave) {
+        const patch = collateralPatch(start, values());
+        // Nothing moved: close without a write rather than bump `updated_at`
+        // and file an audit row for a change that did not happen.
+        onDone(Object.keys(patch).length === 0 ? initial : await onSave(patch));
+      } else if (mode === "file") {
         if (!file) throw new Error("no_file");
         if (file.size > COLLATERAL_MAX_BYTES) throw new Error("file_too_big");
         if (!collateralTypeFromName(file.name)) throw new Error("unsupported_file_type");
@@ -101,16 +134,7 @@ export function UploadSheet({
         if (validUntil) form.set("validUntil", validUntil);
         onDone(await onUpload(form));
       } else {
-        onDone(
-          await onCreateByUrl({
-            title: cleanTitle,
-            centre: (centre || null) as CentreCode | null,
-            blobUrl: url.trim(),
-            tags: parseTagInput(tags),
-            validFrom: validFrom || null,
-            validUntil: validUntil || null,
-          }),
-        );
+        onDone(await onCreateByUrl(values()));
       }
     } catch (err) {
       setError(collateralMessage(errorMessage(err)));
@@ -126,14 +150,21 @@ export function UploadSheet({
       onSubmit={submit}
       data-testid={COLLATERAL_TEST_IDS.uploadSheet}
     >
-      {!blobConfigured ? (
+      {!blobConfigured && !editing ? (
         <Banner tone="warn" testId={COLLATERAL_TEST_IDS.blobBanner}>
           File upload is off for this deployment: BLOB_READ_WRITE_TOKEN is not set. Paste the
           file&rsquo;s public link instead — everything else about it works the same.
         </Banner>
       ) : null}
 
-      {blobConfigured ? (
+      {editing ? (
+        <div className="xs muted">
+          Editing the details of a file that is already in the library. To replace the file itself,
+          add the new one and archive this one — links already sent keep pointing at these bytes.
+        </div>
+      ) : null}
+
+      {blobConfigured && !editing ? (
         <div className="seg" role="group" aria-label="How to add the file">
           <button
             type="button"
@@ -258,7 +289,7 @@ export function UploadSheet({
           Cancel
         </button>
         <button type="submit" className="btn btn-primary" disabled={pending}>
-          {pending ? "Saving…" : "Add to library"}
+          {pending ? "Saving…" : editing ? "Save changes" : "Add to library"}
         </button>
       </div>
     </form>

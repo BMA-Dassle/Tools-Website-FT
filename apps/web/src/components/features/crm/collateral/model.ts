@@ -140,6 +140,62 @@ export function collateralCardModel(
 }
 
 // ---------------------------------------------------------------------------
+// The add / edit form
+// ---------------------------------------------------------------------------
+
+/** Exactly what the sheet's fields hold, normalised. */
+export interface CollateralFormValues {
+  title: string;
+  centre: CentreCode | null;
+  blobUrl: string;
+  tags: string[];
+  validFrom: string | null;
+  validUntil: string | null;
+}
+
+/** The values an existing row starts the edit form with. */
+export function formValuesOf(item: CollateralItem): CollateralFormValues {
+  return {
+    title: item.title,
+    centre: item.centre,
+    blobUrl: item.blobUrl,
+    tags: [...item.tags],
+    validFrom: item.validFrom,
+    validUntil: item.validUntil,
+  };
+}
+
+function sameTags(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((t, i) => t === b[i]);
+}
+
+/**
+ * ONLY WHAT THE DIRECTOR ACTUALLY CHANGED.
+ *
+ * `updateCollateral` guards every nullable field with `CASE WHEN $n::boolean`
+ * and every other with `COALESCE`, so a field left `undefined` keeps its
+ * value and a field sent as `null` is CLEARED. A sheet that posted its whole
+ * form on every save would therefore wipe `centre`, `tags`, `validFrom` and
+ * `validUntil` the moment it opened without them — which is precisely how the
+ * first cut of the edit path lost metadata. So the patch carries a key only
+ * when its value differs from the row it started from; an untouched form
+ * produces `{}` and no request is worth sending at all.
+ */
+export function collateralPatch(
+  initial: CollateralFormValues,
+  next: CollateralFormValues,
+): Partial<CollateralFormValues> {
+  const patch: Partial<CollateralFormValues> = {};
+  if (next.title !== initial.title) patch.title = next.title;
+  if (next.centre !== initial.centre) patch.centre = next.centre;
+  if (next.blobUrl !== initial.blobUrl) patch.blobUrl = next.blobUrl;
+  if (!sameTags(next.tags, initial.tags)) patch.tags = next.tags;
+  if (next.validFrom !== initial.validFrom) patch.validFrom = next.validFrom;
+  if (next.validUntil !== initial.validUntil) patch.validUntil = next.validUntil;
+  return patch;
+}
+
+// ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
 
@@ -170,6 +226,14 @@ export function gsm7Offenders(templates: readonly MessageTemplate[]): MessageTem
  * Server error codes → the sentence a rep reads. Anything unmapped falls
  * through to the server's own message, which `withCrmRoute` already keeps free
  * of hostnames and SQL.
+ *
+ * THE PREFIXED CODES ARE THE COMMON ONES, so they are mapped too. The server
+ * answers a GSM-7 refusal as `not_gsm7: "—" is not GSM-7 — texts with it cost
+ * double` and a zod refusal as `invalid_request: patch.blobUrl: expected an
+ * https:// URL`; both used to reach a Banner verbatim, field paths and all.
+ * The code before the colon is what is mapped; the server's detail stays on
+ * the thrown `CrmApiError.message`, where React Query keeps it for devtools,
+ * rather than in front of a rep.
  */
 const MESSAGES: Record<string, string> = {
   [BLOB_NOT_CONFIGURED]:
@@ -182,6 +246,9 @@ const MESSAGES: Record<string, string> = {
   share_not_found: "That link was already removed.",
   template_not_found: "That template is no longer here.",
   director_only: "Only a sales director can change the library.",
+  not_gsm7: "That character costs double to text — replace it.",
+  invalid_request: "Check the highlighted field.",
+  collateralId_or_lead: "Pick a file to share.",
 };
 
 export function collateralMessage(error: string): string {

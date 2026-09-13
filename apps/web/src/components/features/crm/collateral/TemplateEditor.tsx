@@ -6,9 +6,10 @@ import { COLLATERAL_TEST_IDS } from "~/features/crm/collateral/contracts";
 import {
   MERGE_FIELDS,
   gsm7Verdict,
+  previewValues,
   renderSegments,
-  sampleValues,
   smsSegments,
+  type PreviewLead,
 } from "~/features/crm/collateral/service/merge";
 import { CENTRES, CENTRE_CODES } from "~/features/crm/core/centres";
 import type { CentreCode } from "~/features/crm/core/types";
@@ -41,7 +42,21 @@ export interface TemplateEditorProps {
   onCancel: () => void;
 }
 
-const PREVIEW_VALUES = sampleValues();
+/**
+ * Two value sets, both built at MODULE scope (never in a render body —
+ * `feedback_tdz_component_const_helpers`).
+ *
+ * The default is the lead with GAPS, and that is the whole point of the
+ * preview: against a value set where all twelve fields are filled, nothing is
+ * ever missing, the highlight never paints, and the caption below the preview
+ * describes a behaviour the director cannot see. The prototype's own preview
+ * lead (Lee Health, L-1042) has no hold, no event last year and no quote sent
+ * — the three fields most templates go blank on in real life.
+ */
+const PREVIEW_SETS: Record<PreviewLead, ReturnType<typeof previewValues>> = {
+  typical: previewValues("typical"),
+  complete: previewValues("complete"),
+};
 
 export function TemplateEditor({ initial, onSubmit, onCancel }: TemplateEditorProps) {
   const ids = useId();
@@ -53,8 +68,12 @@ export function TemplateEditor({ initial, onSubmit, onCancel }: TemplateEditorPr
   const [centre, setCentre] = useState<string>(initial?.centre ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewLead, setPreviewLead] = useState<PreviewLead>("typical");
 
-  const segments = useMemo(() => renderSegments(body, PREVIEW_VALUES), [body]);
+  const segments = useMemo(
+    () => renderSegments(body, PREVIEW_SETS[previewLead]),
+    [body, previewLead],
+  );
   const gsm7 = useMemo(() => (kind === "sms" ? gsm7Verdict(body) : null), [kind, body]);
   const unknown = useMemo(
     () => [...new Set(segments.flatMap((s) => (s.kind === "field" && s.unknown ? [s.key] : [])))],
@@ -206,6 +225,24 @@ export function TemplateEditor({ initial, onSubmit, onCancel }: TemplateEditorPr
 
       <div className="stack">
         <div className="eyebrow">Preview</div>
+        <div className="seg" role="group" aria-label="Preview this against">
+          <button
+            type="button"
+            aria-pressed={previewLead === "typical"}
+            onClick={() => setPreviewLead("typical")}
+            disabled={pending}
+          >
+            A typical lead
+          </button>
+          <button
+            type="button"
+            aria-pressed={previewLead === "complete"}
+            onClick={() => setPreviewLead("complete")}
+            disabled={pending}
+          >
+            Every field filled
+          </button>
+        </div>
         <div className="bubble out" style={{ whiteSpace: "pre-wrap" }}>
           {segments.map((s, i) =>
             s.kind === "field" && (s.missing || s.unknown) ? (
@@ -226,8 +263,9 @@ export function TemplateEditor({ initial, onSubmit, onCancel }: TemplateEditorPr
           )}
         </div>
         <div className="xs muted">
-          Merge fields fill from the lead. A field with nothing behind it stays highlighted here and
-          goes out looking exactly like that — fix it before you send.
+          {previewLead === "typical"
+            ? "A typical lead has no lane hold, no event with us last year and no quote sent yet. Those fields stay highlighted here and go out looking exactly like that — fix them before you send."
+            : "Every field filled — how this reads for a lead that has all of it."}
         </div>
 
         {unknown.length > 0 ? (
