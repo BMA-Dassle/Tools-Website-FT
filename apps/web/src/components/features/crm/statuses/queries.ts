@@ -5,6 +5,7 @@ import type {
   SettingsPostBody,
   SettingsResponse,
   StatusesMapPostBody,
+  StatusesMapPostResponse,
   StatusesPostBody,
   StatusesPostResponse,
   StatusesResponse,
@@ -37,7 +38,7 @@ export const postStatuses = (f: CrmFetch, body: StatusesPostBody) =>
   f<StatusesPostResponse>("/statuses", { body: { ...body } });
 
 export const postStatusMap = (f: CrmFetch, body: StatusesMapPostBody) =>
-  f<StatusesResponse>("/statuses/map", { body: { ...body } });
+  f<StatusesMapPostResponse>("/statuses/map", { body: { ...body } });
 
 export const postSetting = (f: CrmFetch, body: SettingsPostBody) =>
   f<SettingsResponse>("/settings", { body: { ...body } });
