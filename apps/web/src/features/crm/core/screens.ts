@@ -1,0 +1,52 @@
+/**
+ * Screen id → lazy component (brief §3.5).
+ *
+ * PRE-POPULATED FOR EVERY ID so the shell renders on day one and no later PR
+ * adds a key: a feature PR replaces EXACTLY ITS OWN LINE with
+ * `() => import("~/components/features/crm/<sub>/<Screen>")` and nothing else
+ * in this file. `CrmApp` resolves `view[0] ?? "today"` here through
+ * `React.lazy`; an unknown id is an in-app NotFound, never Next's 404.
+ *
+ * Kept as one arrow per line on purpose (no shared `notBuilt` constant), so a
+ * feature PR's diff is a one-line replacement that cannot conflict with
+ * another PR's one-line replacement.
+ */
+
+import type { ComponentType } from "react";
+import type { ScreenId } from "./types";
+
+/** What every screen component receives from the shell. */
+export interface ScreenProps {
+  screen: ScreenId;
+  /** The URL segments after the screen id: `/deal/L-7` → `["L-7"]`. */
+  view: string[];
+  /** The query string at mount time (first value per key). */
+  query: Record<string, string>;
+}
+
+export type ScreenComponent = ComponentType<ScreenProps>;
+
+export type ScreenLoader = () => Promise<{ default: ScreenComponent }>;
+
+export const SCREENS: Record<ScreenId, ScreenLoader> = {
+  today: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  pipeline: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  queue: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  deal: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  contracts: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  events: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  conversations: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  calls: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  history: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  account: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  cold: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  collateral: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  accountability: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  kpi: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  goals: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  rules: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  statuses: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  availability: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  builder: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  more: () => import("~/components/features/crm/shell/NotBuiltYet"),
+};
