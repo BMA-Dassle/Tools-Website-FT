@@ -14,7 +14,6 @@ import {
   displayName,
   filterConversations,
   folderOptions,
-  fromToLine,
   previewOf,
   refusalMessage,
   sendErrorMessage,
@@ -36,7 +35,7 @@ function conv(over: Partial<ConversationSummary> = {}): ConversationSummary {
     leadPublicId: "L-1042",
     leadStatus: "quote",
     leadTitle: "Lee Health",
-    repSlugs: ["kelsea"],
+    reps: [{ slug: "kelsea", initials: "KK", name: "Kelsea Kosco" }],
     threadIds: ["1"],
     lastMessageAt: "2026-09-13T12:00:00.000Z",
     lastBody: "Yes, 6pm works for us",
@@ -68,12 +67,6 @@ describe("prototype copy", () => {
     expect(composerPlaceholder("Dana", "+12392058142")).toBe("Text Dana from +12392058142…");
   });
 
-  it("the sheet's header line is `From your number <did> to <phone>` (crm-shared.js:260)", () => {
-    expect(fromToLine("+12392058142", "+12395551234")).toBe(
-      "From your number +12392058142 to +12395551234",
-    );
-  });
-
   it("the sent toast is the prototype's, verbatim", () => {
     expect(SENT_TOAST).toBe("Text sent · logged on the deal");
   });
@@ -82,7 +75,6 @@ describe("prototype copy", () => {
     expect(REFUSAL_MESSAGE.no_did).toBe(NO_DID_MESSAGE);
     expect(NO_DID_MESSAGE).toBe("No texting number assigned to you yet — ask the director");
     expect(convFromLine("+12395551234", null)).toContain("no texting number yet");
-    expect(fromToLine(null, "+12395551234")).toContain(NO_DID_MESSAGE);
     expect(composerPlaceholder("Dana", null)).toBe("Text Dana…");
   });
 });

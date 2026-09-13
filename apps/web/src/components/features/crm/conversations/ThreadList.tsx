@@ -36,8 +36,8 @@ export function ThreadList({
         >
           <Avatar
             initials={initialsFor(c)}
-            repSlug={c.repSlugs[0] ?? null}
-            name={c.repSlugs[0] ? `Texting with ${c.repSlugs[0]}` : undefined}
+            repSlug={c.reps[0]?.slug ?? null}
+            name={c.reps[0] ? `Texting with ${c.reps[0].name}` : undefined}
             sm
           />
           <div>

@@ -6,11 +6,18 @@ import Link from "next/link";
 import { lazy, Suspense, useEffect, useMemo, useRef, type LazyExoticComponent } from "react";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import type { ScreenProps } from "~/features/crm/core/screens";
-import { CONVERSATIONS_POLL_MS, smsKeys } from "~/features/crm/sms/queries";
-import { SMS_TEST_IDS, type ConversationFolder } from "~/features/crm/sms/types";
+import { CONVERSATIONS_POLL_MS, THREAD_POLL_MS, smsKeys } from "~/features/crm/sms/queries";
+import {
+  SMS_TEST_IDS,
+  type ConversationFolder,
+  type ConversationRep,
+} from "~/features/crm/sms/types";
 import { errorMessage } from "../lib/crm-fetch";
+import { useStatusIndex } from "../deal/use-deal";
 import { useCrmFetch, useCrmUser } from "../lib/use-crm-user";
 import { useUrlQuery } from "../lib/use-url-query";
+import { Avatar } from "../primitives/Avatar";
+import { Chip } from "../primitives/Chip";
 import { Folders } from "../primitives/Folders";
 import { ICON } from "../primitives/icon-props";
 import { EmptyState, ErrorState, LoadingState } from "../primitives/States";
@@ -24,7 +31,13 @@ import {
   type ConversationTabComponent,
   type ConversationTabId,
 } from "./tabs";
-import { convFromLine, displayName, filterConversations, folderOptions } from "./model";
+import {
+  conversationHref,
+  convFromLine,
+  displayName,
+  filterConversations,
+  folderOptions,
+} from "./model";
 import { fetchConversation, fetchConversations, postRead } from "./queries";
 
 /**
@@ -50,6 +63,7 @@ export default function ConversationsScreen({ view, query }: ScreenProps) {
   const crmFetch = useCrmFetch();
   const qc = useQueryClient();
   const { isDirector } = useCrmUser();
+  const statuses = useStatusIndex();
   const [urlQuery, setUrlQuery] = useUrlQuery(query);
   const readRef = useRef<string | null>(null);
 
@@ -69,9 +83,31 @@ export default function ConversationsScreen({ view, query }: ScreenProps) {
     queryKey: smsKeys.conversation(selectedKey ?? ""),
     queryFn: () => fetchConversation(crmFetch, selectedKey as string),
     enabled: selectedKey !== null,
-    refetchInterval: CONVERSATIONS_POLL_MS,
+    // The open conversation polls faster than the list beside it — it is the
+    // thing being read, and an inbound reply that takes half a minute to appear
+    // reads as a broken screen.
+    refetchInterval: THREAD_POLL_MS,
     refetchIntervalInBackground: false,
   });
+
+  // CANONICALISE THE URL. A deal links with the contact key when it knows the
+  // contact, but a bookmark or an older link may name the number — and the list
+  // keys a known contact as `c-<id>`. Once the detail resolves, the server has
+  // told us which key this person really is; adopt it so the row on the left is
+  // highlighted and the address bar matches what a rep would copy. `replace`,
+  // never `push`: it is the same conversation, not a step in the history.
+  const canonicalKey = detail.data?.summary.key ?? null;
+  useEffect(() => {
+    if (!selectedKey || !canonicalKey || canonicalKey === selectedKey) return;
+    // Keep the query string: the folder and the tab live there (§3.1, "a link
+    // is a saved view"), and swapping only the path would drop them.
+    window.history.replaceState(
+      null,
+      "",
+      `${conversationHref(canonicalKey)}${window.location.search}`,
+    );
+  }, [selectedKey, canonicalKey]);
+  const activeKey = canonicalKey ?? selectedKey;
 
   // Opening a conversation clears its unread count. Once per key per mount:
   // the poll above re-runs the query every 30 s and a POST on each of those
@@ -95,6 +131,8 @@ export default function ConversationsScreen({ view, query }: ScreenProps) {
     [list.data, folder],
   );
   const counts = tabCounts(detail.data ?? null);
+  const leadStatusId = detail.data?.summary.leadStatus ?? null;
+  const leadStatus = leadStatusId ? (statuses.get(leadStatusId) ?? null) : null;
   const TabBody = LAZY_TABS[tab];
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: smsKeys.all });
@@ -124,7 +162,7 @@ export default function ConversationsScreen({ view, query }: ScreenProps) {
         {list.data && conversations.length === 0 ? (
           <EmptyState icon={<IconMessage {...ICON} />}>{emptyFor(folder)}</EmptyState>
         ) : null}
-        <ThreadList conversations={conversations} activeKey={selectedKey} />
+        <ThreadList conversations={conversations} activeKey={activeKey} />
       </div>
 
       <div className="split-detail" style={{ padding: 0, gap: 0 }}>
@@ -139,10 +177,21 @@ export default function ConversationsScreen({ view, query }: ScreenProps) {
         ) : null}
         {selectedKey && detail.data ? (
           <>
+            {/* The prototype's header, in its order (direction-b.html:119):
+                rep avatar · name · number · status chip · Open deal. The avatar
+                is whose conversation this is — the only thing that says so on a
+                director's team-wide view — and the chip is where the deal has
+                got to, so a rep can answer without opening it. */}
             <div className="card-h" style={{ background: "var(--card)" }}>
+              <ConversationRepAvatar rep={detail.data.summary.reps[0] ?? null} />
               <h2>{displayName(detail.data.summary)}</h2>
               <span className="muted small">{detail.data.summary.phoneE164}</span>
               <div className="right">
+                {leadStatus ? (
+                  <Chip kind={leadStatus.kind} st={leadStatus.id}>
+                    {leadStatus.label}
+                  </Chip>
+                ) : null}
                 {detail.data.summary.leadPublicId ? (
                   <Link
                     className="btn btn-sm"
@@ -185,6 +234,12 @@ export default function ConversationsScreen({ view, query }: ScreenProps) {
       </div>
     </div>
   );
+}
+
+/** `U.repAvatar(l.rep)` in the header — whose conversation this is. */
+function ConversationRepAvatar({ rep }: { rep: ConversationRep | null }) {
+  if (!rep) return null;
+  return <Avatar initials={rep.initials} repSlug={rep.slug} name={rep.name} />;
 }
 
 function emptyFor(folder: ConversationFolder): string {
