@@ -166,6 +166,9 @@ function LinkPicker({
             type="button"
             className="opt"
             disabled={pending}
+            // The visible label is two nested divs, which jsx-a11y cannot see
+            // through; spell it out so a screen reader hears the lead, not "button".
+            aria-label={`Link this call to ${leadName(l)} · ${l.publicId}`}
             onClick={() => onPick(l.publicId)}
           >
             <div>

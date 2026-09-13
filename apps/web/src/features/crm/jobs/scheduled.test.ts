@@ -39,6 +39,13 @@ describe("enqueueScheduled", () => {
         idempotencyKey: "sevenshifts-mirror:2026-09-12",
         created: true,
       },
+      // C3's bucket is a UTC 5-minute window, not an ET one: a call log is read
+      // by instant, and nothing about it belongs to a Fort Myers calendar day.
+      {
+        kind: "threecx-reconcile",
+        idempotencyKey: "threecx-reconcile:2026-09-12T23:30",
+        created: true,
+      },
     ]);
     expect(s.inserts.every((i) => i.createdBy === "cron")).toBe(true);
   });
@@ -47,10 +54,10 @@ describe("enqueueScheduled", () => {
     const s = store();
     await enqueueScheduled(new Date("2026-09-12T23:30:00Z"), s);
     const second = await enqueueScheduled(new Date("2026-09-12T23:32:00Z"), s);
-    expect(second.map((r) => r.created)).toEqual([false, false]);
-    expect(s.rows.size).toBe(2);
+    expect(second.map((r) => r.created)).toEqual([false, false, false]);
+    expect(s.rows.size).toBe(3);
     // The INSERT is still attempted — the unique index is what de-duplicates.
-    expect(s.inserts).toHaveLength(4);
+    expect(s.inserts).toHaveLength(6);
   });
 
   it("the next ET hour is a new sweep bucket; the mirror stays on the same ET day", async () => {
@@ -63,6 +70,11 @@ describe("enqueueScheduled", () => {
         kind: "sevenshifts-mirror",
         idempotencyKey: "sevenshifts-mirror:2026-09-12",
         created: false,
+      },
+      {
+        kind: "threecx-reconcile",
+        idempotencyKey: "threecx-reconcile:2026-09-13T00:10",
+        created: true,
       },
     ]);
   });

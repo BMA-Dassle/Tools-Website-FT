@@ -22,11 +22,23 @@
 import { getLead, recordFirstTouch, updateLeadFields } from "../../leads";
 import { recordActivity } from "../../activities";
 import type { CrmUser } from "../../core/types";
-import { CrmHttpError } from "../../core/http";
 import { getCall, setCallDisposition } from "../data/calls-db";
 import { CALL_DISPOSITIONS, type CallDisposition, type CallRow } from "../contracts";
 
 export { CALL_DISPOSITIONS };
+
+/**
+ * A service throws this, not a `CrmHttpError`: `core/http` imports
+ * `next/server`, and dragging the whole Next request runtime into every module
+ * that merely wants to say "no such row" is a cost paid by everything that
+ * imports this sub's barrel — `core/schema.ts` included. The route maps it.
+ */
+export class CallNotFoundError extends Error {
+  constructor(readonly callId: string) {
+    super("call_not_found");
+    this.name = "CallNotFoundError";
+  }
+}
 
 /** The outcome that means a human spoke to a human. */
 export const REACHED: CallDisposition = "Reached";
@@ -96,7 +108,7 @@ export async function applyDisposition(
   deps: DispositionDeps = defaultDispositionDeps,
 ): Promise<DispositionResult> {
   const existing = await deps.read(input.callId);
-  if (!existing) throw new CrmHttpError(404, "call_not_found");
+  if (!existing) throw new CallNotFoundError(input.callId);
 
   const at = input.at ?? new Date();
   const note = (input.note ?? "").trim() || null;
@@ -106,7 +118,7 @@ export async function applyDisposition(
     actorEmail: input.user.email,
     at,
   });
-  if (!call) throw new CrmHttpError(404, "call_not_found");
+  if (!call) throw new CallNotFoundError(input.callId);
 
   await deps.activity({
     leadId: call.leadId,

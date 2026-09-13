@@ -1,6 +1,11 @@
 import { writeAudit } from "~/features/crm/core/data/audit-db";
 import { CrmHttpError, withCrmRoute } from "~/features/crm/core/http";
-import { CallDispositionSchema, CallIdSchema, applyDisposition } from "~/features/crm/calls";
+import {
+  CallDispositionSchema,
+  CallIdSchema,
+  CallNotFoundError,
+  applyDisposition,
+} from "~/features/crm/calls";
 
 /**
  * POST /api/admin/crm/calls/[id]/disposition
@@ -25,6 +30,10 @@ export const POST = withCrmRoute(CallDispositionSchema, async ({ input, params, 
     disposition: input.disposition,
     note: input.note ?? null,
     user,
+  }).catch((err: unknown) => {
+    // The service stays free of `next/server`; the route does the mapping.
+    if (err instanceof CallNotFoundError) throw new CrmHttpError(404, err.message);
+    throw err;
   });
   await writeAudit({
     entity: "call",

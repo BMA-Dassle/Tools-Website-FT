@@ -17,6 +17,7 @@
  * — a later PR adds ONE line naming its own helper (see the TODO below).
  */
 
+import { reconcileIdempotencyKey } from "~/features/crm/calls";
 import { mirrorIdempotencyKey, sweepIdempotencyKey } from "~/features/crm/rules";
 import { neonJobStore, type JobStore } from "./data/jobs-db";
 import type { JobKind } from "../core/types";
@@ -41,12 +42,13 @@ export interface ScheduledKind {
  * bending `ScheduledKind` around it — duplicating the bucket maths here would
  * be a second writer of B1's key.
  *
- * C2 (`graph-renew:<day>`) and C3 (`threecx-reconcile:<minute>`) are the simple
- * shape and are one line each.
+ * C2 (`graph-renew:<day>`) is the simple shape and is one line.
  */
 export const SCHEDULED_KINDS: readonly ScheduledKind[] = [
   { kind: "assign-sweep", key: sweepIdempotencyKey },
   { kind: "sevenshifts-mirror", key: mirrorIdempotencyKey },
+  // C3: one row per 5-minute bucket, so the 2-minute cron cannot stack reconciles.
+  { kind: "threecx-reconcile", key: reconcileIdempotencyKey },
 ];
 
 export interface ScheduledEnqueue {
