@@ -54,9 +54,10 @@ C3 routes: `GET /calls`, `GET /calls/badges`, `POST /calls/dial`,
 
 ### The public `/api/crm/**` exceptions
 
-Exactly three routes live outside the admin gate, each because the caller is a
-machine that holds no session, each authenticated by its own secret, and each
-saying so in its file header (brief R3):
+Exactly three families live outside the admin gate — `3cx/*`, `graph-webhook`
+and `share/[token]` (brief R3) — each because the caller is a machine or a guest
+that holds no session, each authenticated by its own secret, and each saying so
+in its file header:
 
 | Route                    | Caller                       | Secret                                                | PR  |
 | ------------------------ | ---------------------------- | ----------------------------------------------------- | --- |
