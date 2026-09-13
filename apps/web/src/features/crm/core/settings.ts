@@ -13,7 +13,6 @@ import type { CrmSettingKey, CrmSettings, SweepSetting } from "./types";
 
 export const SWEEP_DEFAULT: SweepSetting = Object.freeze({
   delayMinutes: 60,
-  afterHours: "hold9am",
 });
 
 export const RESPONSE_TARGET_DEFAULT_MINUTES = 60;
@@ -28,19 +27,22 @@ export function isCrmSettingKey(value: unknown): value is CrmSettingKey {
   return typeof value === "string" && (CRM_SETTING_KEYS as readonly string[]).includes(value);
 }
 
-/** `{delayMinutes, afterHours}`; each field falls back on its own. */
+/**
+ * `{delayMinutes}` — how long a lead that arrived unassigned waits before the
+ * safety-net sweep retries it.
+ *
+ * A row written before 2026-09-13 also carries `afterHours`; it is IGNORED
+ * here and stripped from the row by `ensureSettingsSchema`, so a value left
+ * over in production Neon can never read back as behaviour we no longer have.
+ */
 export function sweepFromSetting(value: unknown): SweepSetting {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { ...SWEEP_DEFAULT };
-  const v = value as { delayMinutes?: unknown; afterHours?: unknown };
+  const v = value as { delayMinutes?: unknown };
   const delayMinutes =
     typeof v.delayMinutes === "number" && Number.isFinite(v.delayMinutes) && v.delayMinutes >= 0
       ? Math.round(v.delayMinutes)
       : SWEEP_DEFAULT.delayMinutes;
-  const afterHours =
-    v.afterHours === "assign" || v.afterHours === "hold9am"
-      ? v.afterHours
-      : SWEEP_DEFAULT.afterHours;
-  return { delayMinutes, afterHours };
+  return { delayMinutes };
 }
 
 /** A positive integer number of minutes; anything else is the default. */

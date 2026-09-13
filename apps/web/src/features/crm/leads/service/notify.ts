@@ -1,12 +1,18 @@
 /**
- * New-lead notifications (brief §4 B3 "Notifications"):
+ * New-lead notifications (brief §4 B3 "Notifications", §5.7b):
  *
- *   - the QUEUE card: the same Adaptive Card (`lib/sales-lead-card.ts`) to the
- *     director's chat `CRM_JACOB_TEAMS_CHAT_ID`. The variable is not set yet
- *     (owner item) — the card is SKIPPED with a logged reason, never a throw.
- *     When the lead has no BMI project the card goes out WITHOUT its buttons:
- *     they resolve against `salescard:{projectID}`, which exists only once the
- *     project does (`withoutCardActions`);
+ *   - the UNASSIGNED card: the same Adaptive Card (`lib/sales-lead-card.ts`)
+ *     to "Sales Leads - Assignment Pending" (`CRM_UNASSIGNED_TEAMS_CHAT_ID`,
+ *     with the older `CRM_JACOB_TEAMS_CHAT_ID` still accepted). It is sent
+ *     ONLY when the lead ended up with NOBODY — parked by a hold rule, or
+ *     left unresolved because no rule could name a rep. Since 2026-09-13 the
+ *     rules assign at capture, so an ordinary lead is already owned by the
+ *     time this runs and gets exactly one card, in its planner's chat; a
+ *     second card about the same lead in the director's chat is the thing
+ *     this rule exists to prevent. Unset variable → SKIPPED with a logged
+ *     reason, never a throw. When the lead has no BMI project the card goes
+ *     out WITHOUT its buttons: they resolve against `salescard:{projectID}`,
+ *     which exists only once the project does (`withoutCardActions`);
  *   - the planner card + the guest's SMS / email EXACTLY as
  *     `/api/sales-lead/submit` has always done them: planner resolved from
  *     Pandora's `assignedAgent.name`, copy from `lib/sales-lead-copy.ts`,
@@ -46,7 +52,13 @@ import type { CentreCode, LeadSource } from "../../core/types";
 import { EVENT_TYPE_LABEL, type LeadView } from "../contracts";
 import type { MintOutcome } from "./mint";
 
-export const QUEUE_CHAT_ENV = "CRM_JACOB_TEAMS_CHAT_ID";
+/**
+ * "Sales Leads - Assignment Pending" (`19:0c8d8c86…`, owner-created
+ * 2026-09-13). `CRM_JACOB_TEAMS_CHAT_ID` is accepted as a fallback so a
+ * deployment that has only the older variable keeps working.
+ */
+export const UNASSIGNED_CHAT_ENV = "CRM_UNASSIGNED_TEAMS_CHAT_ID";
+export const UNASSIGNED_CHAT_ENV_FALLBACK = "CRM_JACOB_TEAMS_CHAT_ID";
 const STATE_TTL_SECONDS = 60 * 60 * 24 * 90; // 90 days, as today
 
 /** `sales-lead-config.ts` CENTERS is keyed by the form's centerKey; the CRM knows centres. */
@@ -71,7 +83,8 @@ export interface ChannelOutcome {
 
 export interface NotifyOutcome {
   planner: { displayName: string; isIndividual: boolean } | null;
-  queueCard: ChannelOutcome;
+  /** The card to "Sales Leads - Assignment Pending"; skipped when someone owns the lead. */
+  unassignedCard: ChannelOutcome;
   plannerCard: ChannelOutcome;
   sms: ChannelOutcome;
   email: ChannelOutcome;
@@ -81,6 +94,13 @@ export interface NotifyInput {
   lead: LeadView;
   mint: MintOutcome;
   source: LeadSource;
+  /**
+   * Did the rules leave this lead with an owner? `createLead` assigns BEFORE
+   * it notifies and passes `lead.rep !== null`; a parked or unresolved lead is
+   * false and is the only thing the Assignment Pending chat hears about.
+   * Defaults to the lead's own `rep` for callers that have not been updated.
+   */
+  assigned?: boolean;
   preferredContactMethod?: "phone" | "text" | "email";
   bestTimeToCall?: string;
   activityInterest?: string[];
@@ -95,7 +115,7 @@ export interface NotifyDeps {
   redisSet: (key: string, value: string, ttlSeconds: number) => Promise<unknown>;
   redisGet: (key: string) => Promise<string | null>;
   appendPrivateNote: typeof appendPrivateNote;
-  queueChatId: () => string | undefined;
+  unassignedChatId: () => string | undefined;
   now: () => Date;
 }
 
@@ -107,7 +127,10 @@ export function defaultNotifyDeps(): NotifyDeps {
     redisSet: (key, value, ttl) => redis.set(key, value, "EX", ttl),
     redisGet: (key) => redis.get(key),
     appendPrivateNote,
-    queueChatId: () => process.env[QUEUE_CHAT_ENV]?.trim() || undefined,
+    unassignedChatId: () =>
+      process.env[UNASSIGNED_CHAT_ENV]?.trim() ||
+      process.env[UNASSIGNED_CHAT_ENV_FALLBACK]?.trim() ||
+      undefined,
     now: () => new Date(),
   };
 }
@@ -115,9 +138,14 @@ export function defaultNotifyDeps(): NotifyDeps {
 /** The Redis key the Teams buttons read; written only once a project exists. */
 export const salesCardKey = (projectId: string) => `salescard:${projectId}`;
 
-/** Why the queue card would be skipped, or null when it can be sent. */
-export function queueCardSkipReason(chatId: string | undefined): string | null {
-  return chatId ? null : `${QUEUE_CHAT_ENV} not set`;
+/** Why the Assignment Pending card would be skipped, or null when it must be sent. */
+export function unassignedCardSkipReason(
+  chatId: string | undefined,
+  assigned: boolean,
+  ownerName?: string | null,
+): string | null {
+  if (assigned) return `assigned to ${ownerName?.trim() || "a planner"} — their card is the one`;
+  return chatId ? null : `${UNASSIGNED_CHAT_ENV} not set`;
 }
 
 const SKIP = (reason: string): ChannelOutcome => ({
@@ -161,7 +189,7 @@ export async function notifyAlreadySent(
       error: err instanceof Error ? err.message : String(err),
     });
   }
-  return { planner, queueCard: skipped, plannerCard: skipped, sms: skipped, email: skipped };
+  return { planner, unassignedCard: skipped, plannerCard: skipped, sms: skipped, email: skipped };
 }
 
 function settled<T extends ChannelOutcome>(r: PromiseSettledResult<T>): ChannelOutcome {
@@ -212,7 +240,13 @@ export async function notifyNewLead(
     const error = err instanceof Error ? err.message : String(err);
     console.error("[crm] notifyNewLead failed", { lead_id: input.lead.id, error });
     const failed: ChannelOutcome = { ok: false, error };
-    return { planner: null, queueCard: failed, plannerCard: failed, sms: failed, email: failed };
+    return {
+      planner: null,
+      unassignedCard: failed,
+      plannerCard: failed,
+      sms: failed,
+      email: failed,
+    };
   }
 }
 
@@ -226,8 +260,8 @@ async function run(input: NotifyInput, deps: NotifyDeps): Promise<NotifyOutcome>
   const planner = minted ? resolvePlanner(mint.assignedAgent?.name ?? "", center) : null;
   const projectID = minted ? mint.projectId : lead.publicId;
   const projectNumber = minted ? mint.projectNumber : lead.publicId;
-  const queuePlanner = planner ?? resolvePlanner("", center);
-  const state = stateFor(input, queuePlanner, center, projectID, projectNumber, now);
+  const cardPlanner = planner ?? resolvePlanner("", center);
+  const state = stateFor(input, cardPlanner, center, projectID, projectNumber, now);
   const stateKey = salesCardKey(projectID);
 
   if (minted) await deps.redisSet(stateKey, JSON.stringify(state), STATE_TTL_SECONDS);
@@ -256,12 +290,20 @@ async function run(input: NotifyInput, deps: NotifyDeps): Promise<NotifyOutcome>
       }
     : null;
 
-  const queueChatId = deps.queueChatId();
-  const queueSkip = queueCardSkipReason(queueChatId);
-  if (queueSkip)
-    console.log("[crm] queue Teams card skipped", { lead_id: lead.id, reason: queueSkip });
+  // Nobody owns this lead → the Assignment Pending chat. `createLead` has
+  // already applied the rules by the time it calls us, so `assigned` is the
+  // settled answer, not a guess; the `lead.rep` fallback covers a caller that
+  // does not pass it.
+  const assigned = input.assigned ?? lead.rep !== null;
+  const unassignedChatId = deps.unassignedChatId();
+  const unassignedSkip = unassignedCardSkipReason(unassignedChatId, assigned, planner?.displayName);
+  if (unassignedSkip)
+    console.log("[crm] Assignment Pending card skipped", {
+      lead_id: lead.id,
+      reason: unassignedSkip,
+    });
 
-  const [smsR, emailR, plannerR, queueR] = await Promise.allSettled([
+  const [smsR, emailR, plannerR, unassignedR] = await Promise.allSettled([
     shouldSms && copyCtx && planner
       ? sendGuestSms(lead, copyCtx, planner, deps)
       : Promise.resolve(skipGuest),
@@ -271,17 +313,17 @@ async function run(input: NotifyInput, deps: NotifyDeps): Promise<NotifyOutcome>
     minted && planner
       ? postCard(planner.teamsChatId, state, deps)
       : Promise.resolve(SKIP("no BMI project yet")),
-    queueSkip
-      ? Promise.resolve(SKIP(queueSkip))
-      : postCard(queueChatId!, state, deps, { readOnly: !minted }),
+    unassignedSkip
+      ? Promise.resolve(SKIP(unassignedSkip))
+      : postCard(unassignedChatId!, state, deps, { readOnly: !minted }),
   ]);
   const sms = settled(smsR);
   const email = settled(emailR);
   const plannerCard = settled(plannerR);
-  const queueCard = settled(queueR);
+  const unassignedCard = settled(unassignedR);
 
   if (minted) {
-    const actor = queuePlanner.displayName;
+    const actor = cardPlanner.displayName;
     await Promise.allSettled([
       auditLine(deps, projectID, "sms", sms, actor, lead.guest.phone),
       auditLine(deps, projectID, "email", email, actor, lead.guest.email),
@@ -299,7 +341,7 @@ async function run(input: NotifyInput, deps: NotifyDeps): Promise<NotifyOutcome>
     planner: planner
       ? { displayName: planner.displayName, isIndividual: planner.isIndividual }
       : null,
-    queueCard,
+    unassignedCard,
     plannerCard,
     sms,
     email,
@@ -402,6 +444,6 @@ export function summarizeNotify(o: NotifyOutcome): string {
     part("Guest text", o.sms),
     part("guest email", o.email),
     part(o.planner ? `Teams card to ${o.planner.displayName}` : "planner card", o.plannerCard),
-    part("queue card", o.queueCard),
+    part("Assignment Pending card", o.unassignedCard),
   ].join(" · ");
 }

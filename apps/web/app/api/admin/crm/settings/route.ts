@@ -30,13 +30,16 @@ const BmiWritesValue = z.object({
   offCentres: z.array(ClientKey).max(2).default([]),
 });
 
+// The sweep is a safety net, so its only knob is how long a lead that arrived
+// unassigned waits before the net retries it. `afterHours` was removed with the
+// hold-until-9-AM rail (owner, 2026-09-13); an old client that still sends it
+// is accepted and the key is dropped rather than 400ing a director's save.
 const SweepValue = z.object({
   delayMinutes: z
     .number()
     .int()
     .min(0)
     .max(24 * 60),
-  afterHours: z.enum(["hold9am", "assign"]),
 });
 
 const ResponseTargetValue = z

@@ -15,7 +15,6 @@ import type {
   RuleThen,
   RuleWhen,
   RuleTraceStep,
-  SweepSetting,
 } from "~/features/crm/core/types";
 
 // ---------------------------------------------------------------------------
@@ -156,10 +155,8 @@ export interface SweepDecision {
 
 export interface SweepResult {
   ranAt: string;
+  /** How long a lead that arrived unassigned waits before the net retries it. */
   delayMinutes: number;
-  afterHours: SweepSetting["afterHours"];
-  /** True when `hold9am` kept the decisions from being applied this hour. */
-  held: boolean;
   candidates: number;
   decisions: SweepDecision[];
   applied: number;

@@ -182,11 +182,9 @@ export function AssignSheet({ lead, suggestion, trace, onCancel, onDone }: Assig
       </div>
 
       <div className="hstack" style={{ justifyContent: "flex-end" }}>
-        {queue.data?.autoAssignInMinutes != null ? (
-          <span className="muted small" style={{ marginRight: "auto" }}>
-            Auto-assign runs in {queue.data.autoAssignInMinutes} min if nobody picks
-          </span>
-        ) : null}
+        <span className="muted small" style={{ marginRight: "auto" }}>
+          The rules ran when this lead arrived · this is a hand pick
+        </span>
         <button type="button" className="btn" onClick={onCancel} disabled={assign.isPending}>
           Cancel
         </button>

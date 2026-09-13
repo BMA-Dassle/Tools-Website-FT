@@ -137,12 +137,6 @@ const deps = (over: Partial<Parameters<typeof loadMyDay>[1]> = {}) => ({
   listReps: async () => ALL_REPS,
   countUnassigned: async () => 4,
   countInStatus: async () => 3,
-  listUnassigned: async () => [makeLead({ id: "1059", createdAt: minsAgo(118) })],
-  settings: async () => ({
-    bmiWrites: { enabled: true, offCentres: [] },
-    sweep: { delayMinutes: 60, afterHours: "hold9am" as const },
-    responseTargetMinutes: 60,
-  }),
   now: () => PROTO_NOW,
   ...over,
 });
@@ -178,14 +172,14 @@ describe("loadMyDay / loadBadges", () => {
       newLeads: [],
     });
   });
-  it("a director gets the tiles, the sweep countdown and the lanes", async () => {
+  it("a director gets the tiles and the lanes — and no countdown, since the rules assign at capture", async () => {
     const v = await loadMyDay(director, deps());
     expect(v.kind).toBe("director");
     if (v.kind !== "director") return;
     expect(v.greeting).toBe("Good evening, Jacob");
     expect(v.dateLabel).toBe("Saturday, September 12");
     expect(v.tiles).toEqual({ unassigned: 4, overdueTeam: 3, contractsOut: 3 });
-    expect(v.autoAssignInMinutes).toBe(0);
+    expect(v).not.toHaveProperty("autoAssignInMinutes");
     expect(v.lanes.map((l) => l.rep.slug)).toEqual(["kelsea", "lori", "stephanie", "gs"]);
   });
   it("badges: a rep's own overdue and no queue; the director's team overdue and the queue", async () => {

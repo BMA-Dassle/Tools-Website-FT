@@ -443,9 +443,18 @@ export interface BmiWritesSetting {
   offCentres: string[];
 }
 
+/**
+ * The assign sweep's one knob. It is a SAFETY NET, not a delay (owner,
+ * 2026-09-13 14:50): the rules assign at capture, and `delayMinutes` says only
+ * how long a lead that arrived unassigned waits before the net retries it.
+ *
+ * `afterHours` ("hold until 9 AM") is GONE — it described a rail that no
+ * longer exists, and R5 already answers "nobody is on shift now" by picking
+ * whoever works next. A stored value is stripped from the row by
+ * `ensureSettingsSchema` and ignored by `sweepFromSetting`.
+ */
 export interface SweepSetting {
   delayMinutes: number;
-  afterHours: "hold9am" | "assign";
 }
 
 export interface CrmSettings {

@@ -11,16 +11,26 @@
  *   3. activity "Lead captured …"
  *   4. `suggestFor` — the assignment rules (B2's engine)
  *   5. `mintLead` → Pandora, `agent` = the pick's Office name or "First Available"
- *   6. notifications — never fatal
- *   7. `assignLead(reason:'rule')` for a HOLD or ROUTE decision
+ *   6. `assignLead(reason:'rule')` for EVERY decision the engine resolved
+ *   7. notifications — never fatal
  *
- * Step 7 applies only the decisions that exist for a business reason — a
- * ≥ 100-guest enquiry held for the Marketing Director, a kids' birthday or a
- * small school group routed to Guest Services. The balancing rule's pick
- * ("lowest Oct volume") is shown in the queue with its trace and applied by
- * the assign sweep once the director's delay has passed, which is what the
- * queue's "auto-assign in 52m" countdown promises; assigning it here would
- * make that countdown a lie and take the lead off Jacob's board instantly.
+ * ASSIGN AT CAPTURE, AT ALL HOURS (owner, 2026-09-13 14:50: "let's get rid of
+ * the hour sweep rule just capture right away"). Step 6 applies whatever the
+ * engine named, not just the decisions taken for a business reason: a
+ * ≥ 100-guest enquiry is parked for the Marketing Director, a kids' birthday
+ * is routed to Guest Services, AND the balancing rule's pick ("lowest Oct
+ * volume") is handed over there and then, with `crm_assignments.reason 'rule'`
+ * and the same trace the sweep would have stored. Nothing waits for an hour
+ * and nothing waits for 9 AM — R5 already answers "nobody is on shift now" by
+ * narrowing to whoever works the next shift, and a lead sitting unassigned
+ * overnight is strictly worse than one waiting for the person who opens up.
+ * `rules/service/sweep.ts` is now only the net under this step.
+ *
+ * ASSIGN BEFORE NOTIFY, deliberately. The Teams fan-out has to know whether
+ * the lead ended up with an assignee: an ordinary one gets a single card in
+ * its planner's chat, and only a lead nobody owns — parked by a hold rule or
+ * left unresolved — goes to "Sales Leads - Assignment Pending". Reading
+ * `lead.rep` after step 6 is the one place that fact is true.
  *
  * A form resubmitted within 15 minutes for the same guest / centre / date
  * after a failed mint re-uses the row instead of creating a second one; a
@@ -30,6 +40,7 @@
 
 import { canonicalizePhone } from "@/lib/participant-contact";
 import { recordActivity } from "~/features/crm/activities";
+import { crmAutoAssignEnabled } from "../../core/flags";
 import type { CentreCode, EventType, LeadSource } from "../../core/types";
 import { LEAD_SOURCE_LABEL, type LeadView } from "../contracts";
 import { upsertAccountByName } from "../data/accounts-db";
@@ -38,7 +49,7 @@ import { findRecentDuplicateLead, getLead, insertLead } from "../data/leads-db";
 import { assignLead, type AssignResult } from "./assign";
 import { NEEDS_EMAIL_OR_TIME, mintLead, type MintOutcome } from "./mint";
 import { notifyAlreadySent, notifyNewLead, summarizeNotify, type NotifyOutcome } from "./notify";
-import { NO_SUGGESTION, isImmediate, suggestFor, type SuggestResult } from "./suggest";
+import { NO_SUGGESTION, suggestFor, type SuggestResult } from "./suggest";
 
 export interface CreateLeadInput {
   centre: CentreCode;
@@ -103,6 +114,8 @@ export interface CreateLeadDeps {
   /** The no-op fan-out for a resubmit we have already answered once. */
   notifyAlreadySent: typeof notifyAlreadySent;
   assign: typeof assignLead;
+  /** The `CRM_AUTO_ASSIGN` kill switch (R4, absent = ON); injected by its test. */
+  autoAssignEnabled: typeof crmAutoAssignEnabled;
   now: () => Date;
 }
 
@@ -119,6 +132,7 @@ export function defaultCreateLeadDeps(): CreateLeadDeps {
     notify: notifyNewLead,
     notifyAlreadySent,
     assign: assignLead,
+    autoAssignEnabled: crmAutoAssignEnabled,
     now: () => new Date(),
   };
 }
@@ -241,8 +255,14 @@ export async function createLead(
     });
   }
 
-  // 4. the engine seam (null until B2 is wired)
+  // 4. the engine
   const suggestion = await deps.suggest(lead, { now: deps.now() });
+  // One kill switch, read once and honoured everywhere below: with
+  // `CRM_AUTO_ASSIGN="false"` the rules drive nothing — not our own assignment
+  // and not Pandora's `agent` either, which would otherwise put the lead on a
+  // planner in BMI and tell the guest their name while our queue still called
+  // it unassigned. Pandora falls back to its own round robin.
+  const autoAssignOn = opts.autoAssign !== false && deps.autoAssignEnabled();
 
   // 5. Pandora
   let mint: MintOutcome;
@@ -254,7 +274,7 @@ export async function createLead(
     const r = await deps.mintLead(
       lead,
       {
-        agent: suggestion.suggestion?.rep.bmiUsername ?? null,
+        agent: (autoAssignOn ? suggestion.suggestion?.rep.bmiUsername : null) ?? null,
         specialRequests: input.specialRequests ?? null,
         packageType: input.packageType ?? null,
         preferredContact: input.preferredContactMethod ?? null,
@@ -267,7 +287,30 @@ export async function createLead(
     lead = r.lead;
   }
 
-  // 6. notifications — never fatal
+  // 6. the engine's pick — every decision it resolved, applied now
+  let assignment: AssignResult | null = null;
+  if (suggestion.suggestion && autoAssignOn && !lead.rep) {
+    try {
+      assignment = await deps.assign({
+        leadId: lead.id,
+        repId: suggestion.suggestion.rep.id,
+        actor: actor ?? "rules",
+        reason: "rule",
+        ruleId: suggestion.suggestion.ruleId,
+        trace: suggestion.trace,
+      });
+      lead = assignment.lead;
+    } catch (err) {
+      // The capture stands; the safety-net sweep picks the lead up next run.
+      console.error("[crm] assign at capture failed", {
+        lead_id: lead.id,
+        actor_email: actor,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // 7. notifications — never fatal
   let notify: NotifyOutcome | null = null;
   if (!isProspect && opts.notify !== false) {
     try {
@@ -275,6 +318,7 @@ export async function createLead(
         lead,
         mint,
         source: opts.source,
+        assigned: lead.rep !== null,
         preferredContactMethod: input.preferredContactMethod,
         bestTimeToCall: input.bestTimeToCall,
         activityInterest: input.activityInterest,
@@ -292,33 +336,6 @@ export async function createLead(
     } catch (err) {
       // `notifyNewLead` never throws by design; this guards a replaced dep.
       console.error("[crm] notifications failed after capture", {
-        lead_id: lead.id,
-        actor_email: actor,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  // 7. the engine's pick — only the decisions that are due NOW
-  let assignment: AssignResult | null = null;
-  if (
-    suggestion.suggestion &&
-    isImmediate(suggestion.outcome) &&
-    opts.autoAssign !== false &&
-    !lead.rep
-  ) {
-    try {
-      assignment = await deps.assign({
-        leadId: lead.id,
-        repId: suggestion.suggestion.rep.id,
-        actor: actor ?? "rules",
-        reason: "rule",
-        ruleId: suggestion.suggestion.ruleId,
-        trace: suggestion.trace,
-      });
-      lead = assignment.lead;
-    } catch (err) {
-      console.error("[crm] auto-assign after capture failed", {
         lead_id: lead.id,
         actor_email: actor,
         error: err instanceof Error ? err.message : String(err),

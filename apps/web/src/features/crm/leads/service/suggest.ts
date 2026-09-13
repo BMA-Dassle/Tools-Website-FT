@@ -6,9 +6,8 @@
  * rule table, today's and tomorrow's shifts and the open volume per rep per
  * party month from Neon, `assignDecision` decides, and `toDecisionWire`
  * resolves each trace row's label and "R6" code. The queue API, the
- * AssignSheet's "Why Kelsea" trace, `createLead`'s immediate hold/route
- * assignment and the mint's `agent` all read their answer from here and
- * nowhere else.
+ * AssignSheet's "Why Kelsea" trace, `createLead`'s capture-time assignment and
+ * the mint's `agent` all read their answer from here and nowhere else.
  *
  * TWO THINGS IT NEVER DOES:
  *   - throw. A lead is captured whether or not the engine can answer (R2): a
@@ -79,15 +78,20 @@ export function toEngineLead(lead: LeadView): EngineLead {
 }
 
 /**
- * `hold` and `route` are decisions the rules make FOR a business reason (a
- * 120-guest enquiry belongs to the Marketing Director; a kids' birthday to
- * Guest Services), so `createLead` applies them the moment the lead lands.
- * `assign` is the balancing rule's opinion — it waits for the sweep's delay so
- * the director has the window the queue's countdown promises.
+ * EVERY decision the engine resolves is applied at capture (owner,
+ * 2026-09-13 14:50) — `hold` and `route`, which the rules make for a business
+ * reason, and `assign`, the balancing rule's pick, which used to wait for the
+ * sweep's delay so the director had the window the queue's countdown promised.
+ * That window and that countdown are gone, so the only question left is
+ * whether the engine named anybody: `outcome` "queue" and "none" resolve no
+ * rep, and everything else does.
+ *
+ * There is therefore no `isImmediate` predicate any more. `createLead` gates
+ * on `suggestion.suggestion`, and what KIND of decision it was decides how it
+ * is recorded, not whether: a `hold` parks the lead (`assignLead` writes
+ * `held_for_rep_id` and leaves `assigned_rep_id` NULL), `route` and `assign`
+ * hand it over.
  */
-export function isImmediate(outcome: DecisionOutcome): boolean {
-  return outcome === "hold" || outcome === "route";
-}
 
 export async function suggestFor(lead: LeadView, ctx: SuggestContext = {}): Promise<SuggestResult> {
   try {

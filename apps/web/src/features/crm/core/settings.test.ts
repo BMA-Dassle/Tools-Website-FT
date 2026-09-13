@@ -15,7 +15,7 @@ describe("settings decoders", () => {
   it("no rows at all = every default, with BMI writes ENABLED", () => {
     expect(settingsFromRows([])).toEqual({
       bmiWrites: { enabled: true, offCentres: [] },
-      sweep: { delayMinutes: 60, afterHours: "hold9am" },
+      sweep: { delayMinutes: 60 },
       responseTargetMinutes: 60,
     });
   });
@@ -30,20 +30,29 @@ describe("settings decoders", () => {
     expect(settingsFromRows([{ key: "bmi_writes", value: null }]).bmiWrites.enabled).toBe(true);
   });
 
-  it("sweep: per-field fallback", () => {
+  it("sweep: the retry delay falls back on its own", () => {
     expect(sweepFromSetting(undefined)).toEqual(SWEEP_DEFAULT);
-    expect(sweepFromSetting({ delayMinutes: 30 })).toEqual({
+    expect(sweepFromSetting({ delayMinutes: 30 })).toEqual({ delayMinutes: 30 });
+    expect(sweepFromSetting({ delayMinutes: -5 })).toEqual(SWEEP_DEFAULT);
+    expect(sweepFromSetting({ delayMinutes: 12.6 })).toEqual({ delayMinutes: 13 });
+  });
+
+  /**
+   * `afterHours` ("hold until 9 AM") went with the rail it drove (owner,
+   * 2026-09-13 14:50). A row written before then still carries it in
+   * production Neon — `ensureSettingsSchema` strips the key, and the decoder
+   * ignores it besides, so a leftover value can never read back as behaviour.
+   */
+  it("a stored afterHours is dropped, whatever it says", () => {
+    expect(sweepFromSetting({ delayMinutes: 30, afterHours: "hold9am" })).toEqual({
       delayMinutes: 30,
-      afterHours: "hold9am",
     });
-    expect(sweepFromSetting({ afterHours: "assign" })).toEqual({
+    expect(sweepFromSetting({ delayMinutes: 30, afterHours: "assign" })).toEqual({
+      delayMinutes: 30,
+    });
+    expect(SWEEP_DEFAULT).not.toHaveProperty("afterHours");
+    expect(settingsFromRows([{ key: "sweep", value: { afterHours: "assign" } }]).sweep).toEqual({
       delayMinutes: 60,
-      afterHours: "assign",
-    });
-    expect(sweepFromSetting({ delayMinutes: -5, afterHours: "later" })).toEqual(SWEEP_DEFAULT);
-    expect(sweepFromSetting({ delayMinutes: 12.6 })).toEqual({
-      delayMinutes: 13,
-      afterHours: "hold9am",
     });
   });
 

@@ -43,10 +43,9 @@ export function DirectorTodayScreen({ view, now, statuses, onOpen }: DirectorTod
           >
             {view.tiles.unassigned}
           </span>
+          {/* The rules assign at capture, so this tile counts what they parked. */}
           <span className="xs muted">
-            {view.autoAssignInMinutes != null
-              ? `auto-assign in ${view.autoAssignInMinutes} min`
-              : "nothing waiting"}
+            {view.tiles.unassigned ? "waiting for a decision" : "nothing parked"}
           </span>
         </Link>
         <Tile label="Overdue across team" value={view.tiles.overdueTeam} />

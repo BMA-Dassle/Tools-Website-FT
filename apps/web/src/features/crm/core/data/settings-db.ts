@@ -3,10 +3,16 @@
  *
  *   key                       value (JSONB)
  *   'bmi_writes'              {enabled, offCentres[]}   NO ROW = ON (kill switch, R4)
- *   'sweep'                   {delayMinutes, afterHours: 'hold9am'|'assign'}
+ *   'sweep'                   {delayMinutes}
  *   'response_target_minutes' number
  *
  * Decoding lives in `../settings.ts` (pure, tested); this file only moves rows.
+ *
+ * ONE MIGRATION lives here: `sweep.afterHours` ("hold until 9 AM") went with
+ * the hold-until-9-AM rail on 2026-09-13, and a row carrying it already exists
+ * in production Neon. `ensureSettingsSchema` strips the key rather than leaving
+ * a value nothing reads — a setting that is still stored but no longer obeyed
+ * is a lie a director can act on. It is idempotent and touches at most one row.
  */
 
 import { isDbConfigured, sql } from "@ft/db";
@@ -25,6 +31,16 @@ export function ensureSettingsSchema(): Promise<void> {
         updated_by TEXT,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `;
+    // The sweep's after-hours knob no longer exists (see the header). Written
+    // as `value - 'afterHours'` with an `IS NOT NULL` guard rather than the
+    // `?` containment operator, which a driver can mistake for a placeholder.
+    await q`
+      UPDATE crm_settings
+         SET value = value - 'afterHours'
+       WHERE key = 'sweep'
+         AND jsonb_typeof(value) = 'object'
+         AND value -> 'afterHours' IS NOT NULL
     `;
   })();
   return schemaReady;

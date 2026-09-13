@@ -187,11 +187,26 @@ export interface VolumeCell {
   count: number;
 }
 
+/**
+ * Why a lead is still on the queue board. The rules assign at capture, so
+ * every lead here was parked: `held` by a hold rule, `no-rep` because the
+ * engine named nobody, `retry` because the capture-time assign did not happen
+ * and the safety-net sweep still owes it one.
+ */
+export type QueueParkKind = "held" | "no-rep" | "retry";
+
+export interface QueuePark {
+  kind: QueueParkKind;
+  /** The pill's words, ready to render. */
+  label: string;
+}
+
 export interface QueueLead {
   lead: LeadView;
   /** Whole minutes since capture. */
   ageMinutes: number;
   suggestion: LeadSuggestionView | null;
+  park: QueuePark;
   trace: RuleTraceRowView[];
 }
 
@@ -209,8 +224,7 @@ export type QueueResponse = ApiOk<{
   reps: QueueRepColumn[];
   /** The three party months the volume meters show. */
   months: string[];
-  /** Minutes until the sweep would take the oldest unassigned lead; null when nothing waits. */
-  autoAssignInMinutes: number | null;
+  /** How long a lead that arrived unassigned waits before the safety net retries it. */
   sweepDelayMinutes: number;
 }>;
 
@@ -235,7 +249,6 @@ export interface DirectorMyDay {
   greeting: string;
   dateLabel: string;
   tiles: { unassigned: number; overdueTeam: number; contractsOut: number };
-  autoAssignInMinutes: number | null;
   lanes: DirectorLane[];
 }
 

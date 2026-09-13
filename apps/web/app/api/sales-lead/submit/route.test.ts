@@ -84,7 +84,7 @@ function minted(): CreateLeadResult {
     },
     notify: {
       planner: { displayName: "Kelsea", isIndividual: true },
-      queueCard: { ok: true, skipped: true, reason: "CRM_JACOB_TEAMS_CHAT_ID not set" },
+      unassignedCard: { ok: true, skipped: true, reason: "CRM_UNASSIGNED_TEAMS_CHAT_ID not set" },
       plannerCard: { ok: true, activityId: "a" },
       sms: { ok: true, status: 200 },
       email: { ok: true, status: null, skipped: true, reason: "skipped — customer prefers text" },

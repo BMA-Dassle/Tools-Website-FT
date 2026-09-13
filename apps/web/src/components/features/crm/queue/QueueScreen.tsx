@@ -36,10 +36,16 @@ import { fetchQueue, postAssign } from "../leads/queries";
 import { AssignSheet } from "./AssignSheet";
 
 /**
- * `/admin/crm/queue` (direction-b.html `queue`) — director only: the
- * Unassigned column (oldest first, age timer, the engine's pick or "No
- * auto-pick yet", Assign) and one column per assignable rep with their open
- * volume by party month and the leads they were handed but have not touched.
+ * `/admin/crm/queue` (direction-b.html `queue`) — director only: the Parked
+ * column (oldest first, age timer, WHY each lead is still here, Assign) and
+ * one column per assignable rep with their open volume by party month and the
+ * leads they were handed but have not touched.
+ *
+ * The prototype's "auto-assign in 18 min" countdown is NOT here: the rules
+ * assign the moment a lead is captured (owner, 2026-09-13), so this column
+ * holds only leads parked on purpose — held by a rule, or with no eligible
+ * rep — plus the few the capture-time assign could not complete. Each card
+ * says which, from the server's `park` verdict.
  *
  * Drag-onto-a-rep is B4's DragLayer; Assign is the keyboard / tap path the
  * brief requires anyway (R13: no drag-only interaction).
@@ -81,7 +87,10 @@ export default function QueueScreen({ query }: ScreenProps) {
   const unassigned = q.data?.unassigned ?? [];
   const reps = q.data?.reps ?? [];
   const months = q.data?.months ?? [];
-  const suggested = unassigned.filter((u) => u.suggestion);
+  // Only the leads the safety net would take: a lead PARKED by a hold rule is
+  // not a candidate (its "suggestion" is the hold row, so assigning it would
+  // just re-park it), and one with no eligible rep has nothing to assign to.
+  const suggested = unassigned.filter((u) => u.park.kind === "retry" && u.suggestion);
   const dealId = urlQuery.deal ?? null;
   const openDeal = (publicId: string) => setUrlQuery({ deal: publicId });
 
@@ -144,7 +153,7 @@ export default function QueueScreen({ query }: ScreenProps) {
                 disabled={suggested.length === 0 || autoAll.isPending}
                 title={
                   suggested.length === 0
-                    ? "No auto-picks yet — the assignment rules are not wired to the queue"
+                    ? "Nothing to auto-assign — every lead here is parked on purpose or has no eligible rep"
                     : undefined
                 }
                 onClick={() => autoAll.mutate(suggested)}
@@ -169,19 +178,17 @@ export default function QueueScreen({ query }: ScreenProps) {
                 testId={LEAD_TEST_IDS.queueUnassigned}
                 header={
                   <>
-                    <Chip kind="lost">Unassigned</Chip>
+                    <Chip kind="lost">Parked</Chip>
                     <span className="n">{unassigned.length}</span>
-                    {q.data.autoAssignInMinutes != null ? (
-                      <span className="sum">
-                        <Timer tone="warn" icon={<IconClock {...ICON} />}>
-                          {q.data.autoAssignInMinutes} min
-                        </Timer>
-                      </span>
-                    ) : null}
+                    <span className="sum">
+                      <Pill title="The rules assign every lead as it arrives. What is here was parked on purpose, or the rules could not name a rep.">
+                        needs a decision
+                      </Pill>
+                    </span>
                   </>
                 }
                 count={unassigned.length}
-                empty="Nothing waiting — every lead has a rep."
+                empty="Nothing parked — every lead has a rep."
               >
                 {unassigned.map((item) => (
                   <LeadCard
@@ -199,16 +206,19 @@ export default function QueueScreen({ query }: ScreenProps) {
                         >
                           waiting {formatMinutes(item.ageMinutes)}
                         </Timer>
+                        {/*
+                          Why it is parked, not how long until a timer fires:
+                          the rules assign at capture, so there is nothing to
+                          count down to (owner, 2026-09-13).
+                        */}
                         <span className="xs" style={{ flexBasis: "100%" }}>
-                          {item.suggestion ? (
-                            <>
-                              Auto-pick: <b>{item.suggestion.rep.firstName}</b> ·{" "}
-                              {item.suggestion.reason}
-                            </>
-                          ) : (
-                            <span className="muted">No auto-pick yet</span>
-                          )}
+                          <b>{item.park.label}</b>
                         </span>
+                        {item.park.kind !== "held" && item.suggestion ? (
+                          <span className="xs muted" style={{ flexBasis: "100%" }}>
+                            Auto-pick: {item.suggestion.rep.firstName} · {item.suggestion.reason}
+                          </span>
+                        ) : null}
                       </>
                     }
                     footer={

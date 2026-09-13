@@ -137,7 +137,7 @@ describe("legacyWebResponse", () => {
     },
     notify: {
       planner: { displayName: "Kelsea", isIndividual: true },
-      queueCard: { ok: true, skipped: true, reason: "x" },
+      unassignedCard: { ok: true, skipped: true, reason: "x" },
       plannerCard: { ok: true, activityId: "a" },
       sms: { ok: true, status: 200 },
       email: { ok: false, status: 500, error: "boom" },
