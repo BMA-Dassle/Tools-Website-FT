@@ -122,6 +122,59 @@ implementer of any later change must know about that body:
 - The contract test (`app/api/sales-lead/submit/route.test.ts`) is fed the
   literal object `SalesLeadForm.tsx` builds, empty strings included. Keep it
   that way — an idealised fixture certifies a contract the form never sends.
+- **`requestedPlanner` (B7)** is now always in that body: `""` for "First
+  available" and whenever the control is hidden, otherwise a planner's slug.
+  The server treats it as a hint, never as an instruction: it resolves the slug
+  against the roster, drops anything that does not match a planner selling at
+  that centre, and ignores it outright when the type maps to Pandora's
+  `"Child Birthday"` (Pandora force-routes children's parties to Guest Services
+  whatever `agent` we send). It never 400s a submission.
+
+## Public routes (the whole list)
+
+Everything else in the CRM is `/api/admin/crm/**` behind `withCrmRoute`. These
+are the surfaces a signed-out caller can reach, and this list is the complete
+enumeration — adding one is a lead decision, not a PR decision:
+
+| Route                                     | Auth                                       | PR  |
+| ----------------------------------------- | ------------------------------------------ | --- |
+| `POST /api/crm/graph-webhook`             | `clientState` on every message             | C2  |
+| `GET\|POST /api/crm/3cx/{lookup,journal}` | own shared secret, 401 when unset          | C3  |
+| `GET /api/crm/share/[token]`              | the token itself                           | C6  |
+| `POST /api/sales-lead/submit`             | none — the public lead form (v1 rail, R16) | B3  |
+| `GET /api/sales-lead/planners`            | none — read-only, first names + centres    | B7  |
+
+`/api/sales-lead/planners` is not a fourth `/api/crm/**` exception: it belongs
+to the public lead form's own rail and exists because the five `SalesLeadForm`
+pages are `"use client"`, so there is no server component to pass the list down
+as a prop. It discloses a first name and the centres that planner sells at —
+exactly what the form renders to every visitor — and nothing else (no email, no
+DID, no Teams chat id, no Office username, no `crm_reps.id`); `plannerOptions`
+is the single projection and a test pins its key set. It is CDN-cached for five
+minutes with a five-minute in-process memo behind it, so a marketing page never
+means a Neon round trip per form open, and a failed refresh serves the last
+good roster rather than an empty dropdown. **If the lead would rather close it,
+the alternative is a server component wrapper around `SalesLeadForm` on the
+five pages passing the list as a prop.**
+
+## Who the guest asked for (B7)
+
+`crm_leads.requested_rep_id` (`BIGINT REFERENCES crm_reps(id)`, owned by the
+leads sub) is a real column, not a `capture_payload` key, because the queue
+card, the deal header and the rule trace all read it. Precedence is the owner's
+(2026-09-13 14:05) and lives in `rules/service/requested-rep.ts` as an explicit
+step of the decision: the request beats the ordinary balancing rule (R6) and
+does not beat R1 hold, R2/R3 routing or R4 availability. A request that is not
+honoured is still carried and still shown — the trace names the rule that beat
+it.
+
+**Ownership note for B2 (`feat/crm-rules`):** B7 restructured that sub. What B2
+called `assignDecision` is now the body of `decideByRules`, and
+`assignDecision(lead, ctx)` is `weighGuestRequest(lead, ctx, decideByRules(lead, ctx))`
+— same name, same signature, byte-identical answer for a lead with no request.
+`requested-rep.ts` is new; `rules/index.ts` and `rules/service/wire.ts` gained
+exports for it. A B2 rebase should land on this shape rather than re-landing
+the old single-function body.
 
 ## Environment
 

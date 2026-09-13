@@ -161,6 +161,21 @@ function absoluteHour(n: { when: "today" | "tomorrow"; hour: number }): number {
 /**
  * The rules' own decision, before the guest's request is weighed. Exported so
  * the Rules screen's "Try a lead" can show what the rules alone would do.
+ *
+ * ── CROSS-PR NOTICE, for B2 (`feat/crm-rules`) and the lead ──
+ * §4's shared-files table gives `src/features/crm/rules/**` to B2. B7 changed
+ * the shape of this module because §5.7b makes the guest's request a STEP OF
+ * THE DECISION, not a special case at the call site:
+ *
+ *   - what B2 called `assignDecision` is now the body of `decideByRules`;
+ *   - `assignDecision(lead, ctx)` === `weighGuestRequest(lead, ctx, decideByRules(lead, ctx))`
+ *     — same name, same signature, same answer for a lead with no request
+ *     (pinned by "no request → byte-identical to the rules' own decision");
+ *   - `requested-rep.ts` is new, and `index.ts` / `wire.ts` gained exports for it.
+ *
+ * Nothing B2 calls changed its meaning; a B2 rebase should land ON this shape
+ * rather than re-landing the old single-function body. The lead signs the
+ * rules-sub hunks off before B7's release stage merges.
  */
 export function decideByRules(lead: EngineLead, ctx: EngineContext): EngineDecision {
   const trace: RuleTraceStep[] = [];
