@@ -53,7 +53,13 @@ export function emptyThreadCopy(lead: LeadView): string {
   return `No email with ${lead.guest.first || "them"} yet.`;
 }
 
-/** `New email from kelsea@headpinz.com` (crm-shared.js:328, verbatim). */
+/**
+ * `New email from kelsea@headpinz.com` (crm-shared.js:328, verbatim).
+ *
+ * NOT called from this sub, on purpose: it is the label on the Conversations
+ * screen's "new email" button, and C1 owns that screen. It lives here with its
+ * test so the copy is pinned before the screen that renders it exists.
+ */
 export function composerButtonCopy(sender: EmailSenderView): string {
   return `New email from ${sender.mailbox}`;
 }

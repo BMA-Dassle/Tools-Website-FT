@@ -2,10 +2,11 @@
 
 import { IconSend } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useId, useState, type CSSProperties } from "react";
 import {
   GRAPH_COMPOSER_FOOTNOTE,
   SENDGRID_FALLBACK_CHIP,
+  SEND_PENDING_CHIP,
   EMAIL_TEST_IDS,
   type EmailSendResponse,
   type EmailSenderView,
@@ -19,6 +20,7 @@ import { useCrmFetch, useCrmToast } from "../../lib/use-crm-user";
 import { Banner } from "../../primitives/Banner";
 import { Chip } from "../../primitives/Chip";
 import { ICON } from "../../primitives/icon-props";
+import { composerFootnoteFor } from "./model";
 import { postEmail } from "./queries";
 
 /**
@@ -36,7 +38,33 @@ import { postEmail } from "./queries";
  *
  * There is no attachment row: collateral attachments are C6's share links, and
  * a disabled paperclip that looks like it works is worse than no paperclip.
+ *
+ * CANCEL / SEND STICK TO THE BOTTOM. The prototype puts them in the sheet's
+ * `foot`, which the shell renders as a sticky bar — but the shell's sheet takes
+ * ONE static spec, so a foot rendered up in `QuickActions` could not reach this
+ * component's `subject`, `body` and `isPending`. Wiring a foot portal would
+ * mean editing `crm-context.tsx` and `shell/Sheet.tsx`, which are PR1's. A
+ * sticky row inside the body buys the same property — on a 390 px phone a rep
+ * never scrolls past the thread and a six-row textarea to find Send — and
+ * touches nothing outside this sub.
  */
+/**
+ * Module scope, never inside the render body (memory
+ * `feedback_tdz_component_const_helpers`). `--ba-bg2` is the sheet's own
+ * surface, so the bar reads as part of the sheet rather than floating over it.
+ */
+const STICKY_ACTIONS: CSSProperties = {
+  justifyContent: "flex-end",
+  position: "sticky",
+  bottom: 0,
+  background: "var(--ba-bg2)",
+  paddingTop: 8,
+  paddingBottom: 8,
+  marginBottom: -8,
+  borderTop: "1px solid var(--ba-border)",
+  zIndex: 1,
+};
+
 export interface EmailComposerProps {
   lead: LeadView;
   sender: EmailSenderView;
@@ -64,7 +92,14 @@ export function EmailComposer({
 
   // The prototype opens on T-4 ("First-touch email with pricing"), the first
   // email template; `templates` arrives in `position` order already merged.
-  const first = templates[0] ?? null;
+  //
+  // A REPLY IS NOT A FIRST TOUCH. `EmailSheet` remounts this component by key
+  // with `initialSubject = "RE: …"`; opening that on the first-touch template's
+  // BODY would put "Hi Dana, thanks for your enquiry…" under a reply subject.
+  // A reply starts empty, with no template selected; picking one from the
+  // select still fills both fields.
+  const replying = Boolean(initialSubject);
+  const first = replying ? null : (templates[0] ?? null);
   const [templateId, setTemplateId] = useState<string>(first?.id ?? "");
   const [subject, setSubject] = useState<string>(initialSubject ?? first?.subject ?? "");
   const [body, setBody] = useState<string>(first?.body ?? "");
@@ -89,8 +124,9 @@ export function EmailComposer({
       void qc.invalidateQueries({ queryKey: emailKeys.all });
       void qc.invalidateQueries({ queryKey: leadsKeys.all });
       // Prototype toast (crm-shared.js:275) when it really did go out from the
-      // rep's mailbox; the fallback says what actually happened instead.
-      if (r.fellBack) toast(SENDGRID_FALLBACK_CHIP, "warn");
+      // rep's mailbox; the other two rails say what actually happened instead.
+      if (r.sendPending) toast(SEND_PENDING_CHIP, "warn");
+      else if (r.fellBack) toast(SENDGRID_FALLBACK_CHIP, "warn");
       else toast("Email sent from your Outlook");
       onSent(r);
     },
@@ -99,6 +135,7 @@ export function EmailComposer({
 
   const recipients = to.length > 0 ? to : lead.guest.email ? [lead.guest.email] : [];
   const canSend = subject.trim().length > 0 && body.trim().length > 0 && recipients.length > 0;
+  const footnote = composerFootnoteFor(sender, GRAPH_COMPOSER_FOOTNOTE);
 
   return (
     <div className="stack" data-testid={EMAIL_TEST_IDS.composer}>
@@ -162,17 +199,18 @@ export function EmailComposer({
       </div>
 
       {sender.graph ? (
-        <div className="muted xs">{GRAPH_COMPOSER_FOOTNOTE}</div>
+        <div className="muted xs">{footnote}</div>
       ) : (
         <div className="stack" style={{ gap: 4 }} data-testid={EMAIL_TEST_IDS.fallbackChip}>
-          <Chip kind="open">{SENDGRID_FALLBACK_CHIP}</Chip>
+          <Chip kind="open">{footnote}</Chip>
           {/* The reason, so a director knows exactly what to fix rather than
-              filing a "email looks wrong" ticket. */}
+              filing an "email looks wrong" ticket. It is a fixed sentence or a
+              named missing permission — never an upstream body (C2-9). */}
           {sender.graphReason ? <div className="muted xs">{sender.graphReason}</div> : null}
         </div>
       )}
 
-      <div className="hstack" style={{ justifyContent: "flex-end" }}>
+      <div className="hstack" style={STICKY_ACTIONS}>
         <button type="button" className="btn" onClick={onCancel} disabled={send.isPending}>
           Cancel
         </button>
