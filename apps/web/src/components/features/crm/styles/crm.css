@@ -3594,3 +3594,21 @@
     grid-auto-columns: 260px;
   }
 }
+
+/* Conversations on a phone (C1).
+   `.split` already collapses to one column at 768px, which would stack the
+   whole person list ABOVE the thread — the prototype's phone branch showed one
+   or the other and relied on the topbar's back arrow. `data-detail` says which
+   half is wanted, so the same markup serves both widths with no device toggle
+   and no JS measuring the viewport. */
+@media (max-width: 768px) {
+  .crm-root .conv-split[data-detail="1"] > .split-list {
+    display: none;
+  }
+  .crm-root .conv-split[data-detail="0"] > .split-detail {
+    display: none;
+  }
+  .crm-root .conv-split .thread {
+    padding: 12px;
+  }
+}

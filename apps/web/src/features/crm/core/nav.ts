@@ -77,7 +77,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         label: "Conversations",
         icon: "message",
         badge: "unread",
-        ready: false,
+        ready: true,
       },
       { id: "calls", label: "Calls", icon: "phone", ready: false },
     ],
@@ -114,7 +114,7 @@ export const PHONE_TABS: readonly NavItem[] = [
   { id: "today", label: "My Day", icon: "home", badge: "overdue", ready: true },
   { id: "pipeline", label: "Pipeline", icon: "kanban", ready: false },
   { id: "contracts", label: "Contracts", icon: "file", ready: false },
-  { id: "conversations", label: "Messages", icon: "message", ready: false },
+  { id: "conversations", label: "Messages", icon: "message", ready: true },
   { id: "more", label: "More", icon: "dots", ready: false },
 ];
 
