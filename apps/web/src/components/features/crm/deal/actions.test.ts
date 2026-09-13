@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { makeLead } from "~/features/crm/leads/test-support";
-import { QUICK_ACTIONS, QUICK_ACTION_IDS, quickActionsFor } from "./actions";
+import {
+  QUICK_ACTIONS,
+  QUICK_ACTION_IDS,
+  QUICK_ACTION_SHEETS,
+  quickActionsFor,
+  sheetSlotFor,
+} from "./actions";
 
 /**
  * The rail registry C1/C2/C3/B4 flip one line of: the prototype's five
@@ -40,13 +46,39 @@ describe("quick-action slot registry", () => {
         prefers: null,
       },
     });
-    expect(quickActionsFor(lead).map((a) => [a.slot.id, a.target?.href ?? null])).toEqual([
-      ["call", "tel:+12395551234"],
-      ["text", "sms:+12395551234"],
-      ["email", "mailto:crm-test@example.com"],
+    expect(quickActionsFor(lead).map((a) => [a.slot.id, a.target])).toEqual([
+      ["call", { kind: "href", href: "tel:+12395551234" }],
+      ["text", { kind: "href", href: "sms:+12395551234" }],
+      ["email", { kind: "href", href: "mailto:crm-test@example.com" }],
       ["note", null],
       ["snooze", null],
     ]);
+  });
+
+  /**
+   * The sheet mechanism, while nothing uses it yet. Both halves matter: the
+   * registry is EMPTY (so this commit changes no behaviour at all), and every
+   * sheet target a slot can produce has a sheet behind it — which is what
+   * stops C1/C2/C3/B4 shipping a button that opens nothing.
+   */
+  it("has no sheets registered yet, and no slot resolves to one", () => {
+    expect(Object.keys(QUICK_ACTION_SHEETS)).toEqual([]);
+    const lead = makeLead({
+      id: "5003",
+      guest: {
+        first: "CRM",
+        last: "Test",
+        phone: "+12395551234",
+        email: "crm-test@example.com",
+        company: null,
+        prefers: null,
+      },
+    });
+    for (const id of QUICK_ACTION_IDS) {
+      const target = QUICK_ACTIONS[id].resolve(lead);
+      if (target?.kind === "sheet") expect(sheetSlotFor(target.id), id).not.toBeNull();
+    }
+    expect(quickActionsFor(lead).every((a) => a.target?.kind !== "sheet")).toBe(true);
   });
 
   it("no phone, no email → those three are disabled with the reason, never a dead link", () => {
