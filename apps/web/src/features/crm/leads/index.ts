@@ -133,6 +133,8 @@ export {
 } from "./service/notify";
 export {
   suggestFor,
+  isImmediate,
+  toEngineLead,
   NO_SUGGESTION,
   type LeadSuggestion,
   type SuggestContext,

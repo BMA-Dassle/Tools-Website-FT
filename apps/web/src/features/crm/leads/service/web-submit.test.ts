@@ -142,7 +142,7 @@ describe("legacyWebResponse", () => {
       sms: { ok: true, status: 200 },
       email: { ok: false, status: 500, error: "boom" },
     },
-    suggestion: { suggestion: null, trace: [] },
+    suggestion: { suggestion: null, trace: [], outcome: "none" as const },
     assignment: null,
   };
 

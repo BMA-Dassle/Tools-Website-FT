@@ -5,8 +5,13 @@
  * have not touched.
  *
  * Pure builders (tested) over the data functions; `loadQueue` wires them.
- * Shift chips ("On shift" / "Off today" / "Next 9 AM tomorrow") are B2's
- * roster; the column shows none until that lands.
+ *
+ * The engine context (roster, rules, shifts, open volume) is loaded ONCE for
+ * the whole board and handed to every `suggestFor` call — a queue of forty
+ * leads must not be forty round trips. It is centre-agnostic by construction
+ * (`rules/service/context.ts`), so one load covers all three centres; if it
+ * fails, each lead still gets an answer (the engine seam degrades to "no
+ * auto-pick" rather than 500ing the director's board).
  */
 
 import { publicRep } from "../../core/projections";
@@ -14,6 +19,7 @@ import { getCrmSettings } from "../../core/data/settings-db";
 import { shiftYmd, todayEasternYmd } from "../../core/dates";
 import type { CrmRep } from "../../core/types";
 import { assignableReps, listReps } from "~/features/crm/reps";
+import { loadEngineContext, type EngineContext } from "~/features/crm/rules";
 import type { LeadView, QueueLead, QueueRepColumn, QueueResponse, VolumeCell } from "../contracts";
 import {
   listAssignedAwaitingTouch,
@@ -21,7 +27,7 @@ import {
   volumeByRepMonth,
   type VolumeRow,
 } from "../data/leads-db";
-import { suggestFor, type SuggestResult } from "./suggest";
+import { NO_SUGGESTION, suggestFor, type SuggestResult } from "./suggest";
 
 export type QueueBody = Omit<QueueResponse, "ok">;
 
@@ -57,7 +63,7 @@ export function buildQueueLeads(
   now: Date,
 ): QueueLead[] {
   return unassigned.map((lead) => {
-    const s = suggestions.get(lead.id) ?? { suggestion: null, trace: [] };
+    const s = suggestions.get(lead.id) ?? NO_SUGGESTION;
     return {
       lead,
       ageMinutes: ageMinutes(lead.createdAt, now),
@@ -66,6 +72,7 @@ export function buildQueueLeads(
             rep: publicRep(s.suggestion.rep)!,
             reason: s.suggestion.reason,
             ruleId: s.suggestion.ruleId,
+            finalRuleCode: s.suggestion.finalRuleLabel,
           }
         : null,
       trace: s.trace,
@@ -103,6 +110,8 @@ export interface QueueDeps {
   listAssigned: typeof listAssignedAwaitingTouch;
   suggest: typeof suggestFor;
   settings: typeof getCrmSettings;
+  /** Loaded once per board; omitted by a test that injects its own `suggest`. */
+  loadEngine?: typeof loadEngineContext;
   now: () => Date;
 }
 
@@ -114,8 +123,32 @@ export function defaultQueueDeps(): QueueDeps {
     listAssigned: listAssignedAwaitingTouch,
     suggest: suggestFor,
     settings: getCrmSettings,
+    loadEngine: loadEngineContext,
     now: () => new Date(),
   };
+}
+
+/**
+ * One engine context for the whole board — or `undefined`, which makes each
+ * `suggestFor` load its own (and, if that fails too, answer "no auto-pick").
+ * The context does not depend on the centre, so the first lead's centre is
+ * only what the load records on the result.
+ */
+async function loadEngineOnce(
+  unassigned: readonly LeadView[],
+  deps: QueueDeps,
+  now: Date,
+): Promise<EngineContext | undefined> {
+  const first = unassigned[0];
+  if (!first || !deps.loadEngine) return undefined;
+  try {
+    return await deps.loadEngine(first.centre, now);
+  } catch (err) {
+    console.error("[crm] the queue could not load the assignment context", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
 }
 
 export async function loadQueue(deps: QueueDeps = defaultQueueDeps()): Promise<QueueBody> {
@@ -127,8 +160,11 @@ export async function loadQueue(deps: QueueDeps = defaultQueueDeps()): Promise<Q
     deps.settings(),
   ]);
   const [volume, assigned] = await Promise.all([deps.volume(months), deps.listAssigned()]);
+  const engine = await loadEngineOnce(unassigned, deps, now);
   const suggestions = new Map<string, SuggestResult>();
-  for (const lead of unassigned) suggestions.set(lead.id, await deps.suggest(lead, { now, reps }));
+  for (const lead of unassigned) {
+    suggestions.set(lead.id, await deps.suggest(lead, { now, reps, engine }));
+  }
   return {
     unassigned: buildQueueLeads(unassigned, suggestions, now),
     reps: buildRepColumns(reps, volume, assigned, months),

@@ -39,3 +39,9 @@ export {
   type RunResult,
   type RunnerDeps,
 } from "./runner";
+export {
+  SCHEDULED_KINDS,
+  enqueueScheduled,
+  type ScheduledEnqueue,
+  type ScheduledKind,
+} from "./scheduled";

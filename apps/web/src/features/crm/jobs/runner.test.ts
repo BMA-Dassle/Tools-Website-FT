@@ -184,6 +184,8 @@ describe("noop and notImplemented", () => {
     expect(pending.length).toBeGreaterThan(0);
     expect(pending.length).toBeLessThan(kinds.length - 1);
     expect(pending).not.toContain("mint-bmi-project"); // B3 shipped it
+    expect(pending).not.toContain("assign-sweep"); // B3's assignment rules ship it
+    expect(pending).not.toContain("sevenshifts-mirror"); // B3's assignment rules ship it
     for (const kind of pending) {
       const { job, result } = await runJobInline({ kind, actorEmail: "eric@headpinz.com" }, deps());
       expect(job.status, kind).toBe("failed");

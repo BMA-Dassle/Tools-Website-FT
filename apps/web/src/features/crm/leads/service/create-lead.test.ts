@@ -116,7 +116,7 @@ function fakes(
       order.push(`activity:${a.kind}`);
       return "1";
     },
-    suggest: async () => ({ suggestion: null, trace: [] }),
+    suggest: async () => ({ suggestion: null, trace: [], outcome: "none" as const }),
     mintLead: async (lead, extras, _deps, actor) => {
       order.push("mint");
       mintArgs.push([lead, extras, actor]);
@@ -300,16 +300,17 @@ describe("createLead", () => {
     expect(f.order).not.toContain("mint");
   });
 
-  it("the engine's pick is assigned with reason 'rule' and its Office name goes to Pandora as agent", async () => {
+  it("a ROUTE decision is applied at capture, with reason 'rule' and the rule's trace", async () => {
     const f = fakes({
       suggest: async () => ({
         suggestion: {
           rep: REPS.kelsea,
-          reason: "lowest Oct volume",
-          ruleId: "6",
-          finalRuleLabel: "R6",
+          reason: "routed to Guest Services",
+          ruleId: "3",
+          finalRuleLabel: "R3",
         },
-        trace: [{ ruleId: "R6", label: "Lowest volume for the party's month", hit: true }],
+        trace: [{ ruleId: "3", code: "R3", label: "Kids' birthdays", hit: true }],
+        outcome: "route" as const,
       }),
     });
     const r = await createLead(INPUT, { source: "web" }, f.deps);
@@ -318,11 +319,60 @@ describe("createLead", () => {
       leadId: "5001",
       repId: "1",
       reason: "rule",
-      ruleId: "6",
+      ruleId: "3",
       actor: "web",
     });
+    expect(f.assigns[0]!.trace).toEqual([
+      { ruleId: "3", code: "R3", label: "Kids' birthdays", hit: true },
+    ]);
     expect(r.assignment?.bmi).toEqual({ status: "synced" });
     expect(r.lead.rep).toBe("1");
+  });
+
+  it("a HOLD decision is applied at capture too — a big enquiry is the Marketing Director's", async () => {
+    const f = fakes({
+      suggest: async () => ({
+        suggestion: {
+          rep: REPS.kelsea,
+          reason: "held for Marketing Director",
+          ruleId: "1",
+          finalRuleLabel: "R1",
+        },
+        trace: [],
+        outcome: "hold" as const,
+      }),
+    });
+    await createLead(INPUT, { source: "web" }, f.deps);
+    expect(f.assigns[0]).toMatchObject({ reason: "rule", ruleId: "1" });
+  });
+
+  /**
+   * The balancing rule's pick is the SWEEP's to apply once the director's delay
+   * has passed — assigning it here would empty the queue the moment a lead
+   * landed and make the board's "auto-assign in 52m" countdown a lie. Pandora
+   * still gets the name, so the BMI project opens with the right planner.
+   */
+  it("a BALANCING pick is shown, not applied — Pandora gets the name, the queue keeps the lead", async () => {
+    const f = fakes({
+      suggest: async () => ({
+        suggestion: {
+          rep: REPS.kelsea,
+          reason: "lowest Oct volume",
+          ruleId: "6",
+          finalRuleLabel: "R6",
+        },
+        trace: [
+          { ruleId: "6", code: "R6", label: "Lowest volume for the party's month", hit: true },
+        ],
+        outcome: "assign" as const,
+      }),
+    });
+    const r = await createLead(INPUT, { source: "web" }, f.deps);
+    expect(f.mintArgs[0]![1]).toMatchObject({ agent: "Kelsea Kosco" });
+    expect(f.assigns).toHaveLength(0);
+    expect(r.lead.rep).toBeNull();
+    expect(r.assignment).toBeNull();
+    expect(r.suggestion.suggestion?.rep.slug).toBe(REPS.kelsea.slug);
   });
 
   it("an assign that throws after capture is logged, not fatal", async () => {
@@ -330,6 +380,7 @@ describe("createLead", () => {
       suggest: async () => ({
         suggestion: { rep: REPS.kelsea, reason: "x", ruleId: null, finalRuleLabel: null },
         trace: [],
+        outcome: "route" as const,
       }),
       assign: async () => {
         throw new Error("Neon hiccup");

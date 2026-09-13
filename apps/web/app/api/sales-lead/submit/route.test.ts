@@ -89,7 +89,7 @@ function minted(): CreateLeadResult {
       sms: { ok: true, status: 200 },
       email: { ok: true, status: null, skipped: true, reason: "skipped — customer prefers text" },
     },
-    suggestion: { suggestion: null, trace: [] },
+    suggestion: { suggestion: null, trace: [], outcome: "none" as const },
     assignment: null,
   };
 }

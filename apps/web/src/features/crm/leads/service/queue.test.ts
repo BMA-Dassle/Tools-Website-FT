@@ -52,7 +52,8 @@ describe("buildQueueLeads", () => {
             ruleId: "6",
             finalRuleLabel: "R6",
           },
-          trace: [{ ruleId: "R6", label: "Lowest volume", hit: true }],
+          trace: [{ ruleId: "6", code: "R6", label: "Lowest volume", hit: true }],
+          outcome: "assign",
         },
       ],
     ]);
@@ -117,7 +118,7 @@ describe("loadQueue", () => {
       listAssigned: async () => [],
       suggest: async (lead) => {
         suggested.push(lead.publicId);
-        return { suggestion: null, trace: [] };
+        return { suggestion: null, trace: [], outcome: "none" as const };
       },
       settings: async () => ({
         bmiWrites: { enabled: true, offCentres: [] },
