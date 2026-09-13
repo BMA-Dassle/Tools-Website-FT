@@ -9,6 +9,7 @@
 
 import { isDbConfigured, sql } from "@ft/db";
 import type { CentreCode, CrmAccount } from "../../core/types";
+import { ISO } from "./sql";
 
 let schemaReady: Promise<void> | null = null;
 
@@ -80,7 +81,8 @@ export function mapAccountRow(r: AccountRowRaw): CrmAccount {
 
 const COLUMNS = `
   id::text AS id, kind, name, name_key, centre, lifetime_cents::text AS lifetime_cents, meta,
-  archived_at::text AS archived_at, created_at::text AS created_at, updated_at::text AS updated_at
+  ${ISO("archived_at")} AS archived_at,
+  ${ISO("created_at")} AS created_at, ${ISO("updated_at")} AS updated_at
 `;
 
 /** Find by `name_key` (live rows first), else insert. Returns the row. */

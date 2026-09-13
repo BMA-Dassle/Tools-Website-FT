@@ -9,6 +9,7 @@
 import { isDbConfigured, sql } from "@ft/db";
 import type { AssignmentReason, LeadAssignmentView, RuleTraceRowView } from "../contracts";
 import { ensureLeadsSchema } from "./leads-db";
+import { ISO } from "./sql";
 
 let schemaReady: Promise<void> | null = null;
 
@@ -83,8 +84,6 @@ export function mapAssignmentRow(r: AssignmentRowRaw): LeadAssignmentView {
     createdAt: r.created_at,
   };
 }
-
-const ISO = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
 const COLUMNS = `
   x.id::text AS id, x.lead_id::text AS lead_id, x.from_rep_id::text AS from_rep_id, x.to_rep_id::text AS to_rep_id,
