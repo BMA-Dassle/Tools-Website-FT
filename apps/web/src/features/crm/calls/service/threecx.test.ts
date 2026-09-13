@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installMsw } from "../../../../../test/msw/server";
-import {
-  THREECX_BASE,
-  threecxDialled,
-  threecxHandlers,
-} from "../../../../../test/msw/handlers/threecx";
+import { threecxDialled, threecxHandlers } from "../../../../../test/msw/handlers/threecx";
 import {
   callLogPath,
   fetchCallLog,

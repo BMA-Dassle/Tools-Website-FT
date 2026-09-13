@@ -107,6 +107,7 @@ export {
 } from "./service/dial";
 
 export {
+  CallNotFoundError,
   REACHED,
   STATUS_AFTER_CONTACT,
   STATUS_BEFORE_CONTACT,
