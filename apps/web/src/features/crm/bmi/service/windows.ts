@@ -239,6 +239,18 @@ export function deltaJobKey(clientKey: string, bucketIso: string): string {
   return `${DELTA_KIND}:${clientKey}:${bucketIso}`;
 }
 
+/**
+ * THE sub's idempotency-key helper for the scheduler (§5.7b: "each sub exports
+ * its idempotency-key helper … B1: the delta bucket"). The B3 wiring stage's
+ * `enqueueScheduled(now)` in `/api/cron/crm-jobs` calls this once per tenant
+ * and enqueues `bmi-mirror-delta` with the key, ON CONFLICT DO NOTHING — so
+ * two cron ticks inside one 5-minute bucket produce one job, and the key is a
+ * pure function of the bucket, never of the call.
+ */
+export function deltaIdempotencyKey(now: Date, clientKey: string): string {
+  return deltaJobKey(clientKey, fiveMinuteBucket(now));
+}
+
 const ET_WALL = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York",
   year: "numeric",

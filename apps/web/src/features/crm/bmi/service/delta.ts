@@ -28,10 +28,10 @@ import { ONLINE_KIND_ID, liveReservationIds, liveReservationRow } from "./projec
 import {
   BACKFILL_TIME_BUDGET_MS,
   DELTA_KIND,
+  deltaIdempotencyKey,
   deltaJobKey,
   deltaWindow,
   etWallClock,
-  fiveMinuteBucket,
   nextBucketStart,
 } from "./windows";
 
@@ -313,7 +313,7 @@ export async function enqueueDeltaTick(
   deps: Pick<MirrorDeps, "enqueue">,
 ): Promise<{ key: string; created: boolean }> {
   const runAt = nextBucketStart(now);
-  const key = deltaJobKey(clientKey, fiveMinuteBucket(runAt));
+  const key = deltaIdempotencyKey(runAt, clientKey);
   const { created } = await deps.enqueue({
     kind: DELTA_KIND,
     idempotencyKey: key,
