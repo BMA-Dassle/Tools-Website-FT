@@ -105,6 +105,15 @@ describe("upsertMirrorRowsBulk", () => {
     );
     expect(stmts[0]!.text).not.toContain("products"); // a stub never overwrites a fuller row's products / raw / links
     expect(stmts[0]!.params[7]).toEqual(Array(500).fill("-10"));
+    // One UNNEST array per column, `synced_at` included — no implicit
+    // cross-join supplying a column the parameter list does not name.
+    expect(stmts[0]!.params).toHaveLength(19);
+    expect(stmts[0]!.text).toContain("$19::timestamptz[]");
+    expect(stmts[0]!.text).toContain("bmi_created_at, bmi_updated_at, synced_at)");
+    const stamps = stmts[0]!.params[18] as string[];
+    expect(stamps).toHaveLength(500);
+    expect(new Set(stamps).size).toBe(1);
+    expect(Number.isNaN(Date.parse(stamps[0]!))).toBe(false);
     expect(await mod.upsertMirrorRowsBulk([])).toEqual({ inserted: 0, written: 0 });
   });
 
@@ -229,6 +238,10 @@ describe("readers", () => {
     expect(s.text).toContain("p.event_date BETWEEN $1::date AND $2::date");
     expect(s.text).toContain("p.state_id IS DISTINCT FROM '-4'");
     expect(s.text).toContain("n.event_date > p.event_date");
+    // "Come back" means come back THIS year: a booking a fortnight after last
+    // year's event must not hide the host from the reach-out list.
+    expect(s.text).toContain("n.event_date >= $1::date + INTERVAL '1 year' - INTERVAL '8 weeks'");
+    expect(s.text).toContain("l.event_date >= $1::date + INTERVAL '1 year' - INTERVAL '8 weeks'");
     expect(s.text).toContain("FROM crm_leads l");
     expect(s.text).toContain("LEFT JOIN crm_contacts c ON c.id = l.contact_id");
     expect(s.text).toContain("l.archived_at IS NULL");

@@ -291,6 +291,12 @@ export async function upsertMirrorRow(
  * dayPlanner window lists by the thousand. Same ON CONFLICT / COALESCE rules
  * as `upsertMirrorRow`; links are null (a stub has no host contact). Returns
  * how many were new. Chunks of 500 keep each statement's parameters modest.
+ *
+ * EVERY column comes from an UNNEST array, `synced_at` included ($19): the
+ * statement is a plain `INSERT … SELECT * FROM UNNEST(...)` with as many
+ * arrays as columns, nothing clever. (It used to lean on an implicit
+ * cross-join with `NOW()` to supply the 19th column — correct, but a shape no
+ * reader could check at a glance and no SQL-text test could prove.)
  */
 export async function upsertMirrorRowsBulk(
   rows: readonly MirrorRow[],
@@ -299,6 +305,7 @@ export async function upsertMirrorRowsBulk(
   if (!isDbConfigured()) throw new Error("DATABASE_URL is not set");
   await ensureBmiProjectsSchema();
   const q = sql();
+  const now = new Date().toISOString();
   let inserted = 0;
   let written = 0;
   for (let i = 0; i < rows.length; i += BULK_CHUNK) {
@@ -312,11 +319,10 @@ export async function upsertMirrorRowsBulk(
        SELECT * FROM UNNEST(
          $1::text[], $2::text[], $3::int[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[],
          $9::text[], $10::text[], $11::date[], $12::timestamptz[], $13::int[],
-         $14::text[], $15::text[], $16::text[], $17::timestamptz[], $18::timestamptz[]
+         $14::text[], $15::text[], $16::text[], $17::timestamptz[], $18::timestamptz[], $19::timestamptz[]
        ) AS u(project_id, client_key, location_id, number, name, state_id, state_name, kind_id,
               responsible_user_id, responsible_name, event_date, event_start, persons,
-              person_id, person_name, source, bmi_created_at, bmi_updated_at),
-       NOW()
+              person_id, person_name, source, bmi_created_at, bmi_updated_at, synced_at)
        ON CONFLICT (project_id) DO UPDATE SET
          client_key = EXCLUDED.client_key,
          location_id = COALESCE(EXCLUDED.location_id, crm_bmi_projects.location_id),
@@ -356,6 +362,7 @@ export async function upsertMirrorRowsBulk(
         part.map((r) => r.source),
         part.map((r) => r.bmiCreatedAt),
         part.map((r) => r.bmiUpdatedAt),
+        part.map(() => now),
       ],
     )) as { inserted: boolean }[];
     written += res.length;
@@ -664,10 +671,17 @@ export interface LastYearFilter extends PageOpts {
 
 /**
  * "This time last year": group events in `[from, till]` whose host has NOT
- * come back — no open CRM lead (by account, phone or email) with a later event
- * date, and no later non-cancelled BMI project for the same account / phone /
- * email (a legacy re-booking made straight in Office). Cancelled last-year
- * events are not reach-outs. Oldest first, so the soonest anniversary leads.
+ * come back — no CRM lead and no non-cancelled BMI project for the same
+ * account / phone / email in the CURRENT cycle. Cancelled last-year events are
+ * not reach-outs. Oldest first, so the soonest anniversary leads.
+ *
+ * WHAT "COME BACK" MEANS. A later booking only disqualifies a host when it
+ * lands in this year's window — `from + 1 year − 8 weeks` onwards, i.e. from
+ * roughly five weeks ago. A host who booked again a fortnight after last
+ * year's event and has not been seen since is exactly who the reach-out is
+ * for; hiding them because they have "any later booking at all" silently drops
+ * the best repeat customers. `n.event_date > p.event_date` stays as well, so
+ * two events inside the window collapse to the latest.
  *
  * `crm_leads` / `crm_contacts` are read here by SQL only (no import of the
  * leads sub — `leads → bmi` is the declared direction, §3.2); both tables are
@@ -691,6 +705,7 @@ export async function listLastYearHosts(filter: LastYearFilter): Promise<Page<Mi
               SELECT 1 FROM crm_bmi_projects n
                WHERE n.project_id <> p.project_id
                  AND n.event_date > p.event_date
+                 AND n.event_date >= $1::date + INTERVAL '1 year' - INTERVAL '8 weeks'
                  AND n.kind_id IS DISTINCT FROM '-10'
                  AND n.state_id IS DISTINCT FROM '-4'
                  AND (
@@ -706,6 +721,7 @@ export async function listLastYearHosts(filter: LastYearFilter): Promise<Page<Mi
                 LEFT JOIN crm_contacts c ON c.id = l.contact_id
                 WHERE l.archived_at IS NULL
                   AND l.event_date > p.event_date
+                  AND l.event_date >= $1::date + INTERVAL '1 year' - INTERVAL '8 weeks'
                   AND (
                         (p.account_id IS NOT NULL AND l.account_id = p.account_id)
                      OR (p.person_phone IS NOT NULL AND c.phone_e164 = p.person_phone)
