@@ -10,7 +10,7 @@ import type { ComponentType } from "react";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import type { LeadView } from "~/features/crm/leads/contracts";
 import { contactKey, phoneKey } from "~/features/crm/sms/keys";
-import { contactHrefs, leadName } from "../leads/model";
+import { leadName } from "../leads/model";
 
 /**
  * THE QUICK-ACTIONS SLOT REGISTRY — the deal's action rail
@@ -88,8 +88,12 @@ export interface QuickActionSlot {
   owner: "B3" | "B4" | "C1" | "C2" | "C3";
 }
 
-const href = (value: string | null): QuickActionTarget | null =>
-  value ? { kind: "href", href: value } : null;
+// No `href(...)` factory any more. Every one of the five slots now resolves to
+// a `route` (C1's Text) or a `sheet` (C2 Email, C3 Call, B4 Note and Snooze),
+// so the device hand-off helper had no caller left and lint failed the build on
+// it. `{kind:"href"}` REMAINS a target kind — `QuickActions` still navigates it
+// with `location.assign`, and a slot that genuinely wants `tel:` or `mailto:`
+// re-adds its own one-liner.
 
 /** An in-app CRM path — navigated with the router, never a page load. */
 const route = (value: string | null): QuickActionTarget | null =>
