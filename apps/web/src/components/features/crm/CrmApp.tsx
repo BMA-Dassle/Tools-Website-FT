@@ -30,6 +30,7 @@ import { createCrmFetch } from "./lib/crm-fetch";
 import { useCrmTheme } from "./lib/theme";
 import { LoadingState } from "./primitives/States";
 import { BottomTabs } from "./shell/BottomTabs";
+import { useBadgeCounts } from "./shell/badges";
 import { NotForYourRole } from "./shell/NotForYourRole";
 import { NotFound } from "./shell/NotFound";
 import { Sheet } from "./shell/Sheet";
@@ -108,6 +109,7 @@ export default function CrmApp(props: CrmAppProps) {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const crmFetch = useMemo(() => createCrmFetch(token), [token]);
+  const badges = useBadgeCounts(crmFetch, user.role);
 
   const toast = useCallback((text: string, kind: ToastKind = "ok") => {
     setToastState({ text, kind });
@@ -185,7 +187,13 @@ export default function CrmApp(props: CrmAppProps) {
       <style dangerouslySetInnerHTML={{ __html: baThemeCss(theme) + PORTAL_SKIN_CSS }} />
       <CrmContext.Provider value={ctx}>
         <div className="shell">
-          <Sidebar user={user} activeId={activeId} theme={theme} onTheme={setTheme} />
+          <Sidebar
+            user={user}
+            activeId={activeId}
+            badges={badges}
+            theme={theme}
+            onTheme={setTheme}
+          />
           <div className="main">
             <Topbar
               title={title}
@@ -197,7 +205,7 @@ export default function CrmApp(props: CrmAppProps) {
               actionsRef={setTopbarSlot}
             />
             <div className="content">{body}</div>
-            <BottomTabs user={user} activeId={activeId} />
+            <BottomTabs user={user} activeId={activeId} badges={badges} />
           </div>
         </div>
         {/* Overlays: siblings of the shell, inside the themed root. */}

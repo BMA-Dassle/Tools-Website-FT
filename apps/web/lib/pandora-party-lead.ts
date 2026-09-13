@@ -22,9 +22,41 @@
  *   agent, preferredContact, preferredTime, specialRequests, packageType
  */
 
+import { BMI_ID_FIELDS, parseWithRawIds } from "@ft/db";
 import { resolvePandoraLocation } from "@/lib/pandora-locations";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
+
+/**
+ * The id fields on a party-lead response. `BMI_ID_FIELDS` covers `personID`
+ * (capital D) but only `projectId` — Pandora answers with `projectID`, so the
+ * default list would leave a bare 17-digit project id to be rounded by
+ * `JSON.parse` (CLAUDE.md hard rule; brief §1.2 trap). Live Pandora strings
+ * these server-side today, which is the only reason `res.json()` never bit;
+ * the guard is for the day it stops.
+ */
+export const PANDORA_PARTY_LEAD_ID_FIELDS: readonly string[] = [...BMI_ID_FIELDS, "projectID"];
+
+export interface SubmitPartyLeadOpts {
+  /** Abort/timeout for the Pandora call, e.g. `AbortSignal.timeout(20_000)`. */
+  signal?: AbortSignal;
+}
+
+/**
+ * Parse a Pandora body without rounding its ids. A non-JSON body yields null —
+ * the same "no data" the old `res.json().catch(() => null)` produced.
+ */
+export function parsePartyLeadBody(text: string): Record<string, unknown> | null {
+  if (!text || !text.trim()) return null;
+  try {
+    const parsed = parseWithRawIds<unknown>(text, PANDORA_PARTY_LEAD_ID_FIELDS);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export interface PartyLeadInput {
   /** Center key ("fasttrax" | "headpinz" | "naples") — resolved to Pandora locationID. */
@@ -120,7 +152,10 @@ export function buildPandoraPayload(input: PartyLeadInput): Record<string, unkno
  * Submit a party lead to Pandora. Single source of truth — both the proxy
  * route and the submit orchestrator call this.
  */
-export async function submitPartyLead(input: PartyLeadInput): Promise<PartyLeadResult> {
+export async function submitPartyLead(
+  input: PartyLeadInput,
+  opts: SubmitPartyLeadOpts = {},
+): Promise<PartyLeadResult> {
   const apiKey = process.env.SWAGGER_ADMIN_KEY;
   if (!apiKey) {
     return { ok: false, status: 500, error: "SWAGGER_ADMIN_KEY not configured" };
@@ -146,16 +181,25 @@ export async function submitPartyLead(input: PartyLeadInput): Promise<PartyLeadR
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
+      signal: opts.signal,
     });
   } catch (err) {
+    const aborted =
+      err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError");
     return {
       ok: false,
-      status: 502,
-      error: err instanceof Error ? err.message : "Pandora fetch error",
+      status: aborted ? 504 : 502,
+      error: aborted
+        ? "Pandora timed out"
+        : err instanceof Error
+          ? err.message
+          : "Pandora fetch error",
     };
   }
 
-  const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  // RAW TEXT, never `res.json()`: the body carries projectID / personID
+  // (17-digit BMI ids when Pandora stops stringing them).
+  const data = parsePartyLeadBody(await res.text().catch(() => ""));
   if (!res.ok || !data) {
     return {
       ok: false,

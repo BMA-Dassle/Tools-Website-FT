@@ -1,0 +1,311 @@
+/**
+ * `createLead` — the ONE way a lead enters the CRM (web form, a phone call
+ * logged by staff, a walk-in, a referral; C8's cold-list conversions later).
+ *
+ * ORDER IS THE CONTRACT (R2 — persist guest input BEFORE any external call):
+ *
+ *   1. normalise the phone (`canonicalizePhone`), upsert account + contact
+ *   2. INSERT `crm_leads` with `capture_payload` (the raw submission, always),
+ *      `mint_status` 'pending' — or 'none' with `needs_email_or_time` when
+ *      Pandora could not accept it, or 'none' for a prospect — COMMITTED
+ *   3. activity "Lead captured …"
+ *   4. `suggestFor` (the engine seam; null until B2 is wired)
+ *   5. `mintLead` → Pandora, `agent` = the pick's Office name or "First Available"
+ *   6. notifications — never fatal
+ *   7. `assignLead(reason:'rule')` when the engine picked someone
+ *
+ * A form resubmitted within 15 minutes for the same guest / centre / date
+ * after a failed mint re-uses the row instead of creating a second one; a
+ * resubmit after a SUCCESSFUL mint is returned as-is (no second project, no
+ * second text to the guest).
+ */
+
+import { canonicalizePhone } from "@/lib/participant-contact";
+import { recordActivity } from "~/features/crm/activities";
+import type { CentreCode, EventType, LeadSource } from "../../core/types";
+import { LEAD_SOURCE_LABEL, type LeadView } from "../contracts";
+import { upsertAccountByName } from "../data/accounts-db";
+import { emailKeyOf, upsertContact } from "../data/contacts-db";
+import { findRecentDuplicateLead, getLead, insertLead } from "../data/leads-db";
+import { assignLead, type AssignResult } from "./assign";
+import { NEEDS_EMAIL_OR_TIME, mintLead, type MintOutcome } from "./mint";
+import { notifyNewLead, summarizeNotify, type NotifyOutcome } from "./notify";
+import { suggestFor, type SuggestResult } from "./suggest";
+
+export interface CreateLeadInput {
+  centre: CentreCode;
+  firstName: string;
+  lastName: string;
+  /** Any format; canonicalised to E.164 here. */
+  phone: string | null;
+  email: string | null;
+  company?: string | null;
+  eventDate: string;
+  eventTime: string | null;
+  guests: number;
+  type: EventType;
+  kids: boolean;
+  notes?: string | null;
+  prefers?: "text" | "call" | "email" | null;
+  preferredContactMethod?: "phone" | "text" | "email";
+  bestTimeToCall?: string;
+  activityInterest?: string[];
+  packageType?: string;
+  /** Overrides `notes` as Pandora's specialRequests (the web form's rich blob). */
+  specialRequests?: string | null;
+  eventTypeLabel?: string;
+  /** The raw submission, stored verbatim. */
+  capturePayload: Record<string, unknown>;
+  /** The member of staff who logged it; null for the web form. */
+  createdBy: string | null;
+}
+
+export interface CreateLeadOptions {
+  source: LeadSource;
+  /** actor_email for the activity / assignment rows; "web" for the form. */
+  actorEmail?: string | null;
+  /** Cold / historical rows before conversion — no mint, no notifications. */
+  isProspect?: boolean;
+  /** Test / bulk-import switches; all default true. */
+  mint?: boolean;
+  notify?: boolean;
+  autoAssign?: boolean;
+}
+
+export interface CreateLeadResult {
+  lead: LeadView;
+  /** false = an existing recent row was re-used. */
+  created: boolean;
+  mint: MintOutcome;
+  notify: NotifyOutcome | null;
+  suggestion: SuggestResult;
+  assignment: AssignResult | null;
+}
+
+export interface CreateLeadDeps {
+  upsertAccount: typeof upsertAccountByName;
+  upsertContact: typeof upsertContact;
+  insertLead: typeof insertLead;
+  getLead: typeof getLead;
+  findDuplicate: typeof findRecentDuplicateLead;
+  recordActivity: typeof recordActivity;
+  suggest: typeof suggestFor;
+  mintLead: typeof mintLead;
+  notify: typeof notifyNewLead;
+  assign: typeof assignLead;
+  now: () => Date;
+}
+
+export function defaultCreateLeadDeps(): CreateLeadDeps {
+  return {
+    upsertAccount: upsertAccountByName,
+    upsertContact,
+    insertLead,
+    getLead,
+    findDuplicate: findRecentDuplicateLead,
+    recordActivity,
+    suggest: suggestFor,
+    mintLead,
+    notify: notifyNewLead,
+    assign: assignLead,
+    now: () => new Date(),
+  };
+}
+
+export const PROSPECT_SOURCES: readonly LeadSource[] = ["cold", "historical"];
+
+/** The capture line (crm-data.js:67-82 wording). */
+export function captureLine(source: LeadSource, actor: string | null): string {
+  const who = actor ?? "staff";
+  switch (source) {
+    case "web":
+      return "Lead captured from the web form";
+    case "phone":
+      return `Logged by ${who} from an inbound call`;
+    case "walkin":
+      return `Logged by ${who} from a walk-in`;
+    case "referral":
+      return `Referral entered by ${who}`;
+    default:
+      return `Lead created from ${LEAD_SOURCE_LABEL[source].toLowerCase()} by ${who}`;
+  }
+}
+
+export async function createLead(
+  input: CreateLeadInput,
+  opts: CreateLeadOptions,
+  deps: CreateLeadDeps = defaultCreateLeadDeps(),
+): Promise<CreateLeadResult> {
+  const actor = opts.actorEmail ?? input.createdBy ?? (opts.source === "web" ? "web" : null);
+  const isProspect = opts.isProspect ?? PROSPECT_SOURCES.includes(opts.source);
+  const phoneE164 = canonicalizePhone(input.phone);
+  const email = emailKeyOf(input.email);
+
+  // A resubmit after a failed (or slow) Pandora call must not double the row.
+  const dup = await deps.findDuplicate({
+    phoneE164,
+    emailKey: email,
+    centre: input.centre,
+    eventDate: input.eventDate,
+  });
+  if (dup && dup.mintStatus === "minted") {
+    return {
+      lead: dup,
+      created: false,
+      mint: {
+        status: "minted",
+        projectId: dup.bmi.projectId ?? "",
+        projectNumber: dup.bmi.projectNumber ?? "",
+        personId: dup.bmi.personId,
+        assignedAgent: null,
+      },
+      notify: null,
+      suggestion: { suggestion: null, trace: [] },
+      assignment: null,
+    };
+  }
+
+  let lead: LeadView;
+  let created = false;
+  if (dup) {
+    lead = dup;
+  } else {
+    // 1. account + contact
+    const account = input.company?.trim()
+      ? await deps.upsertAccount({
+          name: input.company.trim(),
+          kind: "business",
+          centre: input.centre,
+        })
+      : null;
+    const contact = await deps.upsertContact({
+      firstName: input.firstName.trim(),
+      lastName: input.lastName.trim(),
+      phoneE164,
+      email: input.email ? input.email.trim() : null,
+      accountId: account?.id ?? null,
+      prefers: input.prefers ?? null,
+    });
+
+    // 2. the lead row — Neon first, always
+    const blocker = isProspect
+      ? "prospect"
+      : !contact.email || !input.eventTime
+        ? NEEDS_EMAIL_OR_TIME
+        : null;
+    const id = await deps.insertLead({
+      contactId: contact.id,
+      accountId: account?.id ?? null,
+      centre: input.centre,
+      eventDate: input.eventDate,
+      eventTime: input.eventTime,
+      guests: input.guests,
+      type: input.type,
+      source: opts.source,
+      isProspect,
+      kids: input.kids,
+      notes: input.notes ?? null,
+      mintStatus: blocker ? "none" : "pending",
+      mintError: blocker && blocker !== "prospect" ? blocker : null,
+      capturePayload: input.capturePayload,
+      createdBy: input.createdBy,
+    });
+    const fresh = await deps.getLead(id);
+    if (!fresh) throw new Error(`crm_leads: inserted ${id} but could not read it back`);
+    lead = fresh;
+    created = true;
+
+    // 3. the capture line
+    await deps.recordActivity({
+      leadId: lead.id,
+      contactId: lead.contactId,
+      actorEmail: actor,
+      kind: "system",
+      occurredAt: deps.now(),
+      body: `${captureLine(opts.source, input.createdBy)} · ${lead.centre}`,
+      meta: { source: opts.source, isProspect },
+    });
+  }
+
+  // 4. the engine seam (null until B2 is wired)
+  const suggestion = await deps.suggest(lead, { now: deps.now() });
+
+  // 5. Pandora
+  let mint: MintOutcome;
+  if (isProspect) {
+    mint = { status: "none", error: "prospect" };
+  } else if (opts.mint === false) {
+    mint = { status: "none", error: "mint disabled" };
+  } else {
+    const r = await deps.mintLead(
+      lead,
+      {
+        agent: suggestion.suggestion?.rep.bmiUsername ?? null,
+        specialRequests: input.specialRequests ?? null,
+        packageType: input.packageType ?? null,
+        preferredContact: input.preferredContactMethod ?? null,
+        preferredTime: input.bestTimeToCall ?? null,
+      },
+      undefined,
+      actor,
+    );
+    mint = r.outcome;
+    lead = r.lead;
+  }
+
+  // 6. notifications — never fatal
+  let notify: NotifyOutcome | null = null;
+  if (!isProspect && opts.notify !== false) {
+    try {
+      notify = await deps.notify({
+        lead,
+        mint,
+        source: opts.source,
+        preferredContactMethod: input.preferredContactMethod,
+        bestTimeToCall: input.bestTimeToCall,
+        activityInterest: input.activityInterest,
+        eventTypeLabel: input.eventTypeLabel,
+      });
+      await deps.recordActivity({
+        leadId: lead.id,
+        contactId: lead.contactId,
+        actorEmail: actor,
+        kind: "system",
+        occurredAt: deps.now(),
+        body: summarizeNotify(notify),
+        meta: notify as unknown as Record<string, unknown>,
+      });
+    } catch (err) {
+      // `notifyNewLead` never throws by design; this guards a replaced dep.
+      console.error("[crm] notifications failed after capture", {
+        lead_id: lead.id,
+        actor_email: actor,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // 7. the engine's pick, if any
+  let assignment: AssignResult | null = null;
+  if (suggestion.suggestion && opts.autoAssign !== false && !lead.rep) {
+    try {
+      assignment = await deps.assign({
+        leadId: lead.id,
+        repId: suggestion.suggestion.rep.id,
+        actor: actor ?? "rules",
+        reason: "rule",
+        ruleId: suggestion.suggestion.ruleId,
+        trace: suggestion.trace,
+      });
+      lead = assignment.lead;
+    } catch (err) {
+      console.error("[crm] auto-assign after capture failed", {
+        lead_id: lead.id,
+        actor_email: actor,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return { lead, created, mint, notify, suggestion, assignment };
+}

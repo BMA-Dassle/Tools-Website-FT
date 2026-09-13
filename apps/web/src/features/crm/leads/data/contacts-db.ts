@@ -8,6 +8,11 @@
  * person id it lacked, so the next run matches on the id. Names and the
  * account link are filled in only where the row is empty — a rep's manual
  * edit is never overwritten by a sync.
+ *
+ * B3's `upsertContact` is the CAPTURE side of the same table: a lead arrives
+ * with a phone and an email and no person id, so it matches phone → email and
+ * adds only what the capture brings. `patchContact` is the one writer that may
+ * clear a field, because a rep typed the correction by hand.
  */
 
 import { isDbConfigured, sql } from "@ft/db";
@@ -85,6 +90,11 @@ const COLUMNS = `
   c.id::text AS id, c.account_id::text AS account_id, c.first_name, c.last_name, c.phone_e164, c.email, c.email_key,
   c.bmi_person_id, c.prefers, c.meta, c.created_at::text AS created_at, c.updated_at::text AS updated_at
 `;
+
+export function emailKeyOf(email: string | null | undefined): string | null {
+  const k = (email ?? "").trim().toLowerCase();
+  return k ? k : null;
+}
 
 export interface ContactUpsertInput {
   firstName: string;
@@ -187,4 +197,131 @@ export async function listContactsForAccount(accountId: string, limit = 50): Pro
     [accountId, Math.min(Math.max(limit, 1), 200)],
   )) as ContactRowRaw[];
   return rows.map(mapContactRow);
+}
+
+export interface ContactUpsert {
+  firstName: string;
+  lastName: string;
+  phoneE164: string | null;
+  email: string | null;
+  accountId?: string | null;
+  prefers?: "text" | "call" | "email" | null;
+  bmiPersonId?: string | null;
+}
+
+/** Find by phone, else by email; update what the capture adds; else insert. */
+export async function upsertContact(input: ContactUpsert): Promise<CrmContact> {
+  if (!isDbConfigured()) throw new Error("DATABASE_URL is not set");
+  await ensureContactsSchema();
+  const q = sql();
+  const emailKey = emailKeyOf(input.email);
+  const existing = (await q.query(
+    `SELECT ${COLUMNS} FROM crm_contacts c
+      WHERE ($1::text IS NOT NULL AND c.phone_e164 = $1)
+         OR ($2::text IS NOT NULL AND c.email_key = $2)
+      ORDER BY (c.phone_e164 = $1) DESC NULLS LAST, c.id ASC
+      LIMIT 1`,
+    [input.phoneE164, emailKey],
+  )) as ContactRowRaw[];
+
+  if (existing[0]) {
+    const rows = (await q.query(
+      `UPDATE crm_contacts c
+          SET first_name = CASE WHEN c.first_name = '' THEN $2 ELSE c.first_name END,
+              last_name = CASE WHEN c.last_name = '' THEN $3 ELSE c.last_name END,
+              phone_e164 = COALESCE(c.phone_e164, $4),
+              email = COALESCE(c.email, $5),
+              email_key = COALESCE(c.email_key, $6),
+              account_id = COALESCE($7::bigint, c.account_id),
+              prefers = COALESCE($8, c.prefers),
+              bmi_person_id = COALESCE($9, c.bmi_person_id),
+              updated_at = NOW()
+        WHERE c.id = $1::bigint
+        RETURNING ${COLUMNS}`,
+      [
+        existing[0].id,
+        input.firstName,
+        input.lastName,
+        input.phoneE164,
+        input.email,
+        emailKey,
+        input.accountId ?? null,
+        input.prefers ?? null,
+        input.bmiPersonId ?? null,
+      ],
+    )) as ContactRowRaw[];
+    return mapContactRow(rows[0]!);
+  }
+
+  const rows = (await q.query(
+    `INSERT INTO crm_contacts AS c (first_name, last_name, phone_e164, email, email_key, account_id, prefers, bmi_person_id)
+     VALUES ($1, $2, $3, $4, $5, $6::bigint, $7, $8)
+     RETURNING ${COLUMNS}`,
+    [
+      input.firstName,
+      input.lastName,
+      input.phoneE164,
+      input.email,
+      emailKey,
+      input.accountId ?? null,
+      input.prefers ?? null,
+      input.bmiPersonId ?? null,
+    ],
+  )) as ContactRowRaw[];
+  if (!rows[0]) throw new Error("crm_contacts: insert returned no row");
+  return mapContactRow(rows[0]);
+}
+
+export async function getContact(id: string): Promise<CrmContact | null> {
+  if (!isDbConfigured() || !/^\d+$/.test(id)) return null;
+  await ensureContactsSchema();
+  const q = sql();
+  const rows = (await q.query(`SELECT ${COLUMNS} FROM crm_contacts c WHERE c.id = $1::bigint`, [
+    id,
+  ])) as ContactRowRaw[];
+  return rows[0] ? mapContactRow(rows[0]) : null;
+}
+
+export interface ContactPatch {
+  firstName?: string;
+  lastName?: string;
+  phoneE164?: string | null;
+  email?: string | null;
+  prefers?: "text" | "call" | "email" | null;
+  bmiPersonId?: string | null;
+}
+
+/** Explicit edits from the deal (a rep correcting a number); `undefined` leaves a field alone. */
+export async function patchContact(id: string, patch: ContactPatch): Promise<CrmContact | null> {
+  if (!isDbConfigured() || !/^\d+$/.test(id)) return null;
+  await ensureContactsSchema();
+  const q = sql();
+  const email = patch.email;
+  const rows = (await q.query(
+    `UPDATE crm_contacts c
+        SET first_name = COALESCE($2, c.first_name),
+            last_name = COALESCE($3, c.last_name),
+            phone_e164 = CASE WHEN $4::boolean THEN $5 ELSE c.phone_e164 END,
+            email = CASE WHEN $6::boolean THEN $7 ELSE c.email END,
+            email_key = CASE WHEN $6::boolean THEN $8 ELSE c.email_key END,
+            prefers = CASE WHEN $9::boolean THEN $10 ELSE c.prefers END,
+            bmi_person_id = COALESCE($11, c.bmi_person_id),
+            updated_at = NOW()
+      WHERE c.id = $1::bigint
+      RETURNING ${COLUMNS}`,
+    [
+      id,
+      patch.firstName ?? null,
+      patch.lastName ?? null,
+      patch.phoneE164 !== undefined,
+      patch.phoneE164 ?? null,
+      email !== undefined,
+      email ?? null,
+      email !== undefined ? emailKeyOf(email) : null,
+      patch.prefers !== undefined,
+      patch.prefers ?? null,
+      patch.bmiPersonId ?? null,
+    ],
+  )) as ContactRowRaw[];
+  return rows[0] ? mapContactRow(rows[0]) : null;
 }

@@ -60,7 +60,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: "main",
     label: null,
     items: [
-      { id: "today", label: "My Day", icon: "home", badge: "overdue", ready: false },
+      { id: "today", label: "My Day", icon: "home", badge: "overdue", ready: true },
       { id: "pipeline", label: "Pipeline", icon: "kanban", ready: false },
       {
         id: "queue",
@@ -68,7 +68,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: "bolt",
         director: true,
         badge: "unassigned",
-        ready: false,
+        ready: true,
       },
       { id: "contracts", label: "Contracts", icon: "file", badge: "pendingApproval", ready: false },
       { id: "events", label: "Events", icon: "calendar", ready: false },
@@ -111,7 +111,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 
 /** The phone's bottom tabs (`direction-b.html:57`). */
 export const PHONE_TABS: readonly NavItem[] = [
-  { id: "today", label: "My Day", icon: "home", badge: "overdue", ready: false },
+  { id: "today", label: "My Day", icon: "home", badge: "overdue", ready: true },
   { id: "pipeline", label: "Pipeline", icon: "kanban", ready: false },
   { id: "contracts", label: "Contracts", icon: "file", ready: false },
   { id: "conversations", label: "Messages", icon: "message", ready: false },
@@ -120,7 +120,7 @@ export const PHONE_TABS: readonly NavItem[] = [
 
 /** The phone "More" list (`direction-b.html:121`), director items flagged. */
 export const MORE_ITEMS: readonly NavItem[] = [
-  { id: "queue", label: "Lead queue", icon: "bolt", director: true, ready: false },
+  { id: "queue", label: "Lead queue", icon: "bolt", director: true, ready: true },
   { id: "events", label: "Events", icon: "calendar", ready: false },
   { id: "calls", label: "Calls", icon: "phone", ready: false },
   { id: "history", label: "History & accounts", icon: "history", ready: true },

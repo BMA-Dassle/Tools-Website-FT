@@ -29,10 +29,10 @@ export type ScreenComponent = ComponentType<ScreenProps>;
 export type ScreenLoader = () => Promise<{ default: ScreenComponent }>;
 
 export const SCREENS: Record<ScreenId, ScreenLoader> = {
-  today: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  today: () => import("~/components/features/crm/today/MyDayScreen"),
   pipeline: () => import("~/components/features/crm/shell/NotBuiltYet"),
-  queue: () => import("~/components/features/crm/shell/NotBuiltYet"),
-  deal: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  queue: () => import("~/components/features/crm/queue/QueueScreen"),
+  deal: () => import("~/components/features/crm/deal/DealScreen"),
   contracts: () => import("~/components/features/crm/shell/NotBuiltYet"),
   events: () => import("~/components/features/crm/shell/NotBuiltYet"),
   conversations: () => import("~/components/features/crm/shell/NotBuiltYet"),

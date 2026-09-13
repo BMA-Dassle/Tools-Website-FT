@@ -1,7 +1,9 @@
 /**
  * `crm_accounts` — the business or household a lead belongs to (brief §3.8).
  * DDL from PR1. B1 adds the upsert the BMI mirror links projects through, the
- * lifetime roll-up and the History readers; B3 adds the lead-side writers.
+ * lifetime roll-up and the History readers; B3 adds the lead-side writers
+ * (`accountNameKey` + `upsertAccountByName`, which match on the normalised
+ * company name alone — a lead arrives with a typed name and no kind to key on).
  *
  * MATCHING KEY = `name_key` (`normalizeNameKey` in the bmi projection): a
  * business is one row per normalised company name; a household is
@@ -115,6 +117,19 @@ async function mergeDuplicateAccountKeys(): Promise<void> {
   console.warn("[crm_accounts] merged duplicate (kind, name_key) rows before the unique index");
 }
 
+const SUFFIXES = /\b(inc|llc|l\.l\.c|ltd|co|corp|corporation|company|pllc|pa|group)\b\.?/g;
+
+/** "Lee Health — Cape Coral, LLC" → "lee health cape coral" */
+export function accountNameKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[’'`]/g, "")
+    .replace(SUFFIXES, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 export interface AccountRowRaw {
   id: string;
   kind: string;
@@ -187,6 +202,41 @@ export async function getAccountById(id: string): Promise<CrmAccount | null> {
   ])) as AccountRowRaw[];
   return rows[0] ? mapAccountRow(rows[0]) : null;
 }
+
+/**
+ * The lead-side find-or-create: match on `name_key` alone (live rows first),
+ * else insert. A captured lead names a company; it does not say whether we
+ * already filed that name as a household, so this must not key on `kind` —
+ * and the insert takes the unique `(kind, name_key)` index B1 added into
+ * account, so a race lands on the existing row instead of raising.
+ */
+export async function upsertAccountByName(input: {
+  name: string;
+  kind: "business" | "household";
+  centre: CentreCode | null;
+}): Promise<CrmAccount | null> {
+  if (!isDbConfigured()) return null;
+  const key = accountNameKey(input.name);
+  if (!key) return null;
+  await ensureAccountsSchema();
+  const q = sql();
+  const existing = (await q.query(
+    `SELECT ${COLUMNS} FROM crm_accounts a WHERE a.name_key = $1
+      ORDER BY (a.archived_at IS NULL) DESC, a.id ASC LIMIT 1`,
+    [key],
+  )) as AccountRowRaw[];
+  if (existing[0]) return mapAccountRow(existing[0]);
+  const rows = (await q.query(
+    `INSERT INTO crm_accounts AS a (kind, name, name_key, centre) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (kind, name_key) DO UPDATE SET centre = COALESCE(a.centre, EXCLUDED.centre)
+     RETURNING ${COLUMNS}`,
+    [input.kind, input.name.trim(), key, input.centre],
+  )) as AccountRowRaw[];
+  return rows[0] ? mapAccountRow(rows[0]) : null;
+}
+
+/** The leads sub's name for {@link getAccountById} — one reader, two callers. */
+export const getAccount = getAccountById;
 
 /** Recompute `lifetime_cents` from the mirror for the given accounts. */
 export async function refreshAccountLifetime(accountIds: readonly string[]): Promise<void> {

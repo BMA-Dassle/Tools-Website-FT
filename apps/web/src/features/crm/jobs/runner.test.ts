@@ -183,6 +183,7 @@ describe("noop and notImplemented", () => {
     expect(pending).not.toContain("seed");
     expect(pending.length).toBeGreaterThan(0);
     expect(pending.length).toBeLessThan(kinds.length - 1);
+    expect(pending).not.toContain("mint-bmi-project"); // B3 shipped it
     for (const kind of pending) {
       const { job, result } = await runJobInline({ kind, actorEmail: "eric@headpinz.com" }, deps());
       expect(job.status, kind).toBe("failed");

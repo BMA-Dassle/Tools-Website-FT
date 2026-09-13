@@ -1,415 +1,75 @@
 import { NextRequest, NextResponse } from "next/server";
-import redis from "@/lib/redis";
-import { canonicalizePhone } from "@/lib/participant-contact";
-import { voxSend } from "@/lib/sms-retry";
-import { sendEmail } from "@/lib/sendgrid";
-import { sendAdaptiveCardToChannel, type BotActivityResponse } from "@/lib/teams-bot";
 import {
-  buildSalesLeadCardForState,
-  buildSalesLeadSummary,
-  type SalesLeadState,
-  type SalesLeadLead,
-} from "@/lib/sales-lead-card";
-import {
-  resolveCenter,
-  resolvePlanner,
-  toPandoraEventType,
-  friendlyEventLabel,
-  type CenterConfig,
-  type Planner,
-} from "@/lib/sales-lead-config";
-import {
-  buildSalesLeadSms,
-  buildSalesLeadEmailSubject,
-  buildSalesLeadEmailText,
-  buildSalesLeadEmailHtml,
-  type SalesLeadCopyContext,
-} from "@/lib/sales-lead-copy";
-import { appendPrivateNote } from "@/lib/bmi-office-notes";
-import { submitPartyLead } from "@/lib/pandora-party-lead";
+  WebSubmitSchema,
+  centreForCenterKey,
+  createLead,
+  legacyWebResponse,
+  missingFieldsMessage,
+  webBodyToCreateInput,
+} from "~/features/crm/leads";
 
 /**
- * POST /api/sales-lead/submit
+ * POST /api/sales-lead/submit — the public web form's intake (five
+ * `SalesLeadForm.tsx` pages). v2 alongside v1 (R16): the URL, the request body
+ * and the RESPONSE SHAPE are unchanged; what changed is where the work
+ * happens.
  *
- * Orchestrator for the sales-lead flow:
- *   1. Validate body
- *   2. POST to Pandora /bmi/party-lead → get projectID + assignedAgent.name
- *   3. Resolve center + planner
- *   4. Persist SalesLeadState to Redis (`salescard:{projectID}`, 90-day TTL)
- *   5. Fan out (allSettled): SMS → customer, email → customer, card → Teams
- *   6. Append audit lines to BMI Office private notes (currently stubbed
- *      into Redis; flushed to Pandora once endpoint HAR is captured)
- *   7. Persist the Teams card activity ID so later button clicks can update
- *      the card in place
- *   8. Respond `{ ok, projectNumber }`
+ *   before   validate → Pandora → Redis salescard → SMS / email / Teams fan-out
+ *            (nothing in Neon; a Pandora failure lost the guest's submission)
+ *   now      zod → `createLead(input, {source:"web"})` → the legacy body
+ *            (`leads/service/web-submit.ts`). `createLead` persists the lead in
+ *            Neon FIRST (R2), then mints through the same `submitPartyLead`,
+ *            then runs the same fan-out (`leads/service/notify.ts`).
+ *
+ * Responses, byte-compatible with the form's reader (`SalesLeadForm.tsx:365-372`):
+ *   400 { error: "Invalid JSON body" | "Missing required fields: …" | "Unknown centerKey: …" }
+ *   502 { error }  — Pandora refused / timed out (the Neon row exists; a resubmit within
+ *                    15 minutes re-uses it instead of creating a second lead)
+ *   200 { ok:true, projectID, projectNumber, planner:{displayName,isIndividual}, results:{sms,email,teams} }
  */
 
-const STATE_TTL_SECONDS = 60 * 60 * 24 * 90; // 90 days
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-interface SubmitBody {
-  centerKey?: string;
-  kind?: "group" | "birthday";
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  phone?: string;
-  /** Friendly form value, mapped to Pandora canonical via toPandoraEventType(). */
-  eventType?: string;
-  preferredDate?: string;
-  preferredTime?: string;
-  guestCount?: number;
-  notes?: string;
-  activityInterest?: string[];
-  /** How the customer prefers to be reached: "phone" | "text" | "email". */
-  preferredContactMethod?: "phone" | "text" | "email";
-  /** Best time to call: "Morning" | "Afternoon" | "Evening". */
-  bestTimeToCall?: "Morning" | "Afternoon" | "Evening";
-  /** Pre-selected package from a "Book This Package" click. */
-  packagePrefill?: string;
-}
+/** The legacy required-field names, in the legacy order, for the legacy message. */
+const REQUIRED_ORDER = [
+  "centerKey",
+  "firstName",
+  "lastName",
+  "email",
+  "phone",
+  "preferredDate",
+  "guestCount",
+] as const;
 
 export async function POST(req: NextRequest) {
-  let body: SubmitBody;
+  let raw: unknown;
   try {
-    body = (await req.json()) as SubmitBody;
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // ── 1. Validate ──────────────────────────────────────────────────────────
-  const missing = validateBody(body);
-  if (missing.length > 0) {
-    return NextResponse.json(
-      { error: `Missing required fields: ${missing.join(", ")}` },
-      { status: 400 },
-    );
+  const parsed = WebSubmitSchema.safeParse(raw);
+  if (!parsed.success) {
+    const bad = new Set(parsed.error.issues.map((i) => String(i.path[0] ?? "")));
+    const missing = REQUIRED_ORDER.filter((k) => bad.has(k));
+    const message = missing.length
+      ? missingFieldsMessage(missing)
+      : `Invalid fields: ${[...bad].filter(Boolean).join(", ") || "body"}`;
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+  const body = parsed.data;
+  if (!body.preferredDate) {
+    return NextResponse.json({ error: missingFieldsMessage(["preferredDate"]) }, { status: 400 });
   }
 
-  const center = resolveCenter(body.centerKey!);
-  if (!center) {
+  const resolved = centreForCenterKey(body.centerKey);
+  if (!resolved) {
     return NextResponse.json({ error: `Unknown centerKey: ${body.centerKey}` }, { status: 400 });
   }
 
-  // ── 2. Submit to Pandora ─────────────────────────────────────────────────
-  const pandoraResult = await submitToPandora(body, center);
-  if (!pandoraResult.ok) {
-    return NextResponse.json(
-      { error: pandoraResult.error || "Pandora submit failed" },
-      { status: 502 },
-    );
-  }
-
-  const { projectID, projectNumber, assignedAgent } = pandoraResult;
-
-  // ── 3. Resolve planner ───────────────────────────────────────────────────
-  const planner = resolvePlanner(assignedAgent?.name || "", center);
-
-  // ── 4. Build + persist state ─────────────────────────────────────────────
-  const lead: SalesLeadLead = {
-    firstName: body.firstName!,
-    lastName: body.lastName!,
-    email: body.email!,
-    phone: body.phone!,
-    // Display-friendly label — "Team building", "Kids birthday", etc. Used in
-    // Teams card / emails. The Pandora canonical value (one of 4 accepted by
-    // /bmi/party-lead) is sent separately inside submitToPandora.
-    eventType: friendlyEventLabel(body.eventType),
-    preferredDate: body.preferredDate || "",
-    preferredTime: body.preferredTime,
-    guestCount: Number(body.guestCount) || 1,
-    notes: body.notes,
-    activityInterest: body.activityInterest,
-    preferredContactMethod: body.preferredContactMethod,
-    bestTimeToCall: body.bestTimeToCall,
-  };
-
-  const state: SalesLeadState = {
-    projectID,
-    projectNumber,
-    createdAt: new Date().toISOString(),
-    planner,
-    center,
-    lead,
-  };
-
-  const stateKey = `salescard:${projectID}`;
-  await redis.set(stateKey, JSON.stringify(state), "EX", STATE_TTL_SECONDS);
-
-  // ── 5. Fan out: SMS + email + Teams ──────────────────────────────────────
-  const copyCtx: SalesLeadCopyContext = {
-    firstName: lead.firstName,
-    projectNumber,
-    plannerName: planner.displayName,
-    plannerPhone: planner.phone,
-    plannerEmail: planner.email,
-    preferredDate: lead.preferredDate,
-    centerName: center.displayName,
-    isIndividualPlanner: planner.isIndividual,
-  };
-
-  // Respect the customer's preferred contact channel:
-  //   "text"  → SMS only (phone line stays clear for planner follow-up)
-  //   "email" → email only
-  //   "phone" → email only (written record with planner's direct #, planner
-  //            will call separately — automated SMS would be noisy)
-  //   (unset) → both SMS + email (default behavior preserved)
-  // Teams card ALWAYS fires — it's internal, not customer-facing.
-  const pref = body.preferredContactMethod;
-  const shouldSendSms = pref === "text" || pref === undefined;
-  const shouldSendEmail = pref === "email" || pref === "phone" || pref === undefined;
-
-  const [smsResult, emailResult, teamsResult] = await Promise.allSettled([
-    shouldSendSms
-      ? sendCustomerSms(lead.phone, copyCtx, planner)
-      : Promise.resolve({
-          ok: true,
-          status: null,
-          skipped: true as const,
-          reason: `skipped — customer prefers ${pref}`,
-        }),
-    shouldSendEmail
-      ? sendCustomerEmail(lead, copyCtx, planner)
-      : Promise.resolve({
-          ok: true,
-          status: null,
-          skipped: true as const,
-          reason: `skipped — customer prefers ${pref}`,
-        }),
-    postToTeams(state),
-  ]);
-
-  // ── 6. Audit lines ───────────────────────────────────────────────────────
-  // Skipped channels also get an audit line so planners can see "we didn't
-  // text because they asked for email only" without digging through logs.
-  await Promise.allSettled([
-    writeAuditLine(projectID, "sms", smsResult, {
-      actor: planner.displayName,
-      to: lead.phone,
-    }),
-    writeAuditLine(projectID, "email", emailResult, {
-      actor: planner.displayName,
-      to: lead.email,
-    }),
-    writeAuditLine(projectID, "teams", teamsResult, {
-      actor: planner.displayName,
-      to: `${planner.displayName}'s chat`,
-    }),
-  ]);
-
-  // ── 7. Persist cardActivityId if Teams post succeeded ────────────────────
-  if (teamsResult.status === "fulfilled" && teamsResult.value.ok && teamsResult.value.activityId) {
-    state.cardActivityId = teamsResult.value.activityId;
-    await redis.set(stateKey, JSON.stringify(state), "EX", STATE_TTL_SECONDS);
-  }
-
-  return NextResponse.json({
-    ok: true,
-    projectID,
-    projectNumber,
-    planner: { displayName: planner.displayName, isIndividual: planner.isIndividual },
-    results: {
-      sms: flattenPromiseResult(smsResult),
-      email: flattenPromiseResult(emailResult),
-      teams: flattenPromiseResult(teamsResult),
-    },
-  });
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-function validateBody(body: SubmitBody): string[] {
-  const missing: string[] = [];
-  if (!body.centerKey) missing.push("centerKey");
-  if (!body.firstName) missing.push("firstName");
-  if (!body.lastName) missing.push("lastName");
-  if (!body.email) missing.push("email");
-  if (!body.phone) missing.push("phone");
-  if (!body.guestCount || Number(body.guestCount) < 1) missing.push("guestCount");
-  return missing;
-}
-
-/**
- * Build the specialRequests body — pre-selected package (if they clicked
- * Book This Package on a specific card), the richer eventType subtype,
- * activity interests, and the customer's free-text notes, all in one blob.
- * The canonical `eventType` sent separately collapses to one of 4 Pandora
- * values, and `packageType` (if present) rides in its own Pandora column
- * too — but we surface everything here as well so planners reading the
- * notes don't miss context.
- */
-function buildPandoraNotes(body: SubmitBody): string {
-  const parts: string[] = [];
-  // Under-minimum disclosure rides at the top so it's the first thing a
-  // planner sees in BMI Office. The form gates step-1 advance behind a
-  // modal that spells out "billed at the minimum headcount regardless of
-  // actual count" — by the time we get here the customer has clicked
-  // through and accepted that pricing term.
-  const minimum = body.eventType === "birthday-kid" ? 12 : 20;
-  const guests = Number(body.guestCount) || 0;
-  if (guests > 0 && guests < minimum) {
-    parts.push(
-      `⚠️ UNDER MINIMUM — guest submitted ${guests} but acknowledged pricing will be billed at the ${minimum}-guest package minimum.`,
-    );
-  }
-  if (body.packagePrefill?.trim()) {
-    parts.push(`Package interested in: ${body.packagePrefill.trim()}`);
-  }
-  const friendly = friendlyEventLabel(body.eventType);
-  if (friendly && friendly !== "Event") {
-    parts.push(`Event subtype: ${friendly}`);
-  }
-  if (body.activityInterest?.length) {
-    parts.push(`Interests: ${body.activityInterest.join(", ")}`);
-  }
-  if (body.notes?.trim()) {
-    parts.push(body.notes.trim());
-  }
-  return parts.join("\n");
-}
-
-/**
- * Submit to Pandora via the shared helper (no internal HTTP hop). This
- * used to POST to our own `/api/pandora/party-lead` route — that required
- * NEXT_PUBLIC_SITE_URL to be set correctly in every environment, which it
- * wasn't in prod. Direct lib call is simpler + faster.
- */
-async function submitToPandora(
-  body: SubmitBody,
-  center: CenterConfig,
-): Promise<
-  | {
-      ok: true;
-      projectID: string;
-      projectNumber: string;
-      personID?: string;
-      assignedAgent: { userId?: string; name?: string } | null;
-    }
-  | { ok: false; error: string }
-> {
-  const result = await submitPartyLead({
-    location: center.pandoraKey,
-    firstName: body.firstName,
-    lastName: body.lastName,
-    email: body.email,
-    phone: body.phone, // helper strips to digits
-    // Map friendly form value → one of 4 canonical values Pandora accepts.
-    eventType: toPandoraEventType(body.eventType),
-    eventDate: body.preferredDate,
-    eventTime: body.preferredTime || "12:00",
-    estimatedGuests: String(body.guestCount ?? ""),
-    preferredContact: body.preferredContactMethod,
-    preferredTime: body.bestTimeToCall,
-    // Pre-selected package ("VIP Birthday", "Fajita Bar") → Pandora's
-    // native `packageType` column. Keeps the package info visible in its
-    // own Pandora field as well as in specialRequests below.
-    packageType: body.packagePrefill,
-    // All rich context (package, subtype, activity interests, customer
-    // free-text) goes into specialRequests so planners reading the notes
-    // field see one cohesive blob.
-    specialRequests: buildPandoraNotes(body),
-  });
-
-  if (!result.ok) {
-    return { ok: false, error: result.error };
-  }
-  return {
-    ok: true,
-    projectID: result.projectID,
-    projectNumber: result.projectNumber,
-    personID: result.personID,
-    assignedAgent: result.assignedAgent,
-  };
-}
-
-async function sendCustomerSms(
-  rawPhone: string,
-  ctx: SalesLeadCopyContext,
-  planner: Planner,
-): Promise<{ ok: boolean; status: number | null; error?: string }> {
-  const canonical = canonicalizePhone(rawPhone);
-  if (!canonical) {
-    return { ok: false, status: null, error: "invalid phone" };
-  }
-  const body = buildSalesLeadSms(ctx);
-  return await voxSend(canonical, body, {
-    fromOverride: planner.phone,
-    fallbackPrefix: `(From ${planner.displayName}) `,
-  });
-}
-
-async function sendCustomerEmail(
-  lead: SalesLeadLead,
-  ctx: SalesLeadCopyContext,
-  planner: Planner,
-): Promise<{ ok: boolean; status: number | null; error?: string }> {
-  return await sendEmail({
-    to: lead.email,
-    toName: `${lead.firstName} ${lead.lastName}`.trim(),
-    from: { email: planner.email, name: planner.displayName },
-    replyTo: planner.email,
-    bcc: planner.email,
-    subject: buildSalesLeadEmailSubject(ctx),
-    html: buildSalesLeadEmailHtml(ctx),
-    text: buildSalesLeadEmailText(ctx),
-  });
-}
-
-async function postToTeams(
-  state: SalesLeadState,
-): Promise<{ ok: boolean; activityId?: string; error?: string }> {
-  try {
-    const card = buildSalesLeadCardForState(state);
-    const summary = buildSalesLeadSummary(state);
-    const resp: BotActivityResponse = await sendAdaptiveCardToChannel(
-      state.planner.teamsChatId,
-      card,
-      { summaryText: summary },
-    );
-    return { ok: true, activityId: resp.id };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "teams send error" };
-  }
-}
-
-async function writeAuditLine(
-  projectId: string,
-  channel: "sms" | "email" | "teams",
-  settled: PromiseSettledResult<{
-    ok: boolean;
-    status?: number | null;
-    error?: string;
-    activityId?: string;
-    skipped?: boolean;
-    reason?: string;
-  }>,
-  meta: { actor?: string; to?: string },
-): Promise<void> {
-  const outcome =
-    settled.status === "fulfilled"
-      ? settled.value
-      : { ok: false, error: settled.reason?.message || "rejected" };
-  const toPart = meta.to ? ` to ${meta.to}` : "";
-
-  let message: string;
-  if ("skipped" in outcome && outcome.skipped) {
-    message = outcome.reason || `skipped${toPart}`;
-  } else if (outcome.ok) {
-    message = `sent ok${toPart}`;
-  } else {
-    const statusPart = "status" in outcome && outcome.status ? ` (${outcome.status})` : "";
-    message = `FAILED${toPart}${statusPart}: ${(outcome as { error?: string }).error || "unknown"}`;
-  }
-  await appendPrivateNote({
-    projectId,
-    channel,
-    message,
-    actor: meta.actor,
-  });
-}
-
-function flattenPromiseResult<T>(
-  settled: PromiseSettledResult<T>,
-): T | { ok: false; error: string } {
-  if (settled.status === "fulfilled") return settled.value;
-  return { ok: false, error: settled.reason?.message || "rejected" };
+  const result = await createLead(webBodyToCreateInput(body, resolved.centre), { source: "web" });
+  const out = legacyWebResponse(result);
+  return NextResponse.json(out.body, { status: out.status });
 }

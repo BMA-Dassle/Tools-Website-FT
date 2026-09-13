@@ -1,0 +1,352 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CrmAccount, CrmContact } from "../../core/types";
+import type { LeadView } from "../contracts";
+import type { NewLeadRow } from "../data/leads-db";
+import { PROTO_NOW, REPS, makeLead } from "../test-support";
+import type { AssignResult } from "./assign";
+import type { CreateLeadDeps, CreateLeadInput } from "./create-lead";
+import type { MintLeadResult } from "./mint";
+import type { NotifyOutcome } from "./notify";
+
+/**
+ * `createLead` ORDER and isolation (R2): the row exists before Pandora is
+ * asked; a missing email stores `needs_email_or_time` without a call; each
+ * notification channel failing — or the notifier itself rejecting — never
+ * fails the capture; a resubmit re-uses the recent row; the engine's pick is
+ * assigned with reason `rule`. Every collaborator is an injected fake that
+ * records the CALL ORDER.
+ */
+
+const { captureLine, createLead } = await import("./create-lead");
+
+const INPUT: CreateLeadInput = {
+  centre: "FT",
+  firstName: "CRM",
+  lastName: "Test",
+  phone: "(239) 555-1234",
+  email: "crm-test@example.com",
+  company: "Gulf Coast Logistics",
+  eventDate: "2026-10-16",
+  eventTime: "17:30",
+  guests: 42,
+  type: "corporate",
+  kids: false,
+  notes: "Quarterly team event.",
+  capturePayload: { raw: true },
+  createdBy: null,
+};
+
+interface Fakes {
+  deps: CreateLeadDeps;
+  order: string[];
+  inserted: NewLeadRow[];
+  assigns: Parameters<CreateLeadDeps["assign"]>[0][];
+  mintArgs: unknown[][];
+}
+
+function fakes(
+  over: Partial<CreateLeadDeps> = {},
+  opts: { dup?: LeadView | null; mint?: MintLeadResult["outcome"] } = {},
+): Fakes {
+  const order: string[] = [];
+  const inserted: NewLeadRow[] = [];
+  const assigns: Parameters<CreateLeadDeps["assign"]>[0][] = [];
+  const mintArgs: unknown[][] = [];
+  const account: CrmAccount = {
+    id: "7",
+    kind: "business",
+    name: "Gulf Coast Logistics",
+    nameKey: "gulf coast logistics",
+    centre: "FT",
+    lifetimeCents: 0,
+    meta: null,
+    archivedAt: null,
+    createdAt: "",
+    updatedAt: "",
+  };
+  const contact: CrmContact = {
+    id: "9",
+    accountId: "7",
+    firstName: "CRM",
+    lastName: "Test",
+    phoneE164: "+12395551234",
+    email: "crm-test@example.com",
+    bmiPersonId: null,
+    prefers: null,
+    meta: null,
+    createdAt: "",
+    updatedAt: "",
+  };
+  let stored: LeadView | null = null;
+  const deps: CreateLeadDeps = {
+    upsertAccount: async () => {
+      order.push("account");
+      return account;
+    },
+    upsertContact: async (c) => {
+      order.push("contact");
+      return { ...contact, email: c.email, phoneE164: c.phoneE164 };
+    },
+    insertLead: async (row) => {
+      order.push("insertLead");
+      inserted.push(row);
+      stored = makeLead({
+        id: "5001",
+        centre: row.centre,
+        eventTime: row.eventTime,
+        mintStatus: row.mintStatus,
+        mintError: row.mintError,
+        guest: {
+          first: "CRM",
+          last: "Test",
+          phone: "+12395551234",
+          email: INPUT.email,
+          company: "Gulf Coast Logistics",
+          prefers: null,
+        },
+      });
+      return "5001";
+    },
+    getLead: async () => stored,
+    findDuplicate: async () => {
+      order.push("findDuplicate");
+      return opts.dup ?? null;
+    },
+    recordActivity: async (a) => {
+      order.push(`activity:${a.kind}`);
+      return "1";
+    },
+    suggest: async () => ({ suggestion: null, trace: [] }),
+    mintLead: async (lead, extras, _deps, actor) => {
+      order.push("mint");
+      mintArgs.push([lead, extras, actor]);
+      const outcome = opts.mint ?? {
+        status: "minted" as const,
+        projectId: "63000000009561437",
+        projectNumber: "DH3249",
+        personId: "63000000009561438",
+        assignedAgent: { userId: "28267036", name: "Kelsea Kosco" },
+      };
+      const after: LeadView = {
+        ...lead,
+        mintStatus: outcome.status === "minted" ? "minted" : outcome.status,
+        bmi: { ...lead.bmi, projectId: outcome.status === "minted" ? outcome.projectId : null },
+      };
+      stored = after;
+      return { outcome, lead: after };
+    },
+    notify: async () => {
+      order.push("notify");
+      const ok = { ok: true };
+      return {
+        planner: { displayName: "Kelsea", isIndividual: true },
+        queueCard: ok,
+        plannerCard: ok,
+        sms: ok,
+        email: ok,
+      } as NotifyOutcome;
+    },
+    assign: async (input) => {
+      order.push("assign");
+      assigns.push(input);
+      return {
+        lead: { ...(stored as LeadView), rep: input.repId },
+        assignment: { id: "1" } as AssignResult["assignment"],
+        bmi: { status: "synced" },
+      };
+    },
+    now: () => PROTO_NOW,
+    ...over,
+  };
+  return { deps, order, inserted, assigns, mintArgs };
+}
+
+beforeEach(() => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+describe("createLead", () => {
+  it("persists to Neon BEFORE Pandora, then notifies; the row carries the raw capture", async () => {
+    const f = fakes();
+    const r = await createLead(INPUT, { source: "web" }, f.deps);
+    expect(f.order).toEqual([
+      "findDuplicate",
+      "account",
+      "contact",
+      "insertLead",
+      "activity:system",
+      "mint",
+      "notify",
+      "activity:system",
+    ]);
+    expect(r.created).toBe(true);
+    expect(r.mint.status).toBe("minted");
+    expect(f.inserted[0]).toMatchObject({
+      contactId: "9",
+      accountId: "7",
+      centre: "FT",
+      source: "web",
+      mintStatus: "pending",
+      mintError: null,
+      capturePayload: { raw: true },
+    });
+    // the pick is null (stub) → agent "First Available" is decided in buildMintInput; here it is null
+    expect(f.mintArgs[0]![1]).toMatchObject({ agent: null });
+    expect(r.assignment).toBeNull();
+  });
+
+  it("Pandora down: the lead exists with mint failed — the capture is never lost", async () => {
+    const f = fakes(
+      {},
+      { mint: { status: "failed", error: "Pandora returned 502", httpStatus: 502 } },
+    );
+    const r = await createLead(INPUT, { source: "web" }, f.deps);
+    expect(f.order.indexOf("insertLead")).toBeLessThan(f.order.indexOf("mint"));
+    expect(r.created).toBe(true);
+    expect(r.mint).toEqual({ status: "failed", error: "Pandora returned 502", httpStatus: 502 });
+    expect(r.lead.mintStatus).toBe("failed");
+  });
+
+  it("missing email → stored with mint_status none / needs_email_or_time (phone lead from the CRM)", async () => {
+    const f = fakes();
+    await createLead(
+      { ...INPUT, email: null },
+      { source: "phone", actorEmail: "kelsea@headpinz.com" },
+      f.deps,
+    );
+    expect(f.inserted[0]).toMatchObject({
+      mintStatus: "none",
+      mintError: "needs_email_or_time",
+      source: "phone",
+    });
+  });
+
+  it("missing time → the same", async () => {
+    const f = fakes();
+    await createLead(
+      { ...INPUT, eventTime: null },
+      { source: "walkin", actorEmail: "gs@headpinz.com" },
+      f.deps,
+    );
+    expect(f.inserted[0]).toMatchObject({ mintStatus: "none", mintError: "needs_email_or_time" });
+  });
+
+  it("a notifier that REJECTS never fails the capture (each channel failing is the notifier's own test)", async () => {
+    const f = fakes({
+      notify: async () => {
+        throw new Error("Teams exploded");
+      },
+    });
+    const r = await createLead(INPUT, { source: "web" }, f.deps);
+    expect(r.lead.publicId).toBe("L-5001");
+    expect(r.notify).toBeNull();
+    expect(r.mint.status).toBe("minted");
+  });
+
+  it("a resubmit within the window re-uses a row whose mint failed (one lead, a second mint attempt)", async () => {
+    const dup = makeLead({ id: "4999", mintStatus: "failed", mintError: "Pandora returned 502" });
+    const f = fakes({}, { dup });
+    const r = await createLead(INPUT, { source: "web" }, f.deps);
+    expect(r.created).toBe(false);
+    expect(f.inserted).toHaveLength(0);
+    expect(f.order).toContain("mint");
+    expect(r.lead.id).toBe("4999");
+  });
+
+  it("a resubmit of an already-MINTED lead is returned as-is: no second project, no second text", async () => {
+    const dup = makeLead({
+      id: "4998",
+      mintStatus: "minted",
+      bmi: {
+        projectId: "63000000009561437",
+        projectNumber: "DH3249",
+        stateId: null,
+        stateName: null,
+        personId: null,
+        syncedAt: null,
+      },
+    });
+    const f = fakes({}, { dup });
+    const r = await createLead(INPUT, { source: "web" }, f.deps);
+    expect(r.created).toBe(false);
+    expect(f.order).toEqual(["findDuplicate"]);
+    expect(r.mint).toMatchObject({
+      status: "minted",
+      projectId: "63000000009561437",
+      projectNumber: "DH3249",
+    });
+    expect(r.notify).toBeNull();
+  });
+
+  it("the engine's pick is assigned with reason 'rule' and its Office name goes to Pandora as agent", async () => {
+    const f = fakes({
+      suggest: async () => ({
+        suggestion: {
+          rep: REPS.kelsea,
+          reason: "lowest Oct volume",
+          ruleId: "6",
+          finalRuleLabel: "R6",
+        },
+        trace: [{ ruleId: "R6", label: "Lowest volume for the party's month", hit: true }],
+      }),
+    });
+    const r = await createLead(INPUT, { source: "web" }, f.deps);
+    expect(f.mintArgs[0]![1]).toMatchObject({ agent: "Kelsea Kosco" });
+    expect(f.assigns[0]).toMatchObject({
+      leadId: "5001",
+      repId: "1",
+      reason: "rule",
+      ruleId: "6",
+      actor: "web",
+    });
+    expect(r.assignment?.bmi).toEqual({ status: "synced" });
+    expect(r.lead.rep).toBe("1");
+  });
+
+  it("an assign that throws after capture is logged, not fatal", async () => {
+    const f = fakes({
+      suggest: async () => ({
+        suggestion: { rep: REPS.kelsea, reason: "x", ruleId: null, finalRuleLabel: null },
+        trace: [],
+      }),
+      assign: async () => {
+        throw new Error("Neon hiccup");
+      },
+    });
+    const r = await createLead(INPUT, { source: "web" }, f.deps);
+    expect(r.assignment).toBeNull();
+    expect(r.lead.publicId).toBe("L-5001");
+  });
+
+  it("a cold-list prospect: no mint, no notifications, is_prospect on the row", async () => {
+    const f = fakes();
+    const r = await createLead(
+      INPUT,
+      { source: "cold", actorEmail: "kelsea@headpinz.com" },
+      f.deps,
+    );
+    expect(f.inserted[0]).toMatchObject({
+      isProspect: true,
+      mintStatus: "none",
+      mintError: null,
+      source: "cold",
+    });
+    expect(f.order).not.toContain("mint");
+    expect(f.order).not.toContain("notify");
+    expect(r.mint).toEqual({ status: "none", error: "prospect" });
+  });
+
+  it("captureLine wording follows the prototype's system lines", () => {
+    expect(captureLine("web", null)).toBe("Lead captured from the web form");
+    expect(captureLine("phone", "gs@headpinz.com")).toBe(
+      "Logged by gs@headpinz.com from an inbound call",
+    );
+    expect(captureLine("walkin", null)).toBe("Logged by staff from a walk-in");
+    expect(captureLine("referral", "jacob@headpinz.com")).toBe(
+      "Referral entered by jacob@headpinz.com",
+    );
+    expect(captureLine("cold", "kelsea@headpinz.com")).toBe(
+      "Lead created from cold list by kelsea@headpinz.com",
+    );
+  });
+});
