@@ -15,7 +15,7 @@ import { publicRep } from "../../core/projections";
 import { getCrmSettings } from "../../core/data/settings-db";
 import { ET, todayEasternYmd } from "../../core/dates";
 import type { CrmRep, CrmUser } from "../../core/types";
-import { listReps } from "~/features/crm/reps";
+import { assignableReps, listReps } from "~/features/crm/reps";
 import type { DirectorLane, DirectorMyDay, LeadView, RepMyDay } from "../contracts";
 import {
   countLeadsInStatus,
@@ -94,13 +94,24 @@ export function buildRepMyDay(
   };
 }
 
+/**
+ * One lane per rep who can HOLD a lead — the same set the queue's columns use
+ * (`assignableReps`: rep + bucket, never a hold or a director).
+ *
+ * The prototype hard-codes three lanes (`direction-b.html:104`
+ * `["kelsea","lori","stephanie"]`) and so leaves the Guest Services bucket
+ * out. That is a gap in the mock, not a decision: rule R3 routes every kids'
+ * birthday to Guest Services, and the owner has since made the bucket a real
+ * working queue (brief §5.7b — the Call Center department signs in as it). A
+ * GS lead going overdue would be counted in the "Overdue across team" tile
+ * with no lane to explain it. So the bucket gets a lane.
+ */
 export function buildLanes(
   reps: readonly CrmRep[],
   teamDue: readonly LeadView[],
   now: Date,
 ): DirectorLane[] {
-  return reps
-    .filter((r) => r.active && r.role === "rep")
+  return assignableReps(reps)
     .slice()
     .sort((a, b) => a.sortOrder - b.sortOrder || Number(a.id) - Number(b.id))
     .map((rep) => {
