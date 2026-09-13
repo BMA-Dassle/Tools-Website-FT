@@ -184,6 +184,8 @@ describe("isKnownRoute", () => {
     expect(isKnownRoute("/contracts")).toBe(true);
     expect(isKnownRoute("/contracts/7Hx2Qk/approve")).toBe(true);
     expect(isKnownRoute("/leadsmith")).toBe(false);
+    expect(isKnownRoute("/availability?centre=HPFM")).toBe(true);
+    expect(isKnownRoute("/heats?centre=FT")).toBe(true);
     expect(isKnownRoute("/measurements")).toBe(false);
   });
 });

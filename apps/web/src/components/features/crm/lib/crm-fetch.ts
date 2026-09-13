@@ -94,6 +94,8 @@ export const KNOWN_ROUTES = [
   "/share",
   "/events",
   "/contracts",
+  "/availability",
+  "/heats",
 ] as const;
 
 export function isKnownRoute(path: string): boolean {
