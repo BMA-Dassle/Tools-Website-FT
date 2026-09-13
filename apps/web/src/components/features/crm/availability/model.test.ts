@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { EVENING_CLOSE_MIN, EVENING_OPEN_MIN } from "~/features/crm/availability/service/engine";
+import { EVENING_CLOSE_MIN, EVENING_OPEN_MIN } from "~/features/crm/availability/pure";
 import type { LaneOccupancy } from "~/features/crm/availability/contracts";
 import {
   contiguousLabel,
   durationLabel,
   freshnessLabel,
+  heatsPanelState,
+  heatsSubtitleFor,
   holdHref,
+  miniSectionRows,
   runLabel,
+  screenHeadFor,
   sectionChipKind,
   sectionRangeLabel,
   sectionView,
@@ -202,14 +206,117 @@ describe("sectionView", () => {
 });
 
 describe("holdHref", () => {
-  it("hands the builder the pick in the URL", () => {
+  it("hands the builder MACHINE-READABLE values, not a display string", () => {
+    const href = holdHref(
+      "/admin/crm",
+      "L-1042",
+      { section: "Regular", lanes: [13, 14, 15], run: [13, 14, 15, 16], startsOdd: true },
+      18 * 60,
+    );
+    expect(href).toBe("/admin/crm/builder/L-1042?firstLane=13&count=3&start=1080&section=Regular");
+    // The en dash belongs on screen, never in a query C5 has to parse.
+    expect(href).not.toContain("–");
+    const p = new URL(href, "http://x").searchParams;
+    expect(Number(p.get("firstLane"))).toBe(13);
+    expect(Number(p.get("count"))).toBe(3);
+    expect(Number(p.get("start"))).toBe(1080);
+  });
+});
+
+describe("screenHeadFor", () => {
+  const base = {
+    centreShort: "HP Fort Myers",
+    dateLabel: "Sat, Oct 17",
+    title: "Lee Health",
+    guests: 60,
+    need: 10,
+    heats: 0,
+  };
+
+  it("names the lane screen the way the prototype does", () => {
+    expect(screenHeadFor({ ...base, source: "lanes" })).toEqual({
+      title: "Lane availability · HP Fort Myers",
+      sub: "Sat, Oct 17 · Lee Health · 60 guests → 10 lanes",
+    });
+  });
+
+  it("never says LANES over a karting grid", () => {
+    // FastTrax has no lanes at all; the prototype dodged this by mapping FT to
+    // HPFM (`crm-shared.js:511`). "30 guests → 5 lanes" for a centre with no
+    // lanes is the one thing this screen must not print.
+    const head = screenHeadFor({
+      ...base,
+      source: "heats",
+      centreShort: "FastTrax",
+      guests: 30,
+      need: 0,
+      heats: 3,
+    });
+    expect(head).toEqual({
+      title: "Heat availability · FastTrax",
+      sub: "Sat, Oct 17 · Lee Health · 30 racers → 3 heats",
+    });
+    expect(head.sub).not.toMatch(/lane/i);
+  });
+
+  it("drops the arrow until the heats read lands", () => {
+    expect(heatsSubtitleFor({ dateLabel: "Sat, Oct 17", title: null, racers: 30, heats: 0 })).toBe(
+      "Sat, Oct 17 · 30 racers",
+    );
+  });
+
+  it("falls back to the lane head before either read answers", () => {
+    expect(screenHeadFor({ ...base, source: null }).title).toBe(
+      "Lane availability · HP Fort Myers",
+    );
+  });
+});
+
+describe("heatsPanelState", () => {
+  const resource = { resourceId: "63000000001234567", blocks: [{}, {}] };
+
+  it("calls an outage an outage, not an unpublished day planner", () => {
     expect(
-      holdHref(
-        "/admin/crm",
-        "L-1042",
-        { section: "Regular", lanes: [13, 14, 15], run: [13, 14, 15, 16], startsOdd: true },
-        18 * 60,
-      ),
-    ).toBe("/admin/crm/builder/L-1042?lanes=13%E2%80%9315&start=1080&section=Regular");
+      heatsPanelState({ source: "unavailable", selectedResourceId: null, resources: [] }),
+    ).toBe("unavailable");
+  });
+
+  it("shows the grid when a resource actually has heats", () => {
+    expect(
+      heatsPanelState({
+        source: "heats",
+        selectedResourceId: "63000000001234567",
+        resources: [resource],
+      }),
+    ).toBe("grid");
+  });
+
+  it("keeps the empty state for a successful read with nothing in it", () => {
+    expect(
+      heatsPanelState({
+        source: "heats",
+        selectedResourceId: "63000000001234567",
+        resources: [{ ...resource, blocks: [] }],
+      }),
+    ).toBe("empty");
+    expect(heatsPanelState({ source: "heats", selectedResourceId: null, resources: [] })).toBe(
+      "empty",
+    );
+  });
+});
+
+describe("miniSectionRows", () => {
+  it("is the prototype's meter list, one row per section", () => {
+    expect(
+      miniSectionRows([
+        { name: "Old Time Lanes", lanes: [1, 2, 3, 4], free: 3, runs: [[1, 2, 3]] },
+        { name: "VIP", lanes: [5, 6, 7, 8], free: 2, runs: [[7, 8]] },
+        { name: "Regular", lanes: [13, 14, 15, 16], free: 0, runs: [] },
+      ]),
+    ).toEqual([
+      { name: "Old Time Lanes", free: 3, total: 4, pct: 75, tone: "good", n: "3 of 4 free" },
+      { name: "VIP", free: 2, total: 4, pct: 50, tone: "warn", n: "2 of 4 free" },
+      { name: "Regular", free: 0, total: 4, pct: 0, tone: "crit", n: "0 of 4 free" },
+    ]);
   });
 });

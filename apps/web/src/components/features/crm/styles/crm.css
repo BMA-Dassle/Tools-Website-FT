@@ -3637,6 +3637,12 @@
 .crm-root .linkish:hover {
   text-decoration: none;
 }
+/* A full heat in the deal rail's pill row — the prototype's inline
+   `text-decoration:line-through;opacity:.6` (crm-shared.js:318) as a class. */
+.crm-root .pill.full {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
 .crm-root .legend i.lg-league {
   background: color-mix(in oklab, var(--s2) 65%, var(--card));
 }

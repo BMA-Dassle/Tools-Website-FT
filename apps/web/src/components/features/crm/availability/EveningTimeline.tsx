@@ -1,6 +1,7 @@
 "use client";
 
 import { IconCheck } from "@tabler/icons-react";
+import { fmtMin, pctOf } from "~/features/crm/availability/pure";
 import {
   AVAILABILITY_TEST_IDS,
   type AvailabilityBounds,
@@ -8,7 +9,6 @@ import {
   type AvailabilitySection,
   type LaneOccupancy,
 } from "~/features/crm/availability/contracts";
-import { fmtMin, pctOf } from "~/features/crm/availability/service/engine";
 import { Chip } from "../primitives/Chip";
 import { ICON } from "../primitives/icon-props";
 import { sectionView, windowBand } from "./model";

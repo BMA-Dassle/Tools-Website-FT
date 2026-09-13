@@ -4,15 +4,17 @@ import { IconRefresh } from "@tabler/icons-react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { AVAILABILITY_TEST_IDS } from "~/features/crm/availability/contracts";
-import { availabilityKeys } from "~/features/crm/availability/queries";
-import { boundsFor, lanesNeeded, ticksBetween } from "~/features/crm/availability/service/engine";
 import {
   DEFAULT_CENTRE,
   DEFAULT_DURATION_MIN,
   DEFAULT_GUESTS,
   DEFAULT_START_MIN,
-} from "~/features/crm/availability/service/request";
+  boundsFor,
+  lanesNeeded,
+  ticksBetween,
+} from "~/features/crm/availability/pure";
+import { AVAILABILITY_TEST_IDS } from "~/features/crm/availability/contracts";
+import { availabilityKeys } from "~/features/crm/availability/queries";
 import { CENTRES } from "~/features/crm/core/centres";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import { fDate, todayEasternYmd } from "~/features/crm/core/dates";
@@ -20,7 +22,7 @@ import type { ScreenProps } from "~/features/crm/core/screens";
 import type { CentreCode } from "~/features/crm/core/types";
 import { errorMessage } from "../lib/crm-fetch";
 import { useUrlQuery } from "../lib/use-url-query";
-import { useCrmFetch, useCrmToast, useTopbarSlot } from "../lib/use-crm-user";
+import { useCrmFetch, useCrmToast, useScreenHead, useTopbarSlot } from "../lib/use-crm-user";
 import { Banner } from "../primitives/Banner";
 import { Seg } from "../primitives/Seg";
 import { ErrorState, LoadingState } from "../primitives/States";
@@ -28,7 +30,7 @@ import { EveningTimeline } from "./EveningTimeline";
 import { HeatsPanel } from "./HeatsPanel";
 import { RequestBar } from "./RequestBar";
 import { Verdict } from "./Verdict";
-import { freshnessLabel, subtitleFor } from "./model";
+import { freshnessLabel, screenHeadFor } from "./model";
 import { fetchAvailability, fetchHeats } from "./queries";
 
 /**
@@ -104,7 +106,7 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
     onError: (err) => toast(errorMessage(err), "crit"),
   });
 
-  // ---- derived (no hooks below this line) ----
+  // ---- derived: pure reads of the query results, no hooks of their own ----
   const data = gridQ.data;
   const request = data?.request ?? {
     centre: (urlQuery.centre as CentreCode) ?? DEFAULT_CENTRE,
@@ -115,8 +117,26 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
   };
   const fallbackBounds = boundsFor({ start: request.start, dur: request.dur });
   const bounds = data?.bounds ?? { ...fallbackBounds, ticks: ticksBetween(fallbackBounds) };
-  const need = data?.need || lanesNeeded(request.guests);
+  // `??`, never `||`: the karting branch answers `need: 0` on purpose and a
+  // real zero must survive rather than falling back to a lane count for a
+  // centre that has no lanes.
+  const need = data?.need ?? lanesNeeded(request.guests);
   const centreShort = CENTRES[request.centre].short;
+
+  // The prototype puts the title and the sub-line in the SCREEN HEAD
+  // (`crm-shared.js:511`), not in a card header — so the topbar names the
+  // request instead of repeating the nav's generic meta. Set through the same
+  // hook AccountScreen uses; it is an effect, so it runs after this render.
+  const head = screenHeadFor({
+    source: data?.source ?? null,
+    centreShort,
+    dateLabel: fDate(request.date),
+    title: data?.lead?.title ?? null,
+    guests: request.guests,
+    need,
+    heats: heatsQ.data?.heatsNeeded ?? 0,
+  });
+  useScreenHead(head.title, head.sub);
 
   const onChange = (patch: {
     centre?: CentreCode;
@@ -169,23 +189,21 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
         : null}
 
       <div className="card">
-        <div className="card-h">
-          <h2>Lane availability · {centreShort}</h2>
-          <div className="right xs muted">
-            {subtitleFor({
-              dateLabel: fDate(request.date),
-              title: data?.lead?.title ?? null,
-              guests: request.guests,
-              need,
-            })}
-          </div>
-        </div>
-
         {data?.leadMissing ? (
           <div className="pad">
             <Banner tone="info">
               That lead is not in the CRM — enter the request manually below. (Deals land here once
               the leads board ships.)
+            </Banner>
+          </div>
+        ) : null}
+
+        {data?.source === "lanes" && data.lanesReported < data.lanesExpected ? (
+          <div className="pad">
+            <Banner tone="warn">
+              The centre reported {data.lanesReported} of {data.lanesExpected} lanes. The{" "}
+              {data.lanesExpected - data.lanesReported} it did not report are treated as
+              unavailable, not as free.
             </Banner>
           </div>
         ) : null}
