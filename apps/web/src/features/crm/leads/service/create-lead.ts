@@ -12,7 +12,8 @@
  *   4. `suggestFor` — the assignment rules (B2's engine)
  *   5. `mintLead` → Pandora, `agent` = the pick's Office name or "First Available"
  *   6. notifications — never fatal
- *   7. `assignLead(reason:'rule')` for a HOLD or ROUTE decision
+ *   7. `assignLead(reason:'rule')` for a HOLD or ROUTE decision, or for the
+ *      planner the guest asked for when the rules honoured that request
  *
  * Step 7 applies only the decisions that exist for a business reason — a
  * ≥ 100-guest enquiry held for the Marketing Director, a kids' birthday or a
@@ -39,7 +40,7 @@ import { assignLead, type AssignResult } from "./assign";
 import { NEEDS_EMAIL_OR_TIME, mintLead, pandoraEventTypeFor, type MintOutcome } from "./mint";
 import { notifyAlreadySent, notifyNewLead, summarizeNotify, type NotifyOutcome } from "./notify";
 import { listReps } from "~/features/crm/reps";
-import { NO_SUGGESTION, isImmediate, suggestFor, type SuggestResult } from "./suggest";
+import { NO_SUGGESTION, appliesImmediately, suggestFor, type SuggestResult } from "./suggest";
 import { plannerOptions } from "../planners";
 
 export interface CreateLeadInput {
@@ -350,7 +351,7 @@ export async function createLead(
   let assignment: AssignResult | null = null;
   if (
     suggestion.suggestion &&
-    isImmediate(suggestion.outcome) &&
+    appliesImmediately(suggestion) &&
     opts.autoAssign !== false &&
     !lead.rep
   ) {

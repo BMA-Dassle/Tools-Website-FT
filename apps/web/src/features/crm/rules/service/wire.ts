@@ -18,6 +18,15 @@ import {
   type ShiftWindow,
 } from "./availability";
 import type { EngineDecision } from "./engine";
+import { REQUESTED_REP_STEP_ID, REQUESTED_REP_STEP_LABEL } from "./requested-rep";
+
+/**
+ * Trace rows that are STEPS rather than stored rules (B7's guest request):
+ * they have no `crm_assignment_rules` row, so the code and label come from
+ * here instead of from the rule table.
+ */
+const STEP_CODES: Record<string, string> = { [REQUESTED_REP_STEP_ID]: "GUEST" };
+const STEP_LABELS: Record<string, string> = { [REQUESTED_REP_STEP_ID]: REQUESTED_REP_STEP_LABEL };
 
 /** The on-screen code for a rule: "R3" from its position. */
 export function ruleCode(rule: Pick<AssignmentRule, "position">): string {
@@ -33,8 +42,8 @@ export function toDecisionWire(
     const rule = byId.get(t.ruleId);
     return {
       ...t,
-      code: rule ? ruleCode(rule) : t.ruleId,
-      label: rule?.label ?? t.ruleId,
+      code: rule ? ruleCode(rule) : (STEP_CODES[t.ruleId] ?? t.ruleId),
+      label: rule?.label ?? STEP_LABELS[t.ruleId] ?? t.ruleId,
     };
   });
   const final = decision.finalRuleId ? byId.get(decision.finalRuleId) : undefined;

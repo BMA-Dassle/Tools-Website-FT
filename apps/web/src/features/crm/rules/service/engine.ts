@@ -32,6 +32,11 @@
 
 import { monthKey } from "~/features/crm/core/dates";
 import type { DecisionOutcome } from "../contracts";
+import {
+  REQUESTED_REP_STEP_ID,
+  requestedRepVerdict,
+  type RequestedRepVerdict,
+} from "./requested-rep";
 import type {
   AssignDecision,
   AssignmentRule,
@@ -60,6 +65,13 @@ export interface EngineLead {
   source?: LeadSource;
   /** A birthday for children; undefined = unknown (matches `when.kids` like the prototype). */
   kids?: boolean;
+  /**
+   * B7 — `crm_reps.id` of the planner the guest asked for on the web form.
+   * Weighed as the last step of the decision (`requestedRepVerdict`), never as
+   * a candidate filter: the rules decide first, then the request is weighed
+   * against what they decided.
+   */
+  requestedRepId?: string | null;
 }
 
 export interface VolumeCell {
@@ -85,6 +97,8 @@ export type { DecisionOutcome };
 /** `AssignDecision` plus what kind of answer it is (the sweep and B3's assign read it). */
 export interface EngineDecision extends AssignDecision {
   outcome: DecisionOutcome;
+  /** B7 — how the guest's planner request fared; absent when they asked for nobody. */
+  requested?: RequestedRepVerdict<CrmRep>;
 }
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -144,7 +158,11 @@ function absoluteHour(n: { when: "today" | "tomorrow"; hour: number }): number {
   return (n.when === "today" ? 0 : 24) + n.hour;
 }
 
-export function assignDecision(lead: EngineLead, ctx: EngineContext): EngineDecision {
+/**
+ * The rules' own decision, before the guest's request is weighed. Exported so
+ * the Rules screen's "Try a lead" can show what the rules alone would do.
+ */
+export function decideByRules(lead: EngineLead, ctx: EngineContext): EngineDecision {
   const trace: RuleTraceStep[] = [];
   let cands = candidateReps(ctx.reps, lead.centre);
   const repBySlug = (slug: string | undefined) =>
@@ -260,6 +278,55 @@ export function assignDecision(lead: EngineLead, ctx: EngineContext): EngineDeci
     trace.push({ ruleId: r.id, hit: false, note: "did not apply" });
   }
   return { rep: null, reason: "no rule matched", trace, outcome: "none" };
+}
+
+/**
+ * THE LAST STEP OF THE DECISION (B7, owner 2026-09-13 14:05): the planner the
+ * guest asked for, weighed against what the rules just decided.
+ *
+ * It runs here rather than at any call site, so `createLead`, the sweep, the
+ * queue's "why", the Rules screen's "Try a lead" and the mint's `agent` all
+ * see one answer. `requestedRepVerdict` owns the precedence itself; this
+ * function only resolves the roster row, asks whether they are off today
+ * (rule R4) and records the step on the trace. A request that is not honoured
+ * still appears there, naming the rule that beat it.
+ */
+export function weighGuestRequest(
+  lead: EngineLead,
+  ctx: EngineContext,
+  decision: EngineDecision,
+): EngineDecision {
+  const requested = lead.requestedRepId
+    ? (ctx.reps.find((r) => r.id === lead.requestedRepId) ?? null)
+    : null;
+  const verdict = requestedRepVerdict<CrmRep>({
+    requested,
+    centre: lead.centre,
+    // The same predicate rule R2 uses, so "kids' party" means one thing here.
+    kidsBirthday: lead.type === "birthday" && lead.kids !== false,
+    decision,
+    offToday: requested ? isOffToday(requested.id, ctx) : false,
+  });
+  if (verdict.outcome === "none") return decision;
+
+  const trace: RuleTraceStep[] = [
+    ...decision.trace,
+    { ruleId: REQUESTED_REP_STEP_ID, hit: verdict.honoured, note: verdict.note },
+  ];
+  if (!verdict.honoured || !verdict.rep) return { ...decision, trace, requested: verdict };
+  return {
+    rep: verdict.rep,
+    reason: verdict.reason,
+    trace,
+    // Not a stored rule — the guest asked, and no rule of ours said otherwise.
+    finalRuleId: undefined,
+    outcome: "assign",
+    requested: verdict,
+  };
+}
+
+export function assignDecision(lead: EngineLead, ctx: EngineContext): EngineDecision {
+  return weighGuestRequest(lead, ctx, decideByRules(lead, ctx));
 }
 
 /** The prototype's `autoPick`: the decision's rep, else the Guest Services bucket. */

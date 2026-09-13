@@ -4,8 +4,14 @@ import {
   PROTOTYPE_NOW_AFTERNOON,
   prototypeContext,
 } from "~/features/crm/rules/test-support";
-import { QUEUE_LEADS, PROTO_NOW, ALL_REPS, makeLead } from "../test-support";
-import { NO_SUGGESTION, isImmediate, suggestFor, toEngineLead } from "./suggest";
+import { QUEUE_LEADS, PROTO_NOW, ALL_REPS, REPS, asRequestedRep, makeLead } from "../test-support";
+import {
+  NO_SUGGESTION,
+  appliesImmediately,
+  isImmediate,
+  suggestFor,
+  toEngineLead,
+} from "./suggest";
 
 /**
  * The engine seam, wired (B2's `assignDecision` over B2's seeded rules).
@@ -122,7 +128,7 @@ describe("suggestFor", () => {
     expect(Object.isFrozen(NO_SUGGESTION)).toBe(true);
   });
 
-  it("toEngineLead reads the six fields the rules test, `kids` included", () => {
+  it("toEngineLead reads the fields the rules test, `kids` and the guest's planner included", () => {
     const l = makeLead({ id: "1", centre: "HPN", guests: 18, type: "birthday", kids: true });
     expect(toEngineLead(l)).toEqual({
       centre: "HPN",
@@ -131,7 +137,66 @@ describe("suggestFor", () => {
       eventDate: l.eventDate,
       source: l.source,
       kids: true,
+      requestedRepId: null,
     });
     expect(ALL_REPS.length).toBeGreaterThan(0);
+  });
+
+  // B7 — the guest's planner, weighed by the engine and read back through the seam.
+  describe("the planner the guest asked for", () => {
+    const engine = () => prototypeContext({ now: PROTOTYPE_NOW });
+
+    it("reaches the engine as an id off the lead row", () => {
+      const l = makeLead({ id: "2", centre: "FT", requestedRep: asRequestedRep(REPS.kelsea) });
+      expect(toEngineLead(l).requestedRepId).toBe(REPS.kelsea.id);
+    });
+
+    it("honoured: the seam returns that planner, and it applies AT CAPTURE", async () => {
+      const l = makeLead({
+        id: "3",
+        centre: "FT",
+        guests: 42,
+        type: "corporate",
+        eventDate: "2026-10-16",
+        requestedRep: { id: "1", slug: "kelsea", firstName: "Kelsea", displayName: "Kelsea Kosco" },
+      });
+      const r = await suggestFor(l, { now: PROTOTYPE_NOW, engine: engine() });
+      expect(r.suggestion?.rep.slug).toBe("kelsea");
+      expect(r.suggestion?.reason).toBe("guest asked for Kelsea");
+      expect(r.requested?.honoured).toBe(true);
+      expect(isImmediate(r.outcome)).toBe(false);
+      expect(appliesImmediately(r)).toBe(true);
+      // The step reads as a step on the trace, not as a mystery rule id.
+      expect(r.trace.at(-1)).toMatchObject({
+        code: "GUEST",
+        label: "Guest's choice of planner",
+        hit: true,
+      });
+    });
+
+    it("overridden by a hold: carried on the trace, and the hold still applies", async () => {
+      const l = makeLead({
+        id: "4",
+        centre: "HPFM",
+        guests: 120,
+        type: "school",
+        eventDate: "2026-11-20",
+        requestedRep: { id: "1", slug: "kelsea", firstName: "Kelsea", displayName: "Kelsea Kosco" },
+      });
+      const r = await suggestFor(l, { now: PROTOTYPE_NOW, engine: engine() });
+      expect(r.suggestion?.rep.slug).toBe("mkt");
+      expect(r.requested?.outcome).toBe("overridden");
+      expect(appliesImmediately(r)).toBe(true);
+      expect(r.trace.at(-1)!.note).toContain("takes precedence");
+    });
+
+    it("a lead with no request carries no verdict at all", async () => {
+      const r = await suggestFor(lead("L-1061"), {
+        now: PROTOTYPE_NOW,
+        engine: engine(),
+      });
+      expect(r.requested).toBeUndefined();
+      expect(appliesImmediately(r)).toBe(false);
+    });
   });
 });
