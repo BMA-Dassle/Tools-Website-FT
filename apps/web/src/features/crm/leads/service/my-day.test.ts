@@ -107,7 +107,7 @@ describe("buildRepMyDay / buildLanes", () => {
     expect(v.dueToday).toHaveLength(1);
     expect(v.newLeads.map((l) => l.publicId)).toEqual(["L-1055"]);
   });
-  it("lanes: selling reps only (no bucket / hold / director), overdue count, first five due", () => {
+  it("lanes: every rep who can hold a lead — reps AND the Guest Services bucket, never a hold or a director", () => {
     const many = Array.from({ length: 7 }, (_, i) =>
       makeLead({
         id: String(100 + i),
@@ -116,12 +116,18 @@ describe("buildRepMyDay / buildLanes", () => {
       }),
     );
     const lanes = buildLanes(ALL_REPS, [...DUE, ...many], PROTO_NOW);
-    expect(lanes.map((l) => l.rep.slug)).toEqual(["kelsea", "lori", "stephanie"]);
+    // `mkt` is a hold and `jacob`/`eric` are directors — neither can be assigned
+    // a lead, so neither gets a lane. `gs` can (rule R3 sends kids' birthdays
+    // there), so it does, even though the prototype's three hard-coded lanes
+    // leave it out.
+    expect(lanes.map((l) => l.rep.slug)).toEqual(["kelsea", "lori", "stephanie", "gs"]);
     expect(lanes[0]).toMatchObject({ overdue: 3 });
     expect(lanes[0]!.due).toHaveLength(5);
     expect(lanes[1]!.due).toHaveLength(0);
     expect(lanes[2]!.due).toHaveLength(5);
     expect(lanes[2]!.overdue).toBe(0);
+    expect(lanes[3]).toMatchObject({ overdue: 0 });
+    expect(lanes[3]!.due).toHaveLength(0);
   });
 });
 
@@ -180,7 +186,7 @@ describe("loadMyDay / loadBadges", () => {
     expect(v.dateLabel).toBe("Saturday, September 12");
     expect(v.tiles).toEqual({ unassigned: 4, overdueTeam: 3, contractsOut: 3 });
     expect(v.autoAssignInMinutes).toBe(0);
-    expect(v.lanes.map((l) => l.rep.slug)).toEqual(["kelsea", "lori", "stephanie"]);
+    expect(v.lanes.map((l) => l.rep.slug)).toEqual(["kelsea", "lori", "stephanie", "gs"]);
   });
   it("badges: a rep's own overdue and no queue; the director's team overdue and the queue", async () => {
     expect(await loadBadges(rep, deps())).toEqual({ overdue: 3, unassigned: 0 });
