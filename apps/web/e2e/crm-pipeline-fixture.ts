@@ -210,5 +210,96 @@ export async function seedPipelineFixture(databaseUrl: string): Promise<FixtureL
 
     out.push({ publicId: lead[0]!.public_id, statusId: card.status });
   }
+
+  await seedHistory(databaseUrl, timelineLeadOf(out));
   return out;
+}
+
+/**
+ * The lead the deal-drawer test opens, chosen the same way the spec chooses it
+ * — the first Quote — so the history below lands on the deal that is shot.
+ */
+export function timelineLeadOf(leads: readonly FixtureLead[]): string | null {
+  return (leads.find((l) => l.statusId === "quote") ?? leads[0])?.publicId ?? null;
+}
+
+/**
+ * A LEAD WITH A PAST, so the deal drawer's timeline is a timeline and not an
+ * empty state. Without this the Overview screenshot shows "Nothing logged yet",
+ * which is a true statement about no data rather than a picture of the feature.
+ *
+ * The call is TODAY and outbound, so the header's touch tally has something to
+ * count — and counting it is the rule B4 made executable (a touch counts once
+ * per lead per channel per Eastern day).
+ */
+async function seedHistory(databaseUrl: string, publicId: string | null): Promise<void> {
+  if (!publicId) return;
+  const sql = db(databaseUrl);
+  const rows = (await sql`
+    SELECT id::text AS id, contact_id::text AS contact_id, assigned_rep_id::text AS rep_id
+      FROM crm_leads WHERE public_id = ${publicId}
+  `) as { id: string; contact_id: string | null; rep_id: string | null }[];
+  const lead = rows[0];
+  if (!lead) return;
+
+  const ago = (mins: number) => new Date(Date.now() - mins * 60_000).toISOString();
+  const entries: ReadonlyArray<{
+    kind: string;
+    direction: string | null;
+    at: string;
+    body: string | null;
+    outcome: string | null;
+    seconds: number | null;
+  }> = [
+    {
+      kind: "system",
+      direction: null,
+      at: ago(2880),
+      body: "Assigned by the rules — on shift, centre match, fewest open leads",
+      outcome: null,
+      seconds: null,
+    },
+    {
+      kind: "call",
+      direction: "out",
+      at: ago(1500),
+      body: "Left a voicemail about the November date",
+      outcome: "Voicemail",
+      seconds: 42,
+    },
+    {
+      kind: "note",
+      direction: null,
+      at: ago(1440),
+      body: "Wants the private room and a cash bar. Budget is firm at $40 a head.",
+      outcome: null,
+      seconds: null,
+    },
+    {
+      kind: "status",
+      direction: null,
+      at: ago(300),
+      body: "Contacted → Quote sent by eric@headpinz.com",
+      outcome: null,
+      seconds: null,
+    },
+    {
+      kind: "call",
+      direction: "out",
+      at: ago(90),
+      body: "Walked through the quote; sending the contract tomorrow",
+      outcome: "Reached",
+      seconds: 415,
+    },
+  ];
+
+  for (const e of entries) {
+    await sql`
+      INSERT INTO crm_activities (lead_id, contact_id, rep_id, actor_email, kind, direction,
+                                  occurred_at, duration_seconds, outcome, body, meta)
+      VALUES (${lead.id}::bigint, ${lead.contact_id}::bigint, ${lead.rep_id}::bigint,
+              'eric@headpinz.com', ${e.kind}, ${e.direction}, ${e.at}::timestamptz,
+              ${e.seconds}, ${e.outcome}, ${e.body}, ${JSON.stringify({ e2e: MARKER })}::jsonb)
+    `;
+  }
 }

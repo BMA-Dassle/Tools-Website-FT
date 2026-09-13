@@ -170,9 +170,17 @@ export default function PipelineScreen({ query }: ScreenProps) {
           <label className="sr-only" htmlFor="crm-pipeline-centre">
             Filter by centre
           </label>
+          {/*
+            `.select` is `width: 100%` — right inside a form `.field`, wrong in
+            a `flex-wrap` tool row, where a 100% basis takes the whole line to
+            itself and pushes the hint onto a third one. Overridden HERE rather
+            than in `crm.css`: this is the only `.select` in the CRM that is not
+            in a field, and the stylesheet belongs to the shell PR this wave.
+          */}
           <select
             id="crm-pipeline-centre"
             className="select"
+            style={{ flex: "0 0 auto", width: "auto", minWidth: 168 }}
             value={centre ?? ""}
             onChange={(e) => setUrlQuery({ centre: e.target.value || null })}
           >

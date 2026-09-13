@@ -13,6 +13,7 @@ import { PIPELINE_TEST_IDS } from "../src/features/crm/statuses/contracts";
 import {
   clearPipelineFixture,
   seedPipelineFixture,
+  timelineLeadOf,
   type FixtureLead,
 } from "./crm-pipeline-fixture";
 
@@ -336,17 +337,33 @@ test.describe.serial("eric — sales-director", () => {
   });
 
   test("/admin/crm/pipeline — the deal drawer over the board", async () => {
-    const lead = fixtureLeads.find((l) => l.statusId === "quote") ?? fixtureLeads[0]!;
-    await page.goto(`/admin/crm/pipeline?deal=${encodeURIComponent(lead.publicId)}`, {
+    const publicId = timelineLeadOf(fixtureLeads)!;
+    await page.goto(`/admin/crm/pipeline?deal=${encodeURIComponent(publicId)}`, {
       waitUntil: "domcontentloaded",
     });
     await page.waitForLoadState("networkidle");
     await expect(page.locator(byTestId(LEAD_TEST_IDS.deal))).toBeVisible();
-    // The Overview tab's timeline is B4's other half; it must render, not 404.
-    await expect(page.locator(byTestId(ACTIVITY_TEST_IDS.timeline))).toBeVisible();
+
+    // B4's other half. The fixture gives this lead a past, so the assertion is
+    // about ROWS, not about a card that rendered its empty state: the five
+    // seeded activities, newest first, with the most recent call at the top.
+    const timeline = page.locator(byTestId(ACTIVITY_TEST_IDS.timeline));
+    await expect(timeline).toBeVisible();
+    const items = timeline.locator(".tl");
+    await expect(items).toHaveCount(5);
+    await expect(items.first()).toContainText("Outbound call");
+    await expect(timeline).toContainText("Quote sent");
+    // The touch tally, which is the accountability rule made visible: the
+    // seeded call is today and outbound, so it counts once.
+    await expect(timeline).toContainText("Today: call");
+
     // The status chip is a BUTTON here, not a label — the deal's own non-drag
     // path to the same transition the board's cards use.
     await expect(page.getByRole("button", { name: /^Change status — currently / })).toBeVisible();
+    // The two quick actions B4 registered are LIVE, not disabled placeholders.
+    for (const label of ["Note", "Snooze"]) {
+      await expect(page.getByRole("button", { name: label, exact: true })).toBeEnabled();
+    }
     expect(countOf(await documentBytes(page), TOKEN)).toBe(0);
     await shoot(page, "director-deal");
   });
