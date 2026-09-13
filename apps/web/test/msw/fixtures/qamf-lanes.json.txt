@@ -1,0 +1,1 @@
+{"Lanes":[{"LaneNumber":1,"Status":"Closed","ClosedAt":"2026-09-12T15:00:00.000-04:00","Reservation":null},{"LaneNumber":5,"Status":"Open","Reservation":{"Id":"C0000000123"}},{"LaneNumber":13,"Status":"Closed","Reservation":null},{"LaneNumber":14,"Status":"Closed","Reservation":null}]}

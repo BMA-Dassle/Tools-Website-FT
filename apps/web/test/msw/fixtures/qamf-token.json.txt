@@ -1,0 +1,1 @@
+{"access_token":"msw-qamf-jwt","token_type":"Bearer","expires_in":86400,"scope":"bowling_reservations"}
