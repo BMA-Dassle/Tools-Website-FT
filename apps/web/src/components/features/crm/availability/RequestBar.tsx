@@ -6,7 +6,7 @@ import { AVAILABILITY_TEST_IDS } from "~/features/crm/availability/contracts";
 import { DURATIONS } from "~/features/crm/availability/schemas";
 import { Pill } from "../primitives/Pill";
 import { durationLabel, startOptions } from "./model";
-import type { DayBounds } from "~/features/crm/availability";
+import type { DayBounds } from "~/features/crm/availability/pure";
 
 /**
  * The request bar (`crm-shared.js:512-514`): start, length, and the lane count

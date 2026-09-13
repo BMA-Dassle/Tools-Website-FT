@@ -1,8 +1,12 @@
 "use client";
 
+import { IconAlertTriangle } from "@tabler/icons-react";
 import { AVAILABILITY_TEST_IDS, type HeatsResponse } from "~/features/crm/availability/contracts";
+import { Banner } from "../primitives/Banner";
 import { Chip } from "../primitives/Chip";
+import { ICON } from "../primitives/icon-props";
 import { EmptyState } from "../primitives/States";
+import { heatsPanelState } from "./model";
 
 /**
  * FastTrax karting (`crm-shared.js:534`, the builder's heat grid), read-only.
@@ -28,6 +32,10 @@ function heatClass(freePlaces: number, capacity: number): string {
 export function HeatsPanel({ data, onSelectResource }: HeatsPanelProps) {
   const selected = data.resources.find((r) => r.resourceId === data.selectedResourceId) ?? null;
   const runStarts = new Set((data.firstRun ?? []).map((b) => b.start));
+  // An Office outage is NOT "the centre has published no day planner". The
+  // route took care to produce an honest sentence; say it, and keep the empty
+  // state for a read that genuinely came back with no heats.
+  const state = heatsPanelState(data);
 
   return (
     <div className="card" data-testid={AVAILABILITY_TEST_IDS.heats}>
@@ -39,6 +47,12 @@ export function HeatsPanel({ data, onSelectResource }: HeatsPanelProps) {
       </div>
 
       <div className="pad stack">
+        {state === "unavailable" ? (
+          <Banner tone="crit" icon={<IconAlertTriangle {...ICON} />}>
+            {data.error}
+          </Banner>
+        ) : null}
+
         {data.resources.length > 1 ? (
           <div className="field avail-field">
             <label htmlFor="avail-resource">Resource</label>
@@ -77,7 +91,7 @@ export function HeatsPanel({ data, onSelectResource }: HeatsPanelProps) {
           </div>
         ) : null}
 
-        {selected && selected.blocks.length > 0 ? (
+        {state === "grid" && selected ? (
           <div className="heatgrid">
             {selected.blocks.map((b) => (
               <div
@@ -98,11 +112,11 @@ export function HeatsPanel({ data, onSelectResource }: HeatsPanelProps) {
               </div>
             ))}
           </div>
-        ) : (
+        ) : state === "empty" ? (
           <EmptyState>
             No heats are published for this day yet. Check the centre&rsquo;s Office day planner.
           </EmptyState>
-        )}
+        ) : null}
 
         <div className="xs muted">
           Availability from Office dayPlanner (live). Full heats are greyed; Office refuses

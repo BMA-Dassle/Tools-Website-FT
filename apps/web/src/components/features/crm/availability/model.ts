@@ -5,7 +5,7 @@ import {
   type DayBounds,
   type LaneBlock,
   type LaneOccupancy,
-} from "~/features/crm/availability";
+} from "~/features/crm/availability/pure";
 import type {
   AvailabilityPlacement,
   AvailabilitySection,
@@ -212,7 +212,124 @@ export function subtitleFor(parts: {
   return `${head} · ${parts.guests} guests → ${parts.need} lanes`;
 }
 
-/** The URL a "Hold these lanes" click opens — the builder (C5), carrying the pick. */
+/**
+ * The same line in KARTING units.
+ *
+ * FastTrax has no lanes at all, so "30 guests → 5 lanes" over a heat grid is
+ * simply false — the prototype never showed FT on this screen (it mapped FT to
+ * HPFM, `crm-shared.js:511`), and this is the honest replacement. `heats` is
+ * `heatsNeeded` from the heats read; it is 0 until that read lands, and the
+ * arrow is dropped rather than printed as "→ 0 heats".
+ */
+export function heatsSubtitleFor(parts: {
+  dateLabel: string;
+  title: string | null;
+  racers: number;
+  heats: number;
+}): string {
+  const head = parts.title ? `${parts.dateLabel} · ${parts.title}` : parts.dateLabel;
+  const tail =
+    parts.heats > 0 ? `${parts.racers} racers → ${parts.heats} heats` : `${parts.racers} racers`;
+  return `${head} · ${tail}`;
+}
+
+/** Title and sub for the topbar, by what the route actually answered. */
+export function screenHeadFor(parts: {
+  source: "lanes" | "heats" | "unavailable" | null;
+  centreShort: string;
+  dateLabel: string;
+  title: string | null;
+  guests: number;
+  need: number;
+  heats: number;
+}): { title: string; sub: string } {
+  if (parts.source === "heats") {
+    return {
+      title: `Heat availability · ${parts.centreShort}`,
+      sub: heatsSubtitleFor({
+        dateLabel: parts.dateLabel,
+        title: parts.title,
+        racers: parts.guests,
+        heats: parts.heats,
+      }),
+    };
+  }
+  return {
+    title: `Lane availability · ${parts.centreShort}`,
+    sub: subtitleFor({
+      dateLabel: parts.dateLabel,
+      title: parts.title,
+      guests: parts.guests,
+      need: parts.need,
+    }),
+  };
+}
+
+/**
+ * What the heats panel shows, decided before any JSX.
+ *
+ * `unavailable` is the case that was wrong: the heats route takes care to
+ * answer "Heat availability could not be read from the centre just now" and the
+ * panel threw it away, telling the planner the centre had published no day
+ * planner — a false explanation for a vendor outage or a missing credential.
+ */
+export type HeatsPanelState = "unavailable" | "grid" | "empty";
+
+export function heatsPanelState(data: {
+  source: "heats" | "unavailable";
+  selectedResourceId: string | null;
+  resources: readonly { resourceId: string; blocks: readonly unknown[] }[];
+}): HeatsPanelState {
+  if (data.source === "unavailable") return "unavailable";
+  const selected = data.resources.find((r) => r.resourceId === data.selectedResourceId);
+  return selected && selected.blocks.length > 0 ? "grid" : "empty";
+}
+
+/** One meter row of the deal rail's mini availability (`crm-shared.js:318`). */
+export interface MiniSectionRow {
+  name: string;
+  free: number;
+  total: number;
+  pct: number;
+  tone: "good" | "warn" | "crit";
+  n: string;
+}
+
+/**
+ * The rail card's rows: one per section, `free / lanes.length`, coloured the
+ * prototype's way — good above half free, warn while anything is left, crit at
+ * nothing.
+ */
+export function miniSectionRows(sections: readonly AvailabilitySection[]): MiniSectionRow[] {
+  return sections.map((s) => {
+    const total = s.lanes.length;
+    const ratio = total > 0 ? s.free / total : 0;
+    return {
+      name: s.name,
+      free: s.free,
+      total,
+      pct: total > 0 ? (s.free / total) * 100 : 0,
+      tone: ratio > 0.5 ? "good" : s.free ? "warn" : "crit",
+      n: `${s.free} of ${total} free`,
+    };
+  });
+}
+
+/**
+ * The URL a "Hold these lanes" click opens — the builder (C5), carrying the pick.
+ *
+ * MACHINE-READABLE VALUES ONLY. The first cut passed `runLabel(lanes)` —
+ * `"13–15"` with a U+2013 en dash — which would have made C5 split a display
+ * string on a typographic character to recover two lane numbers. `firstLane`
+ * and `count` say the same thing without parsing, `start` is minutes from
+ * midnight (the unit every time on this wire uses) and `section` is the section
+ * name the engine picked. The en-dash form stays where it belongs: on screen.
+ *
+ * C5 CONTRACT: `?firstLane=13&count=3&start=1080&section=Regular`. The brief's
+ * hand-off shape is `{productId, qty, start}` — `count` IS the qty and C5 picks
+ * the productId from `section` and the centre, because this screen has no
+ * product catalogue and must not guess one.
+ */
 export function holdHref(
   base: string,
   leadPublicId: string,
@@ -220,7 +337,8 @@ export function holdHref(
   start: number,
 ): string {
   const p = new URLSearchParams({
-    lanes: runLabel(placement.lanes),
+    firstLane: String(placement.lanes[0] ?? ""),
+    count: String(placement.lanes.length),
     start: String(start),
     section: placement.section,
   });

@@ -1,7 +1,7 @@
 "use client";
 
 import { IconCheck } from "@tabler/icons-react";
-import { fmtMin, pctOf } from "~/features/crm/availability";
+import { fmtMin, pctOf } from "~/features/crm/availability/pure";
 import {
   AVAILABILITY_TEST_IDS,
   type AvailabilityBounds,

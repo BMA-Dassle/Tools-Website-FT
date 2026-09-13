@@ -2,7 +2,7 @@
 
 import { IconAlertTriangle, IconCheck, IconLayersSubtract } from "@tabler/icons-react";
 import Link from "next/link";
-import { fmtMin } from "~/features/crm/availability";
+import { fmtMin } from "~/features/crm/availability/pure";
 import {
   AVAILABILITY_HOLD_LABEL,
   AVAILABILITY_TEST_IDS,
