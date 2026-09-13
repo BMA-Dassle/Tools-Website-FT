@@ -569,6 +569,27 @@ export async function listDueLeads(repId?: string | null): Promise<LeadView[]> {
   return rows.map(mapLeadRow);
 }
 
+/**
+ * Leads joined to a set of BMI projects, for the Events board's third layer
+ * (B6). Ids are 17-digit STRINGS and stay strings — `bmi_project_id` is TEXT
+ * and the array parameter is `text[]`, never `bigint[]` (R1).
+ *
+ * Archived rows are included on purpose: an archived lead still explains who
+ * booked an event that is happening tomorrow.
+ */
+export async function listLeadsByProjectIds(projectIds: readonly string[]): Promise<LeadView[]> {
+  if (!isDbConfigured() || projectIds.length === 0) return [];
+  await ensureLeadsSchema();
+  const ids = [...new Set(projectIds.filter(Boolean))].slice(0, LEAD_LIST_MAX);
+  if (ids.length === 0) return [];
+  const q = sql();
+  const rows = (await q.query(
+    `SELECT ${LEAD_SELECT} ${LEAD_FROM} WHERE l.bmi_project_id = ANY($1::text[])`,
+    [ids],
+  )) as LeadRowRaw[];
+  return rows.map(mapLeadRow);
+}
+
 export async function countLeadsInStatus(statusId: string): Promise<number> {
   if (!isDbConfigured()) return 0;
   await ensureLeadsSchema();

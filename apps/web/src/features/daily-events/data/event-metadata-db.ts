@@ -158,6 +158,31 @@ export async function upsertEventMetadataManual(params: {
   `;
 }
 
+/**
+ * Every food-out row for a location on a set of dates, keyed by project id.
+ *
+ * The CRM's Events board shows a whole week at a time; one `getEventMetadataRow`
+ * per event was seventy round trips for one screen. This is the same read,
+ * batched — the board's ONLY use of this table, and read-only.
+ */
+export async function listEventMetadataForDates(
+  locationId: number,
+  dates: readonly string[],
+): Promise<Map<string, EventMetadata>> {
+  const out = new Map<string, EventMetadata>();
+  if (!isDbConfigured() || dates.length === 0) return out;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT project_id, food_out_time, food_out_source, food_out_confidence, food_out_reasoning,
+           metadata, updated_at
+    FROM event_metadata
+    WHERE location_id = ${locationId} AND event_date = ANY(${[...dates]}::date[])
+  `) as Array<EventMetadataRow & { project_id: string }>;
+  for (const row of rows) out.set(String(row.project_id), toEventMetadata(row));
+  return out;
+}
+
 /** Food-out time for the BMI note sync (portal parity: any row, LIMIT 1). */
 export async function getFoodOutTimeForProject(
   projectId: string,
