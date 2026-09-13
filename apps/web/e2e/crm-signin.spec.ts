@@ -84,6 +84,23 @@ async function shoot(page: Page, name: string) {
     // brief §6.3: zero horizontal scroll at 390). Tables and boards may be
     // wider only inside their own `overflow-x: auto` box, never the document.
     //
+    // …and EXACTLY ONE vertical scroller, which is `.content`. The owner hit
+    // the other shape on 2026-09-13 on /admin/crm/history: a document scrollbar
+    // at the far right *and* the content column's own. `.crm-root` and `.shell`
+    // BOTH carried `min-height: 100vh` — measured here at the time as
+    // `minH=900px` on each inside a 900 px window, with every box in the chain
+    // at top=0 and zero margin or padding, so there was no offset to blame.
+    // The floor itself was the bug: `100vh` is the initial containing block,
+    // which is measured as though scrollbars did not exist and takes no account
+    // of mobile browser chrome, so on a real machine (classic scrollbars,
+    // fractional display scaling) it exceeds the visible window by a pixel or
+    // two and the browser draws a second, barely-draggable scrollbar.
+    //
+    // Data-dependent screens (History) cannot assert a row count, so these
+    // assertions are about the DOCUMENT — it must not move and must not be
+    // taller — plus the CAUSE, since a whole-pixel headless run stays green
+    // with the floor still in the sheet. See `floors` below.
+    //
     // MEASURED BY TRYING TO SCROLL, not by `documentElement.scrollWidth`: with
     // the shell at 100dvh and `.content` as the scroller, Chromium still
     // reports the clipped descendants' extent on the root element (1646 px
@@ -129,16 +146,42 @@ async function shoot(page: Page, name: string) {
         const cs = getComputedStyle(el);
         sizes[sel] = `h=${cs.height} minH=${cs.minHeight} ov=${cs.overflow} disp=${cs.display}`;
       }
+      // Every box between the shell and <html>, so a failure NAMES the pixels
+      // rather than leaving the next reader to guess where they came from —
+      // and `floors` calls out the one thing that must never come back: a
+      // min-height FLOOR at the viewport height. `100vh` resolves against the
+      // initial containing block, which is measured as if scrollbars did not
+      // exist and knows nothing about mobile browser chrome, so such a floor
+      // is routinely TALLER than the window the guest is looking at, and the
+      // browser answers with a second scrollbar. Nothing from the shell up may
+      // carry one; the single `height: 100dvh` on `.crm-root` is the only pin.
+      const chain: string[] = [];
+      const floors: string[] = [];
+      for (let el: Element | null = document.querySelector(".shell"); el; el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        const cls = (el.getAttribute("class") ?? "").split(/\s+/)[0] ?? "";
+        const at = `${el.tagName.toLowerCase()}${cls ? "." + cls : ""}`;
+        chain.push(
+          `${at} top=${r.top.toFixed(1)} bot=${r.bottom.toFixed(1)} h=${cs.height} minH=${cs.minHeight} mt=${cs.marginTop} mb=${cs.marginBottom} pt=${cs.paddingTop} pb=${cs.paddingBottom}`,
+        );
+        // "auto"/"none" parse to NaN, which is correctly not a floor.
+        if (parseFloat(cs.minHeight) >= ih - 1) floors.push(`${at} min-height:${cs.minHeight}`);
+      }
+      const scroller = document.scrollingElement ?? de;
       return {
         scrollWidth: de.scrollWidth,
         clientWidth: cw,
         scrollHeight: de.scrollHeight,
+        docScrollHeight: scroller.scrollHeight,
         innerHeight: ih,
         bodyScrollHeight: document.body.scrollHeight,
         scrolledTo,
         wide,
         tall,
         sizes,
+        chain,
+        floors,
       };
     });
     console.log(`[layout] ${name}@${width}: ${JSON.stringify(metrics)}`);
@@ -147,6 +190,29 @@ async function shoot(page: Page, name: string) {
       `${name}@${width}: the window scrolls horizontally; unclipped offenders: ${metrics.wide.join(" | ")}`,
     ).toBe(0);
     expect(metrics.wide, `${name}@${width}: boxes painted past the right edge`).toEqual([]);
+    const diag = `body ${metrics.bodyScrollHeight} / root ${metrics.docScrollHeight} vs window ${metrics.innerHeight}; below the fold: ${metrics.tall.join(" | ") || "none"}; chain: ${metrics.chain.join(" << ")}`;
+    expect(
+      metrics.scrolledTo.y,
+      `${name}@${width}: the DOCUMENT scrolls vertically — only .content may. ${diag}`,
+    ).toBe(0);
+    // `document.body.scrollHeight`, NOT the root element's. Chromium folds the
+    // `.content` scroller's layout overflow into `documentElement.scrollHeight`
+    // even though the viewport's scrolling area is exactly the window: measured
+    // 1646 vs a 900 px window on /admin/crm/statuses while `scrollTo` could not
+    // move it a pixel and body reported a truthful 900. The root number is kept
+    // in the log above as a diagnostic and is deliberately not asserted on.
+    expect(
+      metrics.bodyScrollHeight - metrics.innerHeight,
+      `${name}@${width}: the document is taller than the window. ${diag}`,
+    ).toBeLessThanOrEqual(2);
+    // The CAUSE, pinned separately from the symptom: the symptom only shows up
+    // where 100vh and the visible viewport disagree (classic scrollbars,
+    // fractional display scaling, mobile browser chrome) and a headless run at
+    // whole pixels will happily stay green with the defect still in the sheet.
+    expect(
+      metrics.floors,
+      `${name}@${width}: a min-height floor at the viewport height is back above .content`,
+    ).toEqual([]);
     await page.screenshot({ path: path.join(SHOTS, `${name}-${width}.png`), fullPage: true });
   }
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -212,6 +278,19 @@ test.describe.serial("eric — sales-director", () => {
     await expect(page.locator(byTestId(TEST_IDS.statusesTable))).toContainText("Contract sent");
     expect(countOf(await documentBytes(page), TOKEN)).toBe(0);
     await shoot(page, "director-statuses");
+  });
+
+  test("/admin/crm/history — one scroller, the content column (the 2026-09-13 report)", async () => {
+    // History & accounts is the longest screen in the tool and the one the
+    // owner was on when he saw two vertical scrollbars. It is on the nav for
+    // every role (it is not in DIRECTOR_ONLY_SCREENS), and its row count comes
+    // out of the database — which is why `shoot()` asserts the DOCUMENT cannot
+    // scroll rather than anything about what is in the table.
+    await page.goto("/admin/crm/history", { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    expect(new URL(page.url()).pathname).toBe("/admin/crm/history");
+    await expect(page.locator(byTestId(TEST_IDS.screen("history")))).toBeVisible();
+    await shoot(page, "director-history");
   });
 
   test("the CRM's own /api/admin/crm/* calls succeed with the minted credential", async () => {

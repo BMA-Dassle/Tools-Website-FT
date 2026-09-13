@@ -176,12 +176,19 @@ export default function CrmApp(props: CrmAppProps) {
     );
   }
 
+  // The root's HEIGHT is crm.css's job (`.crm-root { height: 100dvh }`), never
+  // this file's. An inline `minHeight: "100vh"` used to sit here, and being
+  // inline it outranked the sheet: it floored the CRM at a viewport measured as
+  // if scrollbars did not exist, which is a pixel or two taller than the real
+  // window — the document scrollbar the owner saw beside `.content`'s on
+  // 2026-09-13. Only the font, a next/font variable that cannot live in a
+  // static sheet, belongs inline.
   return (
     <div
       data-testid={TEST_IDS.app}
       data-ba-theme={theme}
       className="portal-skin crm-root"
-      style={{ fontFamily: ADMIN_SANS, minHeight: "100vh" }}
+      style={{ fontFamily: ADMIN_SANS }}
     >
       {/* Theme CSS variables — static strings built from module constants. */}
       <style dangerouslySetInnerHTML={{ __html: baThemeCss(theme) + PORTAL_SKIN_CSS }} />

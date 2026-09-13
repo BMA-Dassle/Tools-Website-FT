@@ -114,7 +114,22 @@
   color: var(--fg);
   font: 14px/1.45 var(--font);
   -webkit-font-smoothing: antialiased;
-  min-height: 100vh;
+  /* EXACTLY ONE full-viewport box in the whole page, and it is this one — a
+     definite HEIGHT, never a `min-height` floor.
+     `min-height: 100vh` used to sit here and again on `.shell`, and that was
+     the two-scrollbar bug of 2026-09-13 (/admin/crm/history): `100vh` is the
+     initial containing block, which is measured as if scrollbars did not exist
+     and knows nothing about mobile browser chrome, so the floor is routinely a
+     pixel or two TALLER than the window the user is looking at — the document
+     then scrolls beside `.content`, which is the second scrollbar. (Measured
+     in the rig at the time: minH=900px on both boxes in a 900px window, every
+     box in the chain at top=0 with zero margin and padding, so there was no
+     offset to blame — the floor itself was the defect.)
+     A definite height hides nothing: `.main` is overflow:hidden and `.content`
+     overflow:auto, so real overflow still lands in the content column.
+     The 100vh line is the fallback for a browser without dvh, never the winner. */
+  height: 100vh;
+  height: 100dvh;
   padding-inline: 0;
 }
 .crm-root a {
@@ -3312,13 +3327,22 @@
 /* ==== END OF THE MECHANICAL PORT — production overrides follow ==== */
 
 /* The prototype drew the app inside a fixed-size ".app" frame with
-   position:relative; in production the root IS the viewport. The shell takes
-   the dynamic viewport height so `.content` scrolls internally like the
-   prototype, and every overlay is position:fixed, rendered as a sibling of the
-   shell at the root (never inside a transformed ancestor — lesson 175-222). */
+   position:relative; in production the root IS the viewport: `.crm-root` owns
+   the single `height: 100dvh` (see the root rule) and the shell simply fills
+   it, so `.content` scrolls internally like the prototype and the DOCUMENT
+   never scrolls at all.
+   The shell used to re-pin the viewport itself (`height: 100dvh;
+   min-height: 100vh`) and that `min-height` was the 2026-09-13 two-scrollbar
+   bug twice over: a floor measured against a viewport that ignores scrollbars,
+   and — because 100vh is the LARGE viewport and 100dvh the dynamic one — a
+   minimum that BEAT its own `height` on a phone, pushing the last row under
+   the browser chrome. A floor at the viewport height belongs nowhere above
+   `.content`; `apps/web/e2e/crm-signin.spec.ts` fails the suite if one returns.
+   Never give the shell a transform/filter/backdrop-filter either: every
+   overlay is position:fixed and rendered as a sibling of the shell at the
+   root, and a containing block here would trap them — lesson 175-222. */
 .crm-root .shell {
-  height: 100dvh;
-  min-height: 100vh;
+  height: 100%;
 }
 .crm-root .side {
   position: sticky;
