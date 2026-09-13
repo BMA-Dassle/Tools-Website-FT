@@ -7,47 +7,17 @@
  * builder's job (C5) and arrives as a link, not a write.
  */
 
-export {
-  ALTERNATE_MAX_OFFSET_MIN,
-  ALTERNATE_STEP_MIN,
-  EVENING_CLOSE_MIN,
-  EVENING_OPEN_MIN,
-  GUESTS_PER_LANE,
-  LANE_SECTIONS,
-  MAX_ALTERNATES,
-  SLOT_MINUTES,
-  VIP_SECTION_NAME,
-  alternateWindows,
-  bestRun,
-  blockAtSlot,
-  boundsFor,
-  clampBlocks,
-  evaluate,
-  fmtMin,
-  laneFreeIn,
-  lanesNeeded,
-  mergeAdjacent,
-  parseClockMinutes,
-  pctOf,
-  sectionRuns,
-  slotsBetween,
-  ticksBetween,
-  type Alternate,
-  type BestRun,
-  type DayBounds,
-  type LaneBlock,
-  type LaneOccupancy,
-  type LaneSection,
-  type OccupancyKind,
-  type RequestWindow,
-  type SectionRuns,
-  type Verdict,
-} from "./service/engine";
+/**
+ * The pure engine and request helpers, in one place so `pure.ts` (what the
+ * client components import) and this server barrel cannot drift apart.
+ */
+export * from "./pure";
 
 export {
   AVAILABILITY_CACHE_PREFIX,
   AVAILABILITY_CACHE_SECONDS,
   MAX_SESSION_MINUTES,
+  OUT_OF_SERVICE_LABEL,
   classifyKind,
   blockLabel,
   etDayBoundsMs,
@@ -72,16 +42,6 @@ export {
   type HeatsProjection,
   type HeatsResult,
 } from "./service/heats";
-
-export {
-  DEFAULT_CENTRE,
-  DEFAULT_DURATION_MIN,
-  DEFAULT_GUESTS,
-  DEFAULT_START_MIN,
-  resolveRequest,
-  snapToSlot,
-  type RequestQuery,
-} from "./service/request";
 
 export { findLeadForAvailability } from "./data/lead-lookup";
 

@@ -2,13 +2,13 @@
 
 import { IconAlertTriangle, IconCheck, IconLayersSubtract } from "@tabler/icons-react";
 import Link from "next/link";
+import { fmtMin } from "~/features/crm/availability/pure";
 import {
   AVAILABILITY_HOLD_LABEL,
   AVAILABILITY_TEST_IDS,
   type AvailabilityAlternate,
   type AvailabilityPlacement,
 } from "~/features/crm/availability/contracts";
-import { fmtMin } from "~/features/crm/availability/service/engine";
 import { Banner } from "../primitives/Banner";
 import { ICON } from "../primitives/icon-props";
 import { durationLabel, holdHref, runLabel, windowLabel } from "./model";
