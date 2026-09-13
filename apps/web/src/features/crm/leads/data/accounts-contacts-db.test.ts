@@ -93,6 +93,36 @@ describe("upsertAccountByKey", () => {
     expect(s.text).toContain("a.id < $4::bigint");
     expect(s.params).toEqual(["Acme 555-4021", "%Acme 555-4021%", "5554021", "40", 11]);
   });
+
+  it("lists only accounts that have a mirrored event or a live lead, and names the hosts of both", async () => {
+    // An account the mirror created and then moved away from — the host of a
+    // corporate booking, filed as a household before the company record was
+    // read — must not linger as an empty row in History.
+    db.respond = () => [];
+    await accounts.searchAccounts("");
+    const s = db.matching(/FROM crm_accounts a/)[0]!;
+    expect(s.text).toContain("EXISTS (SELECT 1 FROM crm_bmi_projects p WHERE p.account_id = a.id)");
+    expect(s.text).toContain("to_regclass('crm_leads') IS NOT NULL");
+    expect(s.text).toContain("l.account_id = a.id AND l.archived_at IS NULL");
+    // Contact names come from the account's own contacts AND its events' hosts.
+    expect(s.text).toContain("c.account_id = a.id");
+    expect(s.text.replace(/\s+/g, " ")).toContain(
+      "c.id IN (SELECT p.contact_id FROM crm_bmi_projects p WHERE p.account_id = a.id AND p.contact_id IS NOT NULL)",
+    );
+  });
+});
+
+describe("listContactsForAccount", () => {
+  it("returns the account's own contacts AND the hosts of its mirrored events", async () => {
+    db.respond = () => [CONTACT_ROW];
+    const rows = await contacts.listContactsForAccount("12", 10);
+    const s = db.matching(/FROM crm_contacts c/)[0]!;
+    expect(s.text).toContain("c.account_id = $1::bigint");
+    expect(s.text).toContain("p.account_id = $1::bigint AND p.contact_id IS NOT NULL");
+    expect(s.params).toEqual(["12", 10]);
+    expect(rows[0]?.id).toBe("34");
+    expect(await contacts.listContactsForAccount("not-an-id")).toEqual([]);
+  });
 });
 
 describe("upsertContactFromBmi", () => {
