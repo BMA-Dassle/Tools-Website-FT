@@ -30,13 +30,24 @@ import { collateralMessage } from "./model";
  * The clipboard write is best-effort: an iframe or a browser without
  * permission simply leaves the URL in a read-only input the rep can select, so
  * the link is never lost behind a failed copy.
+ *
+ * WHAT EXPIRY AND REVOKE ACTUALLY DO, said on the sheet rather than implied.
+ * The blob behind a share is stored `access: "public"`, so the 302's
+ * destination is a permanent URL. Expiry, revoke and archive all stop the
+ * TOKENISED HOP; none of them reach a guest who has already opened the link
+ * and has the file. "Stops working" alone read as more than that, so the sheet
+ * now says both halves. Revoke is director-only, matching the route.
  */
 export interface ShareSheetProps {
   item: CollateralItem;
   /** A lead public id (`L-1042`) or numeric id when shared from a deal. */
   lead?: string | null;
   existing: ShareLink[];
+  /** Revoking is director-only, exactly as `POST /share {action:"revoke"}` is. */
+  canRevoke?: boolean;
   onCreate: (input: { collateralId: string; lead?: string | null }) => Promise<ShareLink>;
+  /** Returns this file's remaining links, so the list below stays honest. */
+  onRevoke?: (token: string) => Promise<ShareLink[]>;
 }
 
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -48,10 +59,19 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function ShareSheet({ item, lead, existing, onCreate }: ShareSheetProps) {
+export function ShareSheet({
+  item,
+  lead,
+  existing,
+  canRevoke = false,
+  onCreate,
+  onRevoke,
+}: ShareSheetProps) {
   const [link, setLink] = useState<ShareLink | null>(null);
+  const [links, setLinks] = useState<ShareLink[]>(existing);
   const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState(false);
+  const [revoking, setRevoking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const url = link?.url ?? "";
@@ -62,11 +82,26 @@ export function ShareSheet({ item, lead, existing, onCreate }: ShareSheetProps) 
     try {
       const share = await onCreate({ collateralId: item.id, lead: lead ?? null });
       setLink(share);
+      setLinks((prev) => [share, ...prev]);
       setCopied(await copyToClipboard(share.url));
     } catch (err) {
       setError(collateralMessage(errorMessage(err)));
     } finally {
       setPending(false);
+    }
+  };
+
+  const revoke = async (token: string) => {
+    if (!onRevoke) return;
+    setRevoking(token);
+    setError(null);
+    try {
+      setLinks(await onRevoke(token));
+      if (link?.token === token) setLink(null);
+    } catch (err) {
+      setError(collateralMessage(errorMessage(err)));
+    } finally {
+      setRevoking(null);
     }
   };
 
@@ -93,7 +128,8 @@ export function ShareSheet({ item, lead, existing, onCreate }: ShareSheetProps) 
           <input id="crm-share-url" className="input" readOnly value={url} />
           <div className="xs muted">
             {copied ? "Copied to your clipboard. " : "Select the link above to copy it. "}
-            {link.expiresAt ? `Stops working ${fStamp(link.expiresAt)}.` : ""}
+            {link.expiresAt ? `The link stops working ${fStamp(link.expiresAt)}. ` : ""}
+            Anyone who already opened it keeps the file.
           </div>
         </div>
       ) : null}
@@ -124,20 +160,39 @@ export function ShareSheet({ item, lead, existing, onCreate }: ShareSheetProps) 
       </div>
       <div className="xs muted">Sending it straight to the guest {SHARE_DELIVERY_REASON}.</div>
 
-      {existing.length > 0 ? (
+      {links.length > 0 ? (
         <div className="stack" style={{ gap: 6 }}>
           <div className="eyebrow">Earlier links</div>
-          {existing.slice(0, 5).map((s) => (
+          {links.slice(0, 5).map((s) => (
             <div key={s.token} className="hstack between small">
               <span className="muted">{fStamp(s.createdAt)}</span>
-              <span>
-                {s.openCount === 0
-                  ? "not opened yet"
-                  : `${s.openCount} open${s.openCount === 1 ? "" : "s"}`}
-                {s.expiredAt ? " · expired" : ""}
+              <span className="hstack" style={{ gap: 8 }}>
+                <span>
+                  {s.openCount === 0
+                    ? "not opened yet"
+                    : `${s.openCount} open${s.openCount === 1 ? "" : "s"}`}
+                  {s.expiredAt ? " · expired" : ""}
+                </span>
+                {canRevoke && onRevoke && !s.expiredAt ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => void revoke(s.token)}
+                    disabled={revoking !== null}
+                    aria-label={`Revoke the link made ${fStamp(s.createdAt)}`}
+                  >
+                    {revoking === s.token ? "Revoking…" : "Revoke"}
+                  </button>
+                ) : null}
               </span>
             </div>
           ))}
+          {canRevoke ? (
+            <div className="xs muted">
+              Revoking stops the link from here on. It cannot reach a guest who already opened it —
+              they have the file.
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

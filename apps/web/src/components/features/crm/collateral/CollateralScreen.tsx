@@ -1,7 +1,7 @@
 "use client";
 
-import { IconFile, IconPlus, IconUpload } from "@tabler/icons-react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { IconFile, IconPlus, IconSearch, IconUpload } from "@tabler/icons-react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, lazy, useMemo, type ComponentType } from "react";
 import { createPortal } from "react-dom";
 import type {
@@ -12,14 +12,15 @@ import type {
 } from "~/features/crm/collateral/contracts";
 import { COLLATERAL_TEST_IDS } from "~/features/crm/collateral/contracts";
 import {
-  COLLATERAL_EXTRA_CARDS,
-  COLLATERAL_EXTRA_CARD_IDS,
+  shippedExtraCards,
+  type CollateralExtraCardId,
   type CollateralExtraCardProps,
 } from "~/features/crm/collateral/extra-cards";
 import { collateralKeys } from "~/features/crm/collateral/queries";
 import { todayEasternYmd } from "~/features/crm/core/dates";
 import type { ScreenProps } from "~/features/crm/core/screens";
 import { errorMessage } from "../lib/crm-fetch";
+import { useDebouncedValue } from "../lib/use-debounced";
 import { useUrlQuery } from "../lib/use-url-query";
 import {
   useCrm,
@@ -52,6 +53,7 @@ import {
   postCollateral,
   postCollateralItem,
   postTemplates,
+  revokeShareLink,
   uploadCollateralFile,
 } from "./queries";
 
@@ -74,14 +76,21 @@ import {
  */
 
 interface ExtraCardEntry {
-  id: string;
+  id: CollateralExtraCardId;
   Component: ComponentType<CollateralExtraCardProps>;
 }
 
-const EXTRA_CARD_COMPONENTS: ExtraCardEntry[] = COLLATERAL_EXTRA_CARD_IDS.flatMap((id) => {
-  const load = COLLATERAL_EXTRA_CARDS[id];
-  return load ? [{ id, Component: lazy(load) as ComponentType<CollateralExtraCardProps> }] : [];
-});
+/**
+ * Built from the registry's OWN helper, so the function `extra-cards.test.ts`
+ * pins is the function that runs here — a screen re-implementing the lookup
+ * would let the helper rot and the test pass on a copy of it.
+ */
+const EXTRA_CARD_COMPONENTS: ExtraCardEntry[] = shippedExtraCards().map(({ id, load }) => ({
+  id,
+  Component: lazy(load) as ComponentType<CollateralExtraCardProps>,
+}));
+
+const SEARCH_DEBOUNCE_MS = 300;
 
 export default function CollateralScreen({ query }: ScreenProps) {
   const { isDirector } = useCrmUser();
@@ -94,11 +103,21 @@ export default function CollateralScreen({ query }: ScreenProps) {
   const [urlQuery, setUrlQuery] = useUrlQuery(query);
 
   const selection = selectionFromQuery(urlQuery);
-  const listParams = { centre: selection.centre, tag: selection.tag };
+  const search = urlQuery.q ?? "";
+  const term = useDebouncedValue(search.trim(), SEARCH_DEBOUNCE_MS, search.trim());
+  const listParams = { centre: selection.centre, tag: selection.tag, q: term || null };
 
-  const libraryQ = useQuery({
+  /**
+   * PAGED, because the API is (keyset, `limit ≤ 200`, R10) and a library that
+   * grows past one page must not simply hide its older half. `nextCursor`
+   * drives a "Load more" button — the same shape HistoryScreen uses — and the
+   * search box below is bound to `?q=`, so a filtered view is a link.
+   */
+  const libraryQ = useInfiniteQuery({
     queryKey: collateralKeys.list(listParams),
-    queryFn: () => fetchCollateral(crmFetch, listParams),
+    queryFn: ({ pageParam }) => fetchCollateral(crmFetch, { ...listParams, cursor: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 
   const templatesQ = useQuery({
@@ -126,9 +145,10 @@ export default function CollateralScreen({ query }: ScreenProps) {
   const now = useMemo(() => new Date(), []);
   const todayYmd = todayEasternYmd(now);
 
-  const items = libraryQ.data?.items ?? [];
-  const tags = libraryQ.data?.tags ?? [];
-  const blobConfigured = libraryQ.data?.blobConfigured ?? false;
+  const pages = libraryQ.data?.pages ?? [];
+  const items = pages.flatMap((p) => p.items);
+  const tags = pages[0]?.tags ?? [];
+  const blobConfigured = pages[0]?.blobConfigured ?? false;
   const templates = templatesQ.data?.templates ?? [];
   const busy = archive.isPending;
 
@@ -154,10 +174,16 @@ export default function CollateralScreen({ query }: ScreenProps) {
           item={item}
           lead={urlQuery.deal ?? null}
           existing={existing}
+          canRevoke={isDirector}
           onCreate={async (input) => {
             const out = await createShareLink(crmFetch, input);
             await invalidate();
             return out.share;
+          }}
+          onRevoke={async (token) => {
+            const out = await revokeShareLink(crmFetch, token);
+            await invalidate();
+            return out.shares;
           }}
         />
       ),
@@ -201,6 +227,13 @@ export default function CollateralScreen({ query }: ScreenProps) {
       ),
     });
 
+  /**
+   * EDIT IS AN EDIT. The sheet opens seeded from the row (`initial`), sends
+   * only the fields that actually changed (`onSave`), and never offers the
+   * file picker — the first cut reused the blank Add form, so "Edit" quietly
+   * created a SECOND library row for the same file and, by URL, cleared the
+   * centre, tags and season dates it had opened without.
+   */
   const onEditItem = (item: CollateralItem) =>
     openSheet({
       title: `Edit ${item.title}`,
@@ -208,18 +241,13 @@ export default function CollateralScreen({ query }: ScreenProps) {
       body: (
         <UploadSheet
           blobConfigured={blobConfigured}
+          initial={item}
           onUpload={async (form) => (await uploadCollateralFile(token, form)).item}
-          onCreateByUrl={async (input) => {
+          onCreateByUrl={async (input) => (await postCollateral(crmFetch, input)).item}
+          onSave={async (patch) => {
             const out = await postCollateralItem(crmFetch, item.id, {
               action: "update",
-              patch: {
-                title: input.title,
-                centre: input.centre,
-                blobUrl: input.blobUrl,
-                tags: input.tags,
-                validFrom: input.validFrom,
-                validUntil: input.validUntil,
-              },
+              patch,
             });
             return out.item;
           }}
@@ -253,6 +281,18 @@ export default function CollateralScreen({ query }: ScreenProps) {
           )
         : null}
 
+      <div className="search">
+        <IconSearch {...ICON} />
+        <input
+          data-testid={COLLATERAL_TEST_IDS.search}
+          type="search"
+          aria-label="Search the library"
+          placeholder="Search by name…"
+          value={search}
+          onChange={(e) => setUrlQuery({ q: e.target.value })}
+        />
+      </div>
+
       <Folders
         options={folderOptions(tags)}
         value={folderValue(selection)}
@@ -269,8 +309,10 @@ export default function CollateralScreen({ query }: ScreenProps) {
       ) : null}
       {libraryQ.data && items.length === 0 ? (
         <EmptyState icon={<IconFile {...ICON} />}>
-          Nothing here yet{selection.centre || selection.tag ? " in this folder" : ""}.
-          {isDirector ? " Use Upload to add the first flyer." : ""}
+          {term
+            ? `Nothing matches “${term}”.`
+            : `Nothing here yet${selection.centre || selection.tag ? " in this folder" : ""}.`}
+          {isDirector && !term ? " Use Upload to add the first flyer." : ""}
         </EmptyState>
       ) : null}
 
@@ -292,9 +334,17 @@ export default function CollateralScreen({ query }: ScreenProps) {
         </div>
       ) : null}
 
-      {libraryQ.data?.nextCursor ? (
-        <div className="xs muted">
-          Showing the newest {items.length}. Narrow it with a folder or the search above.
+      {libraryQ.hasNextPage ? (
+        <div className="hstack" style={{ justifyContent: "center" }}>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void libraryQ.fetchNextPage()}
+            disabled={libraryQ.isFetchingNextPage}
+            data-testid={COLLATERAL_TEST_IDS.loadMore}
+          >
+            {libraryQ.isFetchingNextPage ? "Loading…" : `Load more (${items.length} shown)`}
+          </button>
         </div>
       ) : null}
 

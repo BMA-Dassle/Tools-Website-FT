@@ -4,8 +4,10 @@ import {
   ALL_FOLDER,
   collateralCardModel,
   collateralMessage,
+  collateralPatch,
   folderOptions,
   folderValue,
+  formValuesOf,
   gsm7Offenders,
   isNewCollateral,
   selectionFromFolder,
@@ -145,12 +147,75 @@ describe("templates", () => {
   });
 });
 
+/**
+ * The edit patch. `updateCollateral` CLEARS a nullable field that arrives as
+ * `null` and keeps one that is `undefined`, so a sheet that posted its whole
+ * form would wipe the centre, the tags and the season dates of every row it
+ * edited. Each case below is a field that was lost that way.
+ */
+describe("collateralPatch", () => {
+  const start = formValuesOf(ITEM);
+
+  it("reads the row's own values as the form's starting point", () => {
+    expect(start).toEqual({
+      title: "Group Pricing HPFM 2026",
+      centre: "HPFM",
+      blobUrl: "https://blob.test/pricing.pdf",
+      tags: ["pricing"],
+      validFrom: null,
+      validUntil: null,
+    });
+  });
+
+  it("sends nothing at all when the director changed nothing", () => {
+    expect(collateralPatch(start, formValuesOf(ITEM))).toEqual({});
+  });
+
+  it("sends ONLY the field that moved — an untouched tag input stays undefined", () => {
+    const patch = collateralPatch(start, { ...start, title: "Group Pricing HPFM 2027" });
+    expect(patch).toEqual({ title: "Group Pricing HPFM 2027" });
+    expect("tags" in patch).toBe(false);
+    expect("centre" in patch).toBe(false);
+    expect("validUntil" in patch).toBe(false);
+  });
+
+  it("does send a null when the director really did clear a field", () => {
+    const patch = collateralPatch(start, { ...start, centre: null });
+    expect(patch).toEqual({ centre: null });
+  });
+
+  it("notices a tag added, removed or reordered, and only then", () => {
+    expect(collateralPatch(start, { ...start, tags: ["pricing"] })).toEqual({});
+    expect(collateralPatch(start, { ...start, tags: ["pricing", "holiday"] })).toEqual({
+      tags: ["pricing", "holiday"],
+    });
+    expect(collateralPatch(start, { ...start, tags: [] })).toEqual({ tags: [] });
+  });
+
+  it("carries a season date the director typed", () => {
+    expect(collateralPatch(start, { ...start, validUntil: "2026-12-31" })).toEqual({
+      validUntil: "2026-12-31",
+    });
+  });
+});
+
 describe("collateralMessage", () => {
-  it("turns a server code into a sentence, including the zod prefix form", () => {
+  it("turns a server code into a sentence", () => {
     expect(collateralMessage("blob_not_configured")).toContain("paste the file's public link");
     expect(collateralMessage("file_too_big")).toContain("25 MB");
+  });
+
+  /**
+   * The two codes the server emits WITH detail attached. They used to fall
+   * through and put `patch.blobUrl: expected an https:// URL` in front of a
+   * rep; the code before the colon is what the mapping reads.
+   */
+  it("maps the prefixed forms too, and keeps the server's detail out of the banner", () => {
     expect(collateralMessage('not_gsm7: "—" is not GSM-7 — texts with it cost double')).toBe(
-      'not_gsm7: "—" is not GSM-7 — texts with it cost double',
+      "That character costs double to text — replace it.",
+    );
+    expect(collateralMessage("invalid_request: patch.blobUrl: expected an https:// URL")).toBe(
+      "Check the highlighted field.",
     );
   });
 

@@ -47,9 +47,6 @@ export const fetchCollateral = (f: CrmFetch, params: CollateralListParams = {}) 
       }),
   );
 
-export const fetchCollateralItem = (f: CrmFetch, id: string) =>
-  f<CollateralItemResponse>(`/collateral/${encodeURIComponent(id)}`);
-
 export const postCollateral = (f: CrmFetch, body: CollateralCreateBody) =>
   f<CollateralCreateResponse>("/collateral", { body: { ...body } });
 
