@@ -561,29 +561,56 @@ export function dayPlannerProjects(dp: OfficeDayPlanner): DayPlannerProjectRef[]
   return out;
 }
 
+/** `"Send Contract"` → `"49130082"` for the tenant; null when no name matches. */
+export function idForName(names: Record<string, string>, name: string | null): string | null {
+  if (!name) return null;
+  const want = name.trim().toLowerCase();
+  for (const [id, label] of Object.entries(names)) {
+    if (typeof label === "string" && label.trim().toLowerCase() === want) return id;
+  }
+  return null;
+}
+
 /**
  * A `liveReservations` row alone → a PARTIAL mirror row (`source: "delta"`),
- * for a changed project whose detail read failed. Names only, no ids beyond
- * the project's: `state_id` / `responsible_user_id` stay null and the upsert's
- * COALESCE keeps whatever a fuller read stored before. `personInfo` is
- * Office's display string for the host; it is stored as the person name
- * verbatim (never parsed into an account key — that needs the person entity).
+ * for a changed project whose detail read failed. The live row carries NAMES
+ * where a project detail carries ids, so each name is resolved back to its id
+ * through the tenant's metadata before it is stored.
+ *
+ * A NAME IS NEVER STORED WITHOUT ITS ID. The upsert COALESCEs `state_id` /
+ * `responsible_user_id`, so writing a fresh `state_name` next to an id that
+ * could not be resolved would leave the row saying two different things — a
+ * "Cancellation" name over a stale "Send Contract" id. When the lookup cannot
+ * place the name, both halves stay null and the row keeps what the last full
+ * read stored (the run's error names the project and a retry is enqueued).
+ *
+ * `personInfo` is Office's display string for the host; it is stored as the
+ * person name verbatim (never parsed into an account key — that needs the
+ * person entity).
  */
-export function liveReservationRow(lr: OfficeLiveReservation, clientKey: string): MirrorRow | null {
+export function liveReservationRow(
+  lr: OfficeLiveReservation,
+  clientKey: string,
+  lookups: NameLookups,
+): MirrorRow | null {
   const projectId = idString(lr.id);
   if (!projectId) return null;
   const when = officeStampToInstant(lr.date);
+  const stateName = firstString(lr.state);
+  const stateId = idForName(lookups.stateNames, stateName);
+  const responsibleName = firstString(lr.responsible);
+  const responsibleUserId = idForName(lookups.userNames, responsibleName);
   return {
     projectId,
     clientKey,
     locationId: null,
     number: firstString(lr.referenceNumber),
     name: null,
-    stateId: null,
-    stateName: firstString(lr.state),
+    stateId,
+    stateName: stateId ? stateName : null,
     kindId: null,
-    responsibleUserId: null,
-    responsibleName: firstString(lr.responsible),
+    responsibleUserId,
+    responsibleName: responsibleUserId ? responsibleName : null,
     eventDate: when?.ymd ?? null,
     eventStart: when?.iso ?? null,
     persons: typeof lr.persons === "number" ? lr.persons : null,

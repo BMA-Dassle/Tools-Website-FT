@@ -12,6 +12,15 @@
  * of the ids ride a continuation job with the SAME explicit window, and the
  * run that finishes the list is the one that records `ok`.
  *
+ * A PROJECT WHOSE DETAIL READ FAILED is stored from the live row so the mirror
+ * is not blind to the change, and its id rides a RETRY job keyed
+ * `<window key>:partial` — `liveReservations` filters by modified stamp, so
+ * without that retry the project would never be looked at again until it
+ * changed a second time. The key is a pure function of the window, so the
+ * retry is enqueued once and `crm_jobs`' attempt cap parks it if Office keeps
+ * refusing; the retry runs `chain:false` and never schedules a bucket of its
+ * own.
+ *
  * SCHEDULING (§3.9 "scheduled kinds are enqueued with fixed idempotency keys
  * `bmi-mirror-delta:<ck>:<5-min-bucket>`"): a complete run enqueues the next
  * bucket for its tenant, so one director-run `bmi-mirror-delta` seeds a chain
@@ -22,7 +31,12 @@
 import type { JobHandler, JobOutcome } from "~/features/crm/jobs";
 import { OFFICE_CLIENT_KEYS } from "../../core/centres";
 import { CRM_DELTA_SESSION_TAG, DETAIL_CONCURRENCY } from "../transport";
-import { defaultMirrorDeps, mapWithConcurrency, type MirrorDeps } from "./deps";
+import {
+  defaultMirrorDeps,
+  mapWithConcurrency,
+  type MirrorDeps,
+  type OfficeMetadata,
+} from "./deps";
 import { mirrorOneProject, summarizeFailures, type DetailFailure } from "./mirror";
 import { ONLINE_KIND_ID, liveReservationIds, liveReservationRow } from "./projection";
 import {
@@ -91,6 +105,8 @@ export interface DeltaRunResult {
   updated: number;
   /** Changed projects whose detail read failed and were stored from the live row alone. */
   partial: number;
+  /** The retry job enqueued for those ids, or null when there were none. */
+  partialRetry: string | null;
   /** Changed ONLINE bookings (already mirrored as kind -10), refreshed from the live row without a detail read. */
   online: number;
   failed: DetailFailure[];
@@ -132,7 +148,7 @@ export async function runDelta(
     windowUntil: window.until.toISOString(),
   });
 
-  let lookups;
+  let lookups: OfficeMetadata;
   let ids: string[];
   let liveById = new Map<string, ReturnType<typeof liveReservationRow>>();
   try {
@@ -147,7 +163,9 @@ export async function runDelta(
         lookups.stateIds,
       );
       ids = liveReservationIds(live);
-      liveById = new Map(live.map((lr) => [String(lr.id), liveReservationRow(lr, clientKey)]));
+      liveById = new Map(
+        live.map((lr) => [String(lr.id), liveReservationRow(lr, clientKey, lookups)]),
+      );
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -236,16 +254,47 @@ export async function runDelta(
     });
   }
 
+  // A project stored from the live row alone is NOT left behind: its id rides
+  // a retry keyed by this window, enqueued once (a second partial run in the
+  // same window hits the same key and creates nothing). `chain:false` so the
+  // retry never schedules a bucket; `crm_jobs`' attempt cap parks it if the
+  // detail read keeps failing.
+  let partialRetry: string | null = null;
+  if (partialIds.length > 0) {
+    partialRetry = `${deltaJobKey(clientKey, window.until.toISOString())}:partial`;
+    try {
+      await deps.enqueue({
+        kind: DELTA_KIND,
+        idempotencyKey: partialRetry,
+        payload: {
+          clientKey,
+          fromIso: window.from.toISOString(),
+          untilIso: window.until.toISOString(),
+          projectIds: partialIds,
+          offset: 0,
+          chain: false,
+        },
+        createdBy: "bmi-mirror-delta",
+      });
+    } catch (err) {
+      failed.push({
+        projectId: "*",
+        error: `partial retry: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      partialRetry = null;
+    }
+  }
+
   const complete = cursor.offset + processed >= ids.length;
   const ok = complete && failed.length === 0;
   // `error` also carries the partial-row note on an ok run: the watermark may
-  // advance (nothing was lost), but the row says which projects it could not
-  // read in full.
+  // advance (the retry above owns those ids), but the row says which projects
+  // it could not read in full.
   const notes = [
     complete ? null : `${cursor.offset + processed} of ${ids.length} mirrored; continued`,
     failed.length ? summarizeFailures(failed) : null,
     partialIds.length
-      ? `${partialIds.length} stored from the live row only: ${partialIds.join(", ")}`
+      ? `${partialIds.length} stored from the live row only, retry ${partialRetry ?? "NOT enqueued"}: ${partialIds.join(", ")}`
       : null,
   ].filter((x): x is string => !!x);
   await deps.store.finishRun(runId, {
@@ -296,6 +345,7 @@ export async function runDelta(
     inserted,
     updated,
     partial,
+    partialRetry,
     online,
     failed,
     runId,
