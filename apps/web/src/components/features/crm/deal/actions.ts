@@ -6,6 +6,7 @@ import {
   IconZzz,
   type TablerIcon,
 } from "@tabler/icons-react";
+import type { ComponentType } from "react";
 import type { LeadView } from "~/features/crm/leads/contracts";
 import { contactHrefs } from "../leads/model";
 
@@ -34,8 +35,17 @@ export const QUICK_ACTION_IDS = ["call", "text", "email", "note", "snooze"] as c
 
 export type QuickActionId = (typeof QUICK_ACTION_IDS)[number];
 
-/** What pressing the button does. `href` is a device hand-off (`tel:` / `sms:` / `mailto:`). */
-export type QuickActionTarget = { kind: "href"; href: string };
+/**
+ * What pressing the button does.
+ *
+ * `href` is a device hand-off (`tel:` / `sms:` / `mailto:`) — the honest thing
+ * to do while a channel has no CRM surface of its own. `sheet` opens the slot's
+ * entry in `QUICK_ACTION_SHEETS` below, which is how a channel PR upgrades its
+ * button without touching `QuickActions.tsx`: C3 did it for `call`, and C1 /
+ * C2 / B4 each change one `resolve` line and add one `QUICK_ACTION_SHEETS`
+ * line.
+ */
+export type QuickActionTarget = { kind: "href"; href: string } | { kind: "sheet" };
 
 export interface QuickActionSlot {
   id: QuickActionId;
@@ -53,6 +63,9 @@ export interface QuickActionSlot {
 const href = (value: string | null): QuickActionTarget | null =>
   value ? { kind: "href", href: value } : null;
 
+/** This slot opens its `QUICK_ACTION_SHEETS` entry, when the lead can support it. */
+const sheet = (when: boolean): QuickActionTarget | null => (when ? { kind: "sheet" } : null);
+
 /** Nothing is wired for this slot yet — the button renders disabled. */
 const notWiredYet = (): null => null;
 
@@ -61,7 +74,7 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
     id: "call",
     label: "Call",
     Icon: IconPhone,
-    resolve: (lead) => href(contactHrefs(lead).tel),
+    resolve: (lead) => sheet(Boolean(lead.guest.phone)),
     disabledTitle: "No phone on file",
     owner: "C3",
   },
@@ -108,3 +121,28 @@ export function quickActionsFor(
     return { slot, target: slot.resolve(lead) };
   });
 }
+
+/** What a `{kind:"sheet"}` slot renders in the shell's root sheet. */
+export interface QuickActionSheetProps {
+  lead: LeadView;
+  onDone: () => void;
+}
+
+export type QuickActionSheetLoader = () => Promise<{
+  default: ComponentType<QuickActionSheetProps>;
+}>;
+
+/**
+ * ONE LINE PER SLOT, like `core/screens.ts` and `deal/tabs.ts` — a channel PR
+ * adds its own and nothing else in this file changes. A slot whose `resolve`
+ * returns `{kind:"sheet"}` with no entry here renders disabled, which is a bug
+ * rather than a state, so `actions.test.ts` pins that the two agree.
+ */
+export const QUICK_ACTION_SHEETS: Partial<Record<QuickActionId, QuickActionSheetLoader>> = {
+  call: () => import("../calls/DealCallSheet"),
+};
+
+/** Title for the sheet a slot opens. */
+export const QUICK_ACTION_SHEET_TITLE: Partial<Record<QuickActionId, (name: string) => string>> = {
+  call: (name) => `Calling ${name}`,
+};

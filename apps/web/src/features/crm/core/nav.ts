@@ -33,7 +33,7 @@ export type NavIcon =
   | "dots"
   | "logout";
 
-export type BadgeKey = "overdue" | "unassigned" | "pendingApproval" | "unread";
+export type BadgeKey = "overdue" | "unassigned" | "pendingApproval" | "unread" | "missedCalls";
 
 export interface NavItem {
   id: ScreenId;
@@ -79,7 +79,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         badge: "unread",
         ready: false,
       },
-      { id: "calls", label: "Calls", icon: "phone", ready: false },
+      { id: "calls", label: "Calls", icon: "phone", badge: "missedCalls", ready: true },
     ],
   },
   {
@@ -122,7 +122,7 @@ export const PHONE_TABS: readonly NavItem[] = [
 export const MORE_ITEMS: readonly NavItem[] = [
   { id: "queue", label: "Lead queue", icon: "bolt", director: true, ready: true },
   { id: "events", label: "Events", icon: "calendar", ready: false },
-  { id: "calls", label: "Calls", icon: "phone", ready: false },
+  { id: "calls", label: "Calls", icon: "phone", badge: "missedCalls", ready: true },
   { id: "history", label: "History & accounts", icon: "history", ready: false },
   { id: "cold", label: "Cold lists", icon: "list", ready: false },
   { id: "collateral", label: "Collateral & templates", icon: "file", ready: false },

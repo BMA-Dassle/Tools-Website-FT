@@ -1,20 +1,23 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
 import type { CrmRole } from "~/features/crm/core/types";
 import type { BadgeKey } from "~/features/crm/core/nav";
-import type { LeadBadgesResponse } from "~/features/crm/leads/contracts";
-import { BADGES_POLL_MS, leadsKeys } from "~/features/crm/leads/queries";
+import { BADGES_POLL_MS } from "~/features/crm/leads/queries";
 import type { CrmFetch } from "../lib/crm-fetch";
 import type { BadgeCounts } from "./nav-links";
 
 /**
  * THE BADGE PROVIDERS (brief §3.5 "badge providers keyed by screen id").
  * `core/nav.ts` names the badge each item carries (`overdue`, `unassigned`,
- * `pendingApproval`, `unread`); this table says where each count comes from.
- * A PR fills exactly ITS line: B3 → `/leads/badges` for `overdue` and
- * `unassigned`; B5 adds `pendingApproval`; C1 adds `unread`. A `null` line
- * renders no badge.
+ * `pendingApproval`, `unread`, `missedCalls`); this table says where each count
+ * comes from. A PR fills exactly ITS line: B3 → `/leads/badges` for `overdue`
+ * and `unassigned`; C3 → `/calls/badges` for `missedCalls`; B5 adds
+ * `pendingApproval`; C1 adds `unread`. A `null` line renders no badge.
+ *
+ * The hook below polls EVERY distinct path in the table, so filling a line is
+ * the whole change — no second `useQuery` to add, and no conflict between two
+ * PRs doing it at once.
  */
 export const BADGE_SOURCES: Record<
   BadgeKey,
@@ -24,6 +27,7 @@ export const BADGE_SOURCES: Record<
   unassigned: { path: "/leads/badges", field: "unassigned" },
   pendingApproval: null,
   unread: null,
+  missedCalls: { path: "/calls/badges", field: "missedCalls", soft: true },
 };
 
 /** Every distinct endpoint the table names — one query per path. */
@@ -54,14 +58,30 @@ export function badgeCountsFrom(
   return out;
 }
 
-/** Polls `/leads/badges` while the tab is visible and folds it into the shell's counts. */
+/**
+ * Polls every path `BADGE_SOURCES` names while the tab is visible and folds the
+ * answers into the shell's counts.
+ *
+ * `useQueries` rather than a fixed list of `useQuery` calls, so the hook count
+ * is stable (`BADGE_PATHS` is a module constant, R12 "hooks above every early
+ * return") and a PR that fills a table line needs no change here. A path that
+ * errors simply contributes nothing — a sidebar badge is never worth an error
+ * state.
+ */
 export function useBadgeCounts(crmFetch: CrmFetch, role: CrmRole): BadgeCounts {
-  const q = useQuery({
-    queryKey: leadsKeys.badges(),
-    queryFn: () => crmFetch<LeadBadgesResponse>("/leads/badges"),
-    refetchInterval: BADGES_POLL_MS,
-    refetchIntervalInBackground: false,
-    staleTime: 15_000,
+  const results = useQueries({
+    queries: BADGE_PATHS.map((path) => ({
+      queryKey: ["crm", "badges", path] as const,
+      queryFn: () => crmFetch<Record<string, unknown>>(path),
+      refetchInterval: BADGES_POLL_MS,
+      refetchIntervalInBackground: false,
+      staleTime: 15_000,
+      retry: 1,
+    })),
   });
-  return badgeCountsFrom({ "/leads/badges": q.data as Record<string, unknown> | undefined }, role);
+  const payloads: Record<string, Record<string, unknown> | undefined> = {};
+  BADGE_PATHS.forEach((path, i) => {
+    payloads[path] = results[i]?.data as Record<string, unknown> | undefined;
+  });
+  return badgeCountsFrom(payloads, role);
 }
