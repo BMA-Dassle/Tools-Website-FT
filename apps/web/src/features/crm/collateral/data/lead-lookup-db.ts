@@ -45,12 +45,22 @@ export async function findShareLead(
   if (!numeric && !PUBLIC_ID_RE.test(value)) return null;
 
   const q = sql();
+  /**
+   * TWO PARAMETERS, ONE VALUE, and that is load-bearing. A single `$1` used as
+   * BOTH `l.id = $1::bigint` and `l.public_id = $1` cannot be planned at all:
+   * the cast fixes the parameter's type to bigint, and Postgres then refuses
+   * `text = bigint` with "operator does not exist" — every share attributed to
+   * a lead 500s before a link is ever minted, and no recording-SQL stub can
+   * see it because the statement is never sent to a real planner. So the
+   * numeric branch gets its own parameter, NULL whenever the input is not all
+   * digits, and `$1` stays plain text for the public-id comparison.
+   */
   const rows = (await q.query(
     `SELECT l.id::text AS id, l.public_id
        FROM crm_leads l
-      WHERE ($2::boolean AND l.id = $1::bigint) OR l.public_id = $1
+      WHERE ($2::bigint IS NOT NULL AND l.id = $2::bigint) OR l.public_id = $1
       LIMIT 1`,
-    [value, numeric],
+    [value, numeric ? value : null],
   )) as { id: string; public_id: string }[];
   const row = rows[0];
   if (!row) return null;
