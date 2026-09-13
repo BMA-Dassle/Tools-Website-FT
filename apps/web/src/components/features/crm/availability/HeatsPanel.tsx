@@ -118,11 +118,13 @@ export function HeatsPanel({ data, onSelectResource }: HeatsPanelProps) {
           </EmptyState>
         ) : null}
 
-        <div className="xs muted">
-          Availability from Office dayPlanner (live). Full heats are greyed; Office refuses
-          overbooking with a 403 and the CRM shows it as &ldquo;heat full&rdquo; rather than an
-          error.
-        </div>
+        {state === "unavailable" ? null : (
+          <div className="xs muted">
+            Availability from Office dayPlanner (live). Full heats are greyed; Office refuses
+            overbooking with a 403 and the CRM shows it as &ldquo;heat full&rdquo; rather than an
+            error.
+          </div>
+        )}
       </div>
     </div>
   );
