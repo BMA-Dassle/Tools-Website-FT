@@ -62,17 +62,28 @@ interface MetadataResource {
   resources?: MetadataResource[];
 }
 
+interface MetadataUser {
+  id?: unknown;
+  userId?: unknown;
+  /** Office's field for a staff account. NOT `name` — see `tenantUserNames`. */
+  username?: unknown;
+  name?: unknown;
+  displayName?: unknown;
+  active?: unknown;
+}
+
 interface MetadataResourcesBlob {
   resources?: MetadataResource[];
   subResources?: MetadataResource[];
   resourceGroups?: MetadataResource[];
   allResources?: MetadataResource[];
+  users?: MetadataUser[];
 }
 
 const RESOURCE_IDS_TTL_SECONDS = 7200;
 
-function resourceIdsCacheKey(clientKey: string): string {
-  return `crm:office:resource-ids:${clientKey}`;
+function tenantFactsCacheKey(clientKey: string): string {
+  return `crm:office:tenant-facts:${clientKey}`;
 }
 
 /**
@@ -97,36 +108,86 @@ export function collectResourceIds(blob: MetadataResourcesBlob): string[] {
 }
 
 /**
- * The tenant's OWN resource ids from its metadata blob (incl. resource groups),
- * Redis-cached 2 h. NOT `getMetadataLookups(ck).resourceNames` — that merges
- * the hard-coded Fort Myers RESOURCE_NAMES into every tenant, which is how the
- * first smoke sent 120 ids (most of them Fort Myers lanes) to Naples.
+ * Staff accounts from a tenant's own metadata: `id → username`.
+ *
+ * `getMetadataLookups().userNames` takes the name from `u.name ||
+ * u.displayName || firstName+lastName` — and an Office metadata user row has
+ * NONE of those, it has **`username`** (probed 2026-09-13). So that map only
+ * ever holds the hard-coded Fort Myers `USER_NAMES`, and every Naples project
+ * mirrored with `responsible_name: null` (46 of them under user `41096`). We
+ * do not "fix" the shared lookup — the pit board and the daily-events screens
+ * read it, and overwriting a curated display name with a login handle there is
+ * not this PR's call — so the CRM fills the GAPS with the username instead.
  */
-export async function tenantResourceIds(
+export function collectUserNames(blob: MetadataResourcesBlob): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const u of blob.users ?? []) {
+    const id = u.id ?? u.userId;
+    if (id === null || id === undefined || String(id) === "") continue;
+    const name = [u.name, u.displayName, u.username].find(
+      (v) => typeof v === "string" && v.trim() !== "",
+    );
+    if (typeof name === "string") out[String(id)] = name.trim();
+  }
+  return out;
+}
+
+export interface TenantFacts {
+  /** Every resource id the tenant knows (incl. resource-group members). */
+  resourceIds: string[];
+  /** `userId → username` for the tenant's own staff accounts. */
+  userNames: Record<string, string>;
+}
+
+/**
+ * The tenant's OWN facts from its metadata blob, Redis-cached 2 h. NOT
+ * `getMetadataLookups(ck).resourceNames` — that merges the hard-coded Fort
+ * Myers RESOURCE_NAMES into every tenant, which is how the first smoke sent
+ * 120 ids (most of them Fort Myers lanes) to Naples.
+ */
+export async function tenantFacts(
   clientKey: string,
   sessionTag: string = CRM_BACKFILL_SESSION_TAG,
-): Promise<string[]> {
-  const key = resourceIdsCacheKey(clientKey);
+): Promise<TenantFacts> {
+  const key = tenantFactsCacheKey(clientKey);
   try {
     const cached = await redis.get(key);
     if (cached) {
-      const ids: unknown = JSON.parse(cached);
-      if (Array.isArray(ids) && ids.every((x) => typeof x === "string") && ids.length > 0)
-        return ids;
+      const parsed: unknown = JSON.parse(cached);
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        Array.isArray((parsed as TenantFacts).resourceIds) &&
+        (parsed as TenantFacts).resourceIds.length > 0
+      ) {
+        const facts = parsed as TenantFacts;
+        return { resourceIds: facts.resourceIds, userNames: facts.userNames ?? {} };
+      }
     }
   } catch {
     /* cache miss on a Redis outage — read live */
   }
   const blob = await officeGet<MetadataResourcesBlob>(clientKey, "metadata", sessionTag);
-  const ids = collectResourceIds(blob);
-  if (ids.length > 0) {
+  const facts: TenantFacts = {
+    resourceIds: collectResourceIds(blob),
+    userNames: collectUserNames(blob),
+  };
+  if (facts.resourceIds.length > 0) {
     try {
-      await redis.setex(key, RESOURCE_IDS_TTL_SECONDS, JSON.stringify(ids));
+      await redis.setex(key, RESOURCE_IDS_TTL_SECONDS, JSON.stringify(facts));
     } catch {
       /* non-fatal */
     }
   }
-  return ids;
+  return facts;
+}
+
+/** Just the resource ids (the dayPlanner filter). */
+export async function tenantResourceIds(
+  clientKey: string,
+  sessionTag: string = CRM_BACKFILL_SESSION_TAG,
+): Promise<string[]> {
+  return (await tenantFacts(clientKey, sessionTag)).resourceIds;
 }
 
 /** `GET dayPlanner?resourceIds=…&from=YYYY-MM-DD&till=YYYY-MM-DD&showAll=true` under a tag. */

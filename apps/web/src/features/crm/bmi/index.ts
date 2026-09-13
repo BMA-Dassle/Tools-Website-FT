@@ -44,12 +44,15 @@ export {
   DETAIL_CONCURRENCY,
   chunk,
   collectResourceIds,
+  collectUserNames,
   mapWithConcurrency,
   officeDayPlanner,
   officeLiveReservations,
   officePerson,
   officeProject,
+  tenantFacts,
   tenantResourceIds,
+  type TenantFacts,
 } from "./transport";
 export * from "./service/projection";
 export * from "./service/windows";
