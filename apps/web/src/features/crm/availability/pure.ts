@@ -15,7 +15,7 @@
  * THIS file (or `./contracts`, `./schemas`, `./queries` by path) and never
  * `~/features/crm/availability`. Nothing re-exported here may import a
  * transport, Redis, Neon or `node:*` — `engine.ts` and `request.ts` are pure by
- * construction and `pure.build.test.ts` pins that they stay that way.
+ * construction and `pure.test.ts` pins that they stay that way.
  */
 
 export {
