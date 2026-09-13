@@ -141,6 +141,63 @@ export async function findRepByLoginEmail(email: string): Promise<CrmRep | null>
   return rows[0] ? mapRepRow(rows[0]) : null;
 }
 
+/** One row of the roster seed (`core/seed.ts` REP_SEED). */
+export interface RepSeed {
+  slug: string;
+  displayName: string;
+  firstName: string;
+  initials: string;
+  role: RepRole;
+  email: string | null;
+  bmiUserId: string | null;
+  bmiUsername: string | null;
+  teamsChatId: string | null;
+  phoneE164: string | null;
+  centres: CentreCode[];
+  sortOrder: number;
+}
+
+/** Insert the reps that do not exist yet (by slug). Returns how many were inserted. */
+export async function seedReps(rows: readonly RepSeed[]): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  await ensureRepsSchema();
+  const q = sql();
+  let inserted = 0;
+  for (const r of rows) {
+    const out = (await q`
+      INSERT INTO crm_reps (slug, display_name, first_name, initials, role, email, bmi_user_id,
+                            bmi_username, teams_chat_id, phone_e164, centres, sort_order)
+      VALUES (${r.slug}, ${r.displayName}, ${r.firstName}, ${r.initials}, ${r.role},
+              ${r.email ? r.email.toLowerCase() : null}, ${r.bmiUserId}, ${r.bmiUsername},
+              ${r.teamsChatId}, ${r.phoneE164}, ${r.centres}::text[], ${r.sortOrder})
+      ON CONFLICT (slug) DO NOTHING
+      RETURNING id
+    `) as { id: string }[];
+    inserted += out.length;
+  }
+  return inserted;
+}
+
+/** Insert login → rep rows that do not exist yet; a slug with no rep row is skipped. */
+export async function seedRepLogins(
+  rows: ReadonlyArray<{ email: string; slug: string }>,
+): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  await ensureRepsSchema();
+  const q = sql();
+  let inserted = 0;
+  for (const r of rows) {
+    const out = (await q`
+      INSERT INTO crm_rep_logins (email, rep_id)
+      SELECT ${r.email.trim().toLowerCase()}, id FROM crm_reps WHERE slug = ${r.slug}
+      ON CONFLICT (email) DO NOTHING
+      RETURNING email
+    `) as { email: string }[];
+    inserted += out.length;
+  }
+  return inserted;
+}
+
 /** Every active rep, buckets and holds included, in display order. */
 export async function listReps(opts: { includeInactive?: boolean } = {}): Promise<CrmRep[]> {
   if (!isDbConfigured()) return [];

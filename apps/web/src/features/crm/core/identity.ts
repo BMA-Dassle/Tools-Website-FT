@@ -28,8 +28,11 @@
 import { notFound } from "next/navigation";
 import { auth, hasAdminAccess } from "@/auth";
 import { findRepByLoginEmail } from "~/features/crm/reps";
-import type { PublicCrmUser, PublicRep } from "./contracts";
 import type { CrmRep, CrmRole, CrmUser } from "./types";
+
+// The wire projections live in `./projections.ts` (pure) so the reps sub can
+// use them without importing this module back; re-exported to keep the surface.
+export { publicRep, publicUser } from "./projections";
 
 /** Gateway-stripped Entra app roles (`fasttrax-admin.sales` → `sales`). */
 export const SALES_ROLE = "sales";
@@ -97,29 +100,4 @@ export async function requireCrmUser(): Promise<CrmUser> {
 
 export function isDirector(user: Pick<CrmUser, "role">): boolean {
   return user.role === "director";
-}
-
-/** The rep fields a browser may see — no DIDs, chat ids or Office usernames. */
-export function publicRep(rep: CrmRep | null): PublicRep | null {
-  if (!rep) return null;
-  return {
-    id: String(rep.id),
-    slug: rep.slug,
-    displayName: rep.displayName,
-    firstName: rep.firstName,
-    initials: rep.initials,
-    role: rep.role,
-    centres: [...rep.centres],
-  };
-}
-
-/** The wire shape of the signed-in user (`GET /me`, the `CrmApp` prop). */
-export function publicUser(user: CrmUser): PublicCrmUser {
-  return {
-    email: user.email,
-    name: user.name,
-    role: user.role,
-    roles: [...user.roles],
-    rep: publicRep(user.rep),
-  };
 }
