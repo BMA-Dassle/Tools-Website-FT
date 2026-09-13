@@ -12,7 +12,7 @@
  * a draft that the service would rewrite behind the rep's back.
  */
 
-import { listTemplates } from "~/features/crm/collateral";
+import { listTemplates } from "../data/templates-db";
 import type { RenderedTemplate } from "../types";
 import { renderTemplate, type MergeContext } from "./templates-merge";
 

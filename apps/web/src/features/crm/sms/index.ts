@@ -4,6 +4,8 @@
  * components import `./types`, `./keys` and `./queries` by path.
  */
 export {
+  decodeThreadCursor,
+  encodeThreadCursor,
   ensureSmsThreadsSchema,
   getThread,
   linkThread,
@@ -17,10 +19,13 @@ export {
   threadsForGuest,
   unreadTotal,
   upsertThread,
+  type ThreadCursor,
   type ThreadListFilter,
   type ThreadUpsert,
 } from "./data/threads-db";
 export {
+  decodeMessageCursor,
+  encodeMessageCursor,
   ensureSmsMessagesSchema,
   getMessage,
   hasInboundFrom,
@@ -32,9 +37,25 @@ export {
   patchDeliveryStatus,
   patchSendOutcome,
   MESSAGE_PAGE_MAX,
+  type MessageCursor,
   type NewMessage,
   type SendOutcomePatch,
 } from "./data/messages-db";
+/**
+ * `crm_templates` readers/writers. The TABLE is the collateral sub's (PR1 wrote
+ * its DDL and seed); these queries are C1's because the templates ROUTE and the
+ * composer's picker are. C6's editor screen imports them from here.
+ */
+export {
+  archiveTemplate,
+  getTemplate,
+  listTemplates,
+  mapTemplateRow,
+  upsertTemplate,
+  type TemplateFilter,
+  type TemplateRowRaw,
+  type TemplateUpsert,
+} from "./data/templates-db";
 export {
   contactById,
   contactByPhone,
@@ -92,6 +113,7 @@ export {
   type ReplySender,
 } from "./service/inbound";
 export {
+  conversationScopeFor,
   foldConversations,
   loadConversation,
   loadConversations,
