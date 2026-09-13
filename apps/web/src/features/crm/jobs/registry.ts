@@ -65,7 +65,8 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   "graph-renew": (ctx) => import("~/features/crm/email").then((m) => m.runGraphRenewJob(ctx)),
   "graph-fetch-message": (ctx) =>
     import("~/features/crm/email").then((m) => m.runGraphFetchMessageJob(ctx)),
-  "threecx-reconcile": notImplemented("threecx-reconcile"),
+  "threecx-reconcile": (ctx) =>
+    import("~/features/crm/calls").then((m) => m.runThreecxReconcileJob(ctx)),
   "share-link-expire": notImplemented("share-link-expire"),
   "email-send-retry": (ctx) =>
     import("~/features/crm/email").then((m) => m.runEmailSendRetryJob(ctx)),
