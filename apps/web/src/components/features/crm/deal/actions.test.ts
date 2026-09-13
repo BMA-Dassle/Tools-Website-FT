@@ -9,9 +9,15 @@ import {
 } from "./actions";
 
 /**
- * The rail registry C1/C2/C3/B4 flip one line of: the prototype's five
- * buttons in order (crm-shared.js:245), Call/Text/Email handing off to the
- * device today, Note and Snooze disabled with a reason rather than faked.
+ * The rail registry C1/C2/C3 flip one line of: the prototype's five buttons in
+ * order (crm-shared.js:245). Call / Text / Email hand off to the device until
+ * their channel PR lands; B4's Note and Snooze open their own sheets, through
+ * the `{kind:"sheet"}` half of this registry rather than a mechanism of their
+ * own.
+ *
+ * A slot is EITHER wired (a target) or disabled WITH A REASON — never a dead
+ * button that silently does nothing, and never a sheet target with no sheet
+ * behind it.
  */
 describe("quick-action slot registry", () => {
   it("is the prototype's five buttons, in order, each labelled and owned", () => {
@@ -34,7 +40,7 @@ describe("quick-action slot registry", () => {
     expect(QUICK_ACTIONS.note.owner).toBe("B4");
   });
 
-  it("a guest with a phone and an email gets tel: / sms: / mailto:; Note and Snooze stay disabled", () => {
+  it("a guest with a phone and an email gets tel: / sms: / mailto:; Note and Snooze open sheets", () => {
     const lead = makeLead({
       id: "5001",
       guest: {
@@ -50,19 +56,18 @@ describe("quick-action slot registry", () => {
       ["call", { kind: "href", href: "tel:+12395551234" }],
       ["text", { kind: "href", href: "sms:+12395551234" }],
       ["email", { kind: "href", href: "mailto:crm-test@example.com" }],
-      ["note", null],
-      ["snooze", null],
+      ["note", { kind: "sheet", id: "note" }],
+      ["snooze", { kind: "sheet", id: "snooze" }],
     ]);
   });
 
   /**
-   * The sheet mechanism, while nothing uses it yet. Both halves matter: the
-   * registry is EMPTY (so this commit changes no behaviour at all), and every
-   * sheet target a slot can produce has a sheet behind it — which is what
-   * stops C1/C2/C3/B4 shipping a button that opens nothing.
+   * The half that stops C1/C2/C3 shipping a button that opens nothing: every
+   * sheet target a slot can produce must have a sheet behind it. B4 registers
+   * two — and the ids match the slot ids, so `open(target.id)` cannot miss.
    */
-  it("has no sheets registered yet, and no slot resolves to one", () => {
-    expect(Object.keys(QUICK_ACTION_SHEETS)).toEqual([]);
+  it("every sheet target has a sheet behind it, and B4's two are the ones registered", () => {
+    expect(Object.keys(QUICK_ACTION_SHEETS).sort()).toEqual(["note", "snooze"]);
     const lead = makeLead({
       id: "5003",
       guest: {
@@ -76,12 +81,22 @@ describe("quick-action slot registry", () => {
     });
     for (const id of QUICK_ACTION_IDS) {
       const target = QUICK_ACTIONS[id].resolve(lead);
-      if (target?.kind === "sheet") expect(sheetSlotFor(target.id), id).not.toBeNull();
+      if (target?.kind === "sheet") {
+        expect(target.id, id).toBe(id);
+        expect(sheetSlotFor(target.id), id).not.toBeNull();
+      }
     }
-    expect(quickActionsFor(lead).every((a) => a.target?.kind !== "sheet")).toBe(true);
+    // A registered sheet is loadable and titled — the sheet the rail opens is
+    // a module that exists, not a name nobody resolved.
+    for (const id of ["note", "snooze"] as const) {
+      const slot = sheetSlotFor(id)!;
+      expect(typeof slot.load, id).toBe("function");
+      expect(slot.title(lead).length, id).toBeGreaterThan(3);
+      expect(slot.testId, id).toBeTruthy();
+    }
   });
 
-  it("no phone, no email → those three are disabled with the reason, never a dead link", () => {
+  it("no phone, no email → the three device buttons are disabled with the reason, never a dead link", () => {
     const lead = makeLead({
       id: "5002",
       guest: {
@@ -94,8 +109,11 @@ describe("quick-action slot registry", () => {
       },
     });
     const rail = quickActionsFor(lead);
-    expect(rail.every((a) => a.target === null)).toBe(true);
+    expect(rail.slice(0, 3).every((a) => a.target === null)).toBe(true);
     expect(rail[0]!.slot.disabledTitle).toBe("No phone on file");
     expect(rail[2]!.slot.disabledTitle).toBe("No email on file");
+    // Note and Snooze need nothing from the guest's record — they are ours.
+    expect(rail[3]!.target).toEqual({ kind: "sheet", id: "note" });
+    expect(rail[4]!.target).toEqual({ kind: "sheet", id: "snooze" });
   });
 });

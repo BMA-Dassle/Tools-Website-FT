@@ -7,6 +7,7 @@ import {
   type TablerIcon,
 } from "@tabler/icons-react";
 import type { ComponentType } from "react";
+import { ACTIVITY_TEST_IDS } from "~/features/crm/activities/contracts";
 import type { LeadView } from "~/features/crm/leads/contracts";
 import { contactHrefs } from "../leads/model";
 
@@ -20,9 +21,11 @@ import { contactHrefs } from "../leads/model";
  *
  *   B3 (here)  Call / Text / Email hand the lead to the device — `tel:`,
  *              `sms:`, `mailto:` — which is what a rep on a phone wants today
- *              and is honest about what exists. Note and Snooze are DISABLED
- *              with the reason, never faked.
- *   B4         `note` → the Note sheet, `snooze` → the Snooze sheet.
+ *              and is honest about what exists.
+ *   B4 (done)  `note` → the Note sheet, `snooze` → the Snooze sheet. Both are
+ *              in-app sheets, so they are `{kind:"sheet"}` targets with a key
+ *              in `QUICK_ACTION_SHEETS` — one line each, exactly as this
+ *              registry was built for, and no second dispatch mechanism.
  *   C1         `text` → the rep's Vox DID composer (`sms/service/send.ts`).
  *   C2         `email` → the Graph composer.
  *   C3         `call` → 3CX click-to-dial on the rep's extension.
@@ -91,6 +94,9 @@ const href = (value: string | null): QuickActionTarget | null =>
 /** Nothing is wired for this slot yet — the button renders disabled. */
 const notWiredYet = (): null => null;
 
+/** This slot opens its own sheet; the lead never leaves the CRM. */
+const ownSheet = (id: QuickActionId) => (): QuickActionTarget => ({ kind: "sheet", id });
+
 export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
   call: {
     id: "call",
@@ -120,26 +126,45 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
     id: "note",
     label: "Note",
     Icon: IconNote,
-    resolve: notWiredYet,
-    disabledTitle: "Arrives with the Pipeline PR",
+    resolve: ownSheet("note"),
+    // Never reached — a note needs nothing from the guest's record — but the
+    // slot keeps a reason so the shape stays uniform and the test can pin it.
+    disabledTitle: "Notes are unavailable on this lead",
     owner: "B4",
   },
   snooze: {
     id: "snooze",
     label: "Snooze",
     Icon: IconZzz,
-    resolve: notWiredYet,
-    disabledTitle: "Arrives with the Pipeline PR",
+    resolve: ownSheet("snooze"),
+    disabledTitle: "This lead has no follow-up to move",
     owner: "B4",
   },
 };
 
 /**
- * The sheets a `{kind:"sheet"}` target opens. EMPTY on purpose: C1 (`text`),
- * C2 (`email`), C3 (`call`) and B4 (`note`, `snooze`) each add exactly their
- * own key, in their own PR, on their own line.
+ * The sheets a `{kind:"sheet"}` target opens. C1 (`text`), C2 (`email`) and
+ * C3 (`call`) each add exactly their own key, in their own PR, on their own
+ * line; B4's two are below.
+ *
+ * The titles are the prototype's (crm-shared.js:276, :278). The test ids come
+ * from `activities/contracts.ts`, so the sheet a Playwright run looks for and
+ * the sheet the timeline writes to are named by the same constant.
  */
-export const QUICK_ACTION_SHEETS: Partial<Record<QuickActionId, QuickActionSheetSlot>> = {};
+export const QUICK_ACTION_SHEETS: Partial<Record<QuickActionId, QuickActionSheetSlot>> = {
+  note: {
+    title: () => "Add note",
+    wide: false,
+    testId: ACTIVITY_TEST_IDS.noteSheet,
+    load: () => import("./NoteSheet"),
+  },
+  snooze: {
+    title: () => "Snooze follow-up",
+    wide: false,
+    testId: ACTIVITY_TEST_IDS.snoozeSheet,
+    load: () => import("./SnoozeSheet"),
+  },
+};
 
 export function sheetSlotFor(id: QuickActionId): QuickActionSheetSlot | null {
   return QUICK_ACTION_SHEETS[id] ?? null;
