@@ -100,6 +100,13 @@ export function statusNote(m: SmsMessage): string | null {
   if (m.fallbackDid && m.sentFrom) {
     return `Sent from ${m.sentFrom} — your own number was rejected`;
   }
+  if (m.fallbackDid) {
+    // Vox was quota'd and Twilio carried it. Twilio picks its own sender, so we
+    // were never told which number the guest saw — and their reply goes to a
+    // number with no MO webhook into the CRM. Say so; a silent bubble here
+    // would have the rep waiting for an answer that can never arrive.
+    return "Sent by the backup carrier — not from your number; a reply will not reach this thread";
+  }
   if (m.deliveryStatus && m.deliveryStatus !== "delivered" && m.deliveryStatus !== "sent") {
     return `Carrier says ${m.deliveryStatus}`;
   }
