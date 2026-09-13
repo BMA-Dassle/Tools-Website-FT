@@ -6,6 +6,7 @@ import {
   QUEUE_LEADS,
   REP_ID,
   RULES,
+  SHIFTS_TODAY,
   prototypeContext,
 } from "../test-support";
 import {
@@ -324,7 +325,44 @@ describe("the planner the guest asked for", () => {
     });
   });
 
-  it("beats the balancing rule when it names someone else: Lori over Kelsea at HeadPinz", () => {
+  it("REPLACES the rules' own pick when the guest names the other planner at HeadPinz", () => {
+    // The headline acceptance item, proved end to end through the real engine:
+    // the answer with the request must DIFFER from the answer without it.
+    // HPFM has two candidates (Kelsea, Lori). Lori is on shift in this context
+    // — the seeded roster has her on PTO, which is R4's job, not this one — so
+    // R6 picks her for December on volume (20 guests vs Kelsea's 40). The guest
+    // asks for Kelsea, and Kelsea gets it.
+    const onShift = prototypeContext({
+      now: PROTOTYPE_NOW,
+      shiftsToday: {
+        ...SHIFTS_TODAY,
+        // Kelsea's own Saturday window, so 19:30 is still "nobody on shift"
+        // and R5 stays non-decisive — only R6 vs the request is under test.
+        [REP_ID.lori]: { window: { startHour: 10, endHour: 18 }, off: false, offReason: null },
+      },
+    });
+    const december = { ...QUEUE_LEADS["L-1062"], eventDate: "2026-12-11" };
+
+    const rules = decideByRules(december, onShift);
+    expect(rules.rep!.slug).toBe("lori");
+    expect(rules.reason).toBe("lowest Dec volume");
+
+    const d = assignDecision(asked(december, REP_ID.kelsea), onShift);
+    expect(d.rep!.slug).not.toBe(rules.rep!.slug);
+    expect(d.rep!.slug).toBe("kelsea");
+    expect(d.reason).toBe("guest asked for Kelsea");
+    expect(d.outcome).toBe("assign");
+    expect(d.requested?.outcome).toBe("honoured");
+    // Not a stored rule — nothing in crm_assignment_rules decided this.
+    expect(d.finalRuleId).toBeUndefined();
+    expect(d.trace.at(-1)).toEqual({
+      ruleId: "guest-request",
+      hit: true,
+      note: "Guest asked for Kelsea — honoured, ahead of lowest Dec volume",
+    });
+  });
+
+  it("R4 still wins when the guest names a planner who is off today", () => {
     // R6 would pick Kelsea for December (40 guests vs Lori's 20 — Lori is off
     // today, so R4 removes her; ask for her anyway and R4 still wins).
     const december = { ...QUEUE_LEADS["L-1062"], eventDate: "2026-12-11" };
