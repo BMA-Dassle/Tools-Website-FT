@@ -20,6 +20,7 @@
  */
 
 import { isDbConfigured, sql } from "@ft/db";
+import { ensureTemplatesSchema } from "../../collateral";
 import { CENTRES } from "../../core/centres";
 import { fDate } from "../../core/dates";
 import type { CrmUser } from "../../core/types";
@@ -170,20 +171,39 @@ interface TemplateRowRaw {
  * The live `kind='email'` templates, merged for this lead.
  *
  * Read straight from `crm_templates` here rather than through the collateral
- * sub's index because C6 owns that sub's readers and has not landed; the
- * release stage swaps this query for `listTemplates('email')`. It is a SELECT
- * of one seeded table with no writes, so nothing here can collide with C6.
+ * sub's readers because C6 owns those and has not landed; the release stage
+ * swaps this query for `listTemplates('email')` and inherits the guard below.
+ * It is a SELECT of one seeded table with no writes, so nothing here can
+ * collide with C6.
+ *
+ * TWO GUARDS, both earned. `crm_templates` belongs to the collateral sub, so
+ * this is the one read in this sub that cannot rely on `ensureEmailSchema()`:
+ * `ensureCrmSchema()` runs on the tool page and in the job routes, but NOT in
+ * `withCrmRoute`, so a cold API instance that never rendered the page has no
+ * guarantee the table exists — hence `ensureTemplatesSchema()` first. And if
+ * the read fails anyway, an empty picker is a far better composer than a 500
+ * whose fixed `unexpected` code tells the rep nothing.
  */
 export async function emailTemplatesFor(ctx: MergeContext): Promise<EmailTemplateView[]> {
   if (!isDbConfigured()) return [];
-  const q = sql();
-  const rows = (await q`
-    SELECT id::text AS id, name, subject, body
-      FROM crm_templates
-     WHERE kind = 'email' AND archived_at IS NULL
-     ORDER BY position ASC, id ASC
-     LIMIT 50
-  `) as TemplateRowRaw[];
+  let rows: TemplateRowRaw[];
+  try {
+    await ensureTemplatesSchema();
+    const q = sql();
+    rows = (await q`
+      SELECT id::text AS id, name, subject, body
+        FROM crm_templates
+       WHERE kind = 'email' AND archived_at IS NULL
+       ORDER BY position ASC, id ASC
+       LIMIT 50
+    `) as TemplateRowRaw[];
+  } catch (err) {
+    console.error("[crm] email templates unavailable", {
+      lead_id: ctx.lead.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
   const values = mergeValues(ctx);
   return rows.map((r) => ({
     id: String(r.id),
