@@ -40,6 +40,17 @@ const nextConfig: NextConfig = {
     // text a guest "/balance". Not permanent: it's an alias we may re-point.
     { source: "/balance", destination: "/reload", permanent: false },
 
+    // ── /crm → /admin/crm ──────────────────────────────────────────
+    // The Sales CRM lives under the admin gate at /admin/crm (owner decision
+    // 2026-09-12 21:58; docs/adr/0002-crm-under-admin.md). Reps type and
+    // bookmark headpinz.com/crm; this typing convenience lands them on the
+    // gated URL. Config redirects run BEFORE middleware, which is why it works
+    // on headpinz.com despite the /hp rewrite there. Not permanent: it is an
+    // alias, and a cached 308 would outlive any re-pointing. There is NO page
+    // tree at /crm and there must never be one — the gate does not cover it.
+    { source: "/crm", destination: "/admin/crm", permanent: false },
+    { source: "/crm/:path*", destination: "/admin/crm/:path*", permanent: false },
+
     // ── www → apex 301s ────────────────────────────────────────────
     // Google Search Console was tracking the www and apex hosts as
     // separate URL profiles for both domains, splitting top-page click
