@@ -41,6 +41,7 @@
  */
 import { briefingTimelineAt } from "./phase";
 import { briefVerdict } from "./brief-verdict";
+import { pullTriggers, type PullTrigger } from "./ready-to-pull";
 import type { SendWindow } from "./pull-to-room";
 import type { BriefingRoom, BriefingRoomState } from "./types";
 import type { PitLaneFeed } from "../pit/pit-board";
@@ -167,6 +168,14 @@ export interface StageRow {
    * never wears one — the pill would be the screen repeating itself.
    */
   labelTint?: BriefingRoom | null;
+  /**
+   * THE GROUP IS READY TO BE PULLED INTO A ROOM — the Checking-in row only
+   * (owner 2026-09-13: "step 1 will start blinking and highlight when ready").
+   * Which of the three triggers fired, in the owner's order; absent when none
+   * has. Decided in ready-to-pull.ts, carried here so the renderer flashes the
+   * row and every surface that draws this rail flashes for the same reasons.
+   */
+  pull?: PullTrigger[];
 }
 
 const EMPTY = "—";
@@ -221,6 +230,14 @@ export interface StageRailInput {
    * Omit it and the Called row reads as it always has.
    */
   brief?: SendWindow | null;
+  /**
+   * HAS A STAFF MEMBER MARKED THE CALLED HEAT READY TO PULL — the desk's Ready
+   * to pull button, already matched to THIS heat's session by the caller (the
+   * mark is track-keyed and names its session; see ready-to-pull.server.ts).
+   * The third of the row's three flash triggers; omit it and only the roster
+   * and the clock can light the row.
+   */
+  staffReady?: boolean;
 }
 
 /**
@@ -365,6 +382,20 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     calledHeat != null && input.calledForMs != null && input.calledForMs >= 0 && fmt
       ? fmt(input.calledForMs)
       : null;
+  /**
+   * READY TO PULL — the three triggers (owner 2026-09-13), decided in
+   * ready-to-pull.ts. Only while a heat is actually still checking in: a row
+   * reading "—" has nobody to pull.
+   */
+  const pull =
+    calledHeat != null
+      ? pullTriggers({
+          checkedIn: count ?? null,
+          calledForMs: input.calledForMs ?? null,
+          checkinWindowMins: input.checkinWindowMins ?? 0,
+          staffReady: input.staffReady === true,
+        })
+      : [];
   rows.push({
     label: "Checking in",
     value: sessionLabel(calledHeat),
@@ -372,6 +403,7 @@ export function buildStageRail(input: StageRailInput): StageRow[] {
     detail: [countText, waitedText, briefPhrase?.text].filter(Boolean).join(" · ") || undefined,
     detailShort: [countShort, waitedShort].filter(Boolean).join(" · ") || undefined,
     heatNumber: calledHeat,
+    ...(pull.length ? { pull } : null),
     // THE HARDER FACT WINS THE COLOUR. A complete grid is good news, but a
     // briefing that can no longer fit outranks it — green beside "no time"
     // would be the screen contradicting itself.

@@ -21,6 +21,7 @@ function crew(names: string[]): CrewBoard {
       firstName,
       briefed: 0,
       race: null,
+      freeSinceMs: null,
       state: "available",
       top: false,
     })),
@@ -106,6 +107,19 @@ describe("mergeBoardPulse", () => {
     expect(blue.phase).toBe("waiting");
     expect(blue.host).toBe("Ana");
     expect(blue.state?.sessionId).toBe("s-42");
+  });
+
+  it("carries the Ready to pull marks, and keeps the board's when a pulse lacks them", () => {
+    const b = board({
+      readyToPull: { blue: { sessionId: "s-41", atMs: 1 }, red: null, mega: null },
+    });
+    const withMark = mergeBoardPulse(
+      b,
+      pulse({ readyToPull: { blue: null, red: { sessionId: "s-9", atMs: 2 }, mega: null } }),
+    )!;
+    expect(withMark.readyToPull?.red?.sessionId).toBe("s-9");
+    expect(withMark.readyToPull?.blue).toBeNull();
+    expect(mergeBoardPulse(b, pulse())!.readyToPull).toBe(b.readyToPull);
   });
 
   it("…but keep groupOut from the full board, which the pulse does not read", () => {

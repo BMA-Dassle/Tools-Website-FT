@@ -1500,6 +1500,11 @@ export default function BriefingRoomClient({
     liveRemainingMs: raceClock?.liveRemainingMs ?? null,
     formatClock: clock,
     checkedIn: incomingCount,
+    // The desk's Ready to pull press for THIS heat — the tablet's rail flashes
+    // its CHECKING IN row for the same three reasons the walls do (2026-09-13).
+    staffReady:
+      !!incomingRace &&
+      control.board?.readyToPull?.[incomingTrack]?.sessionId === String(incomingRace.sessionId),
   });
 
   /**

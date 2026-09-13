@@ -35,6 +35,8 @@ export interface BoardPulse {
   rooms: Array<Omit<RoomStatus, "groupOut">>;
   lanes: PitLanes;
   crew: CrewBoard;
+  /** The Ready to pull marks — a press, so it rides this lane (2026-09-13). */
+  readyToPull?: BoardStatus["readyToPull"];
 }
 
 export function mergeBoardPulse(
@@ -53,6 +55,8 @@ export function mergeBoardPulse(
     }),
     lanes: pulse.lanes,
     crew: pulse.crew,
+    // Absent on a pulse from an older server → keep the board's copy.
+    readyToPull: pulse.readyToPull ?? board.readyToPull,
   };
 }
 

@@ -59,6 +59,10 @@ import { readPitLane } from "~/features/signage/pit/lane.server";
 import { recordBriefingEvent } from "~/features/signage/briefing/events-db";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { isBriefingAssetKey, parseBriefingRoom } from "~/features/signage/briefing/types";
+import {
+  clearReadyToPull,
+  markReadyToPull,
+} from "~/features/signage/briefing/ready-to-pull.server";
 import { deleteSignageAsset, saveSignageAsset } from "~/features/signage/data/signage-assets-db";
 import { briefingEnabled } from "~/features/signage/flags";
 import { isAdminApiRequest } from "@/lib/admin-request-auth";
@@ -197,6 +201,8 @@ export async function POST(req: NextRequest) {
     /** The presser's employee punch ID, resolved to a person below. Absent from
      *  the desk board, which has no staff prompt. */
     punchId?: string;
+    /** "ready" only: false takes the Ready to pull press back. */
+    on?: boolean;
   };
   try {
     body = await req.json();
@@ -580,6 +586,34 @@ export async function POST(req: NextRequest) {
     }
     const result = await markRacePitted(track);
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
+  }
+
+  /**
+   * READY TO PULL — the desk says the called group is ready for the room before
+   * the roster or the clock would (owner 2026-09-13). Track-keyed, naming the
+   * session, so a mark can never light the next heat on that track; `on: false`
+   * takes the press back. STRINGIFIED AT THE BOUNDARY, never Number()'d — same
+   * rule as "send".
+   */
+  if (action === "ready") {
+    const track =
+      body.track === "blue" || body.track === "red" || body.track === "mega" ? body.track : null;
+    if (!track) {
+      return NextResponse.json({ error: "track must be blue, red or mega" }, { status: 400 });
+    }
+    if (body.on === false) {
+      await clearReadyToPull(track);
+      return NextResponse.json({ ok: true, on: false });
+    }
+    const sessionId =
+      typeof body.sessionId === "string" || typeof body.sessionId === "number"
+        ? String(body.sessionId).trim()
+        : "";
+    if (!sessionId) {
+      return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
+    }
+    const mark = await markReadyToPull(track, sessionId);
+    return NextResponse.json({ ok: true, on: true, ...mark });
   }
 
   /**

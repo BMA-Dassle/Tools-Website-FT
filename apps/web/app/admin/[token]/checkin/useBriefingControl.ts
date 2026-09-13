@@ -142,6 +142,13 @@ export interface BoardStatus {
    * on the previous build gets `undefined` and simply renders no strip.
    */
   crew?: CrewBoard;
+  /**
+   * THE DESK'S "READY TO PULL" MARK PER TRACK (owner 2026-09-13) — which called
+   * session a staff member has flagged ready for the room, if any. Drives the
+   * Called box's button state; the walls flash on the same fact. Optional for
+   * the same older-deploy reason as the fields above.
+   */
+  readyToPull?: Record<string, { sessionId: string; atMs: number } | null>;
 }
 
 /** Mirrors TimingFeedStatus in ~/features/racing/timing-feed.server.ts. */
@@ -285,6 +292,13 @@ export interface BriefingControl {
   /** "Race returned" — the finished race's karts are fully back in the lane.
    *  The ONLY thing that releases the pit board's hold. */
   markPitted: (track: string) => void;
+  /**
+   * "READY TO PULL" — tell every wall the called group is ready for the room
+   * before the roster or the clock would say so (owner 2026-09-13). `on: false`
+   * takes the press back. Session-scoped on the server, so it can never light
+   * the next heat on that track.
+   */
+  markReady: (args: { track: string; sessionId: string; on: boolean }) => void;
   /**
    * ARM OR DISARM THE CAMERA SWEEP that moves a group to holding by itself when
    * their room goes quiet (owner 2026-08-14).
@@ -791,6 +805,18 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const markReady = useCallback<BriefingControl["markReady"]>(
+    ({ track, sessionId, on }) => {
+      void post(
+        { action: "ready", track, sessionId, on },
+        on ? "marked ready to pull — the boards are flashing for this group" : "ready mark cleared",
+        `ready:${track}`,
+        { nameHost: false },
+      );
+    },
+    [post],
+  );
+
   /**
    * The wait-time numbers: today's averages over the whole night. They move
    * when a GROUP moves — a race goes green, a race is posted — not between two
@@ -915,6 +941,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     sendToHolding,
     reassignHost,
     markPitted,
+    markReady,
     setAutoHolding,
     setCheckinWindow,
     setGreetingByMotion,

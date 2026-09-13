@@ -888,6 +888,13 @@ export interface TvFeed {
    */
   pitRosters: Record<"blue" | "red" | "mega", FastPitRoster | null> | null;
   /**
+   * THE DESK'S "READY TO PULL" MARK PER TRACK — PULSE-ONLY, like pitRosters.
+   * The server feed always writes null; useTvFeed merges the pulse's copy in.
+   * A rail lights its CHECKING IN row when the mark's `sessionId` is the heat
+   * it is drawing (owner 2026-09-13, the third trigger). Null on non-FT screens.
+   */
+  readyToPull: Record<"blue" | "red" | "mega", { sessionId: string; atMs: number } | null> | null;
+  /**
    * WHO IS ON TRACK OPS AND WHAT THEY ARE RUNNING — the row under PIT IN on
    * every session-status panel (owner 2026-09-07).
    *
@@ -1206,4 +1213,10 @@ export interface TvPulse {
    * null everywhere else, and null on a failed fold so the feed's copy stands.
    */
   crew: CrewBoard | null;
+  /**
+   * THE DESK'S "READY TO PULL" MARK PER TRACK (owner 2026-09-13). One MGET; a
+   * staff press at the desk reaches every wall's CHECKING IN row within a beat.
+   * FT only — null elsewhere.
+   */
+  readyToPull: Record<"blue" | "red" | "mega", { sessionId: string; atMs: number } | null> | null;
 }

@@ -70,6 +70,37 @@ const TONE: Record<StageRow["tone"], string> = {
 const WARN = "#f0b341";
 
 /**
+ * READY TO PULL — the CHECKING IN row's flash (owner 2026-09-13: "step 1 will
+ * start blinking and highlight when ready"). The row itself takes a breathing
+ * band behind it; the pill on the row says why in words, so the state is never
+ * motion-only — the same rule the pit board's STOP SENDING keeps.
+ *
+ * TWO COLOURS, ONE MEANING EACH. Green is the panel's one green: the group is
+ * ready and the desk can pull. Red is the house alert red, worn ONLY when the
+ * row's own tone is `alert` — the group is ready but the verdict says the film
+ * cannot land ("no time to brief"). A green flash beside red words would be the
+ * screen contradicting itself.
+ *
+ * Reduced motion: the band holds its lit colour — the state must still read.
+ */
+const RAIL_PULL_STYLES = `
+.rail-pull { animation: rail-pull 1.4s ease-in-out infinite; }
+@keyframes rail-pull {
+  0%, 100% { background-color: rgba(74,222,128,0.10); box-shadow: inset 3px 0 0 rgba(74,222,128,0.45); }
+  50%      { background-color: rgba(74,222,128,0.30); box-shadow: inset 3px 0 0 rgba(74,222,128,1); }
+}
+.rail-pull-alert { animation: rail-pull-alert 1.4s ease-in-out infinite; }
+@keyframes rail-pull-alert {
+  0%, 100% { background-color: rgba(255,77,77,0.10); box-shadow: inset 3px 0 0 rgba(255,77,77,0.45); }
+  50%      { background-color: rgba(255,77,77,0.30); box-shadow: inset 3px 0 0 rgba(255,77,77,1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-pull { animation: none; background-color: rgba(74,222,128,0.26); box-shadow: inset 3px 0 0 rgba(74,222,128,1); }
+  .rail-pull-alert { animation: none; background-color: rgba(255,77,77,0.26); box-shadow: inset 3px 0 0 rgba(255,77,77,1); }
+}
+`;
+
+/**
  * THE STAGE LABEL NEVER WRAPS (owner 2026-08-25: "I don't like that room drops
  * below blue on all these" — CHECKING IN and BLUE ROOM were breaking onto a
  * second line, which pushes that one row taller and knocks the whole rail out
@@ -392,12 +423,23 @@ export function StageRailView({
           return (
             <div
               key={r.label}
+              // READY TO PULL: the row flashes (owner 2026-09-13). Class, not
+              // inline, because the keyframes live in RAIL_PULL_STYLES below.
+              className={
+                r.pull?.length ? (r.tone === "alert" ? "rail-pull-alert" : "rail-pull") : undefined
+              }
               style={{
                 display: "flex",
                 alignItems: "baseline",
                 gap: compact ? 9 : 14,
                 flexWrap: "wrap",
                 minWidth: 0,
+                // The lit band needs a little air and a rounded edge; the
+                // negative inline margin keeps the row's text exactly where it
+                // sits when unlit, so a row lighting up does not shift the rail.
+                ...(r.pull?.length
+                  ? { borderRadius: 10, paddingInline: "0.4em", marginInline: "-0.4em" }
+                  : null),
                 /**
                  * A HAIRLINE BETWEEN THE BANDS, on the wall boards only.
                  *
@@ -497,6 +539,33 @@ export function StageRailView({
                   {compact ? `→ ${r.room.toUpperCase()}` : `→ ${r.room.toUpperCase()} ROOM`}
                 </span>
               )}
+              {/*
+                READY TO PULL, IN WORDS (owner 2026-09-13). The flash says
+                "look here"; the pill says what it means, so the state is never
+                motion-only and reads the same with reduced motion. Compact drops
+                the verb: the row is already labelled CHECKING IN, and a camera
+                board's detail column has no room for four words.
+
+                Colour follows the row's tone — see RAIL_PULL_STYLES for why a
+                group can be ready to pull and still wear red.
+              */}
+              {!!r.pull?.length && !empty && (
+                <span
+                  className="tv-display"
+                  style={{
+                    fontSize: s.pill,
+                    whiteSpace: "nowrap",
+                    color: "#fff",
+                    padding: s.pillPad,
+                    borderRadius: 9,
+                    border: `2px solid ${r.tone === "alert" ? TONE.alert : GOOD}`,
+                    background: withAlpha(r.tone === "alert" ? TONE.alert : GOOD, 0.22),
+                    boxShadow: `0 0 22px ${withAlpha(r.tone === "alert" ? TONE.alert : GOOD, 0.45)}`,
+                  }}
+                >
+                  {compact ? "READY" : "READY TO PULL"}
+                </span>
+              )}
               {r.label === "Checking in" && calledCheckinAt && !empty && (
                 <span
                   className="tv-eyebrow"
@@ -542,6 +611,9 @@ export function StageRailView({
           );
         })}
       </div>
+
+      {/* The READY TO PULL keyframes, once per rail — see RAIL_PULL_STYLES. */}
+      <style>{RAIL_PULL_STYLES}</style>
 
       {crew && crew.list.length > 0 && (
         <TrackOpsRow crew={crew} scale={s} compact={compact} nowMs={nowMs} />

@@ -162,6 +162,10 @@ export function SceneCameraMonitor({ feed, config, nowMs }: SceneProps) {
       // The venue's check-in window, so a short grid becomes PULL TO BRIEFING
       // NOW at its deadline rather than sitting on 'waiting' for ever.
       checkinWindowMins: config.checkinWindowMins,
+      // THE DESK'S READY TO PULL PRESS, matched to THIS heat's session — the
+      // third trigger that flashes the CHECKING IN row (owner 2026-09-13).
+      staffReady:
+        !!progress && feed?.readyToPull?.[progress.track]?.sessionId === progress.sessionId,
       brief: sendWindow({
         remainingMs: sessionClock?.remainingMs ?? null,
         onTrack: !!sessionClock || !!feed?.pitLanes?.[railTrack]?.racing,

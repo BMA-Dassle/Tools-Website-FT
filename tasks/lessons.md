@@ -5956,3 +5956,20 @@ happened to be "adult" — which is why it was only noticed on junior races.
 `dobIso`, prefill derives `category` via `resolveRaceClass` (unset when unknown) and keeps the date,
 the voucher-receipt chips carry it too, and the "Who's racing?" picker offers unknown-class racers.
 Kiosk 1.35.1. Not live-verified.
+
+## A commit can land on `main` while you believe you are on your branch (2026-09-13)
+
+`git checkout -b fix/track-ops-fast-lane` succeeded, the work was done, gates ran — and between the
+gates and `git commit`, HEAD moved to `main` from OUTSIDE the session (the reflog shows a checkout to
+`main` and an "Auto stash before merge of main and origin/main": the IDE's git pane pulled). The
+commit landed on local `main`; `git push -u origin fix/track-ops-fast-lane` then pushed the branch's
+OLD tip — an empty snapshot of main — and reported success. Nothing looked wrong until the next branch
+was cut from it and none of the files were there.
+
+- **Check the branch in the SAME command as the commit**: `git branch --show-current && git commit …`,
+  and read it back. A branch created ten minutes ago is not a fact about now.
+- **After a push, verify what the remote holds**: `git rev-parse --short origin/<branch>` must equal
+  HEAD. A successful push of the wrong tip prints exactly like a successful push of the right one.
+- **Recover with fast-forwards, never force**: `git merge --ff-only <sha>` on the branch moved the
+  commit onto it and `git push` fast-forwarded the remote; local `main` was left for the owner to
+  reset (dropping a commit from main is theirs to approve, not the assistant's).

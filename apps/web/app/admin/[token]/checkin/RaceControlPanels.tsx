@@ -737,6 +737,16 @@ export default function RaceControlPanels({
               ownsLane={!megaEnabled}
               suggested={suggestedRoom === room}
               onRaceReturned={() => control.markPitted(track)}
+              // THE READY TO PULL PRESS (owner 2026-09-13) — pressed when the
+              // mark names THIS heat's session. Matched on session, never on
+              // track alone, so last heat's mark cannot light this one.
+              readyMarked={
+                !!race && board?.readyToPull?.[track]?.sessionId === String(race.sessionId)
+              }
+              onReady={(on) => {
+                if (!race) return;
+                control.markReady({ track, sessionId: String(race.sessionId), on });
+              }}
               hasLaunched={control.hasLaunched}
               noteLaunched={control.noteLaunched}
               onSend={() =>
@@ -1435,6 +1445,8 @@ function RoomColumn({
   onStart,
   onUndo,
   onSendHolding,
+  readyMarked,
+  onReady,
 }: {
   room: BriefingRoom;
   track: string;
@@ -1508,6 +1520,10 @@ function RoomColumn({
   onUndo: () => void;
   /** The group is leaving for the pit seats — see the parent's binding. */
   onSendHolding: () => void;
+  /** Has the desk marked THIS called heat ready to pull? Draws the button pressed. */
+  readyMarked: boolean;
+  /** The Ready to pull press, and its undo (`on: false`). */
+  onReady: (on: boolean) => void;
 }) {
   const color = ROOM_COLOR[room];
   // The heat ON TRACK right now, live from the timing system — the same clock
@@ -2271,6 +2287,33 @@ function RoomColumn({
                     gap: 4,
                   }}
                 >
+                  {/*
+                    READY TO PULL (owner 2026-09-13): tell the walls this group
+                    is ready for the room before the roster or the clock would
+                    — the CHECKING IN row on every camera board, briefing TV
+                    and pit sign starts flashing. A TOGGLE, not a send: nothing
+                    moves, and pressing again takes it back. Outline until
+                    pressed, solid green once it has landed on the server, so a
+                    press that has not registered yet is visibly not registered.
+                  */}
+                  <ActionButton
+                    tone={readyMarked ? GREEN : color}
+                    outline={!readyMarked}
+                    textColor={readyMarked ? "#04220f" : undefined}
+                    size="md"
+                    pendingKey={`ready:${track}`}
+                    pending={pending}
+                    pendingLabel={readyMarked ? "Clearing…" : "Marking…"}
+                    disabled={!race.sessionId || locked}
+                    title={
+                      readyMarked
+                        ? "The boards are flashing READY TO PULL for this group. Press again to take it back."
+                        : "Flash READY TO PULL for this group on every board — use it when the group is ready before everyone has scanned or the window is up."
+                    }
+                    onClick={() => onReady(!readyMarked)}
+                  >
+                    {readyMarked ? "✓ Ready to pull" : "Ready to pull"}
+                  </ActionButton>
                   {/* The leapfrog hint lives on the panel header now — big,
                       top-right, above this button (owner 2026-08-17). */}
                   <ActionButton
