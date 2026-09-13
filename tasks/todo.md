@@ -5,6 +5,12 @@
 Owner question: "https://headpinz.com/contract/c31e3aec — this contract changed date and it's not
 requiring them to sign?" Correct, and by design until today.
 
+**This changes WHAT a send does, never WHEN one happens.** The trigger is still, only, the planner
+setting the BMI project to "Send Contract" — `scanForNewEvents` filters to
+`stateId === center.sendContractStateId` and the cron detects nothing by itself
+(owner reconfirmed 2026-09-13; lessons.md § "Send Contract is the only contract trigger", 2026-06-08).
+A material change makes that planner-initiated send ask for a signature instead of just resending.
+
 **What happened.** Quote 230, "Strikes for Scholarships" (Kara Simmons, FGCU, HeadPinz Fort Myers,
 BMI project 30664800). Signed 2026-07-01. On 2026-09-13 14:25 ET the dispatch cron wrote version 2
 with `["date: Sep 13 4:30 PM → Sep 19 4:30 PM", "notes"]` — the event moved off that same evening

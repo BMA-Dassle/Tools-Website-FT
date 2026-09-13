@@ -8,6 +8,13 @@
  * changes no term of the agreement and is resent, not re-signed. Asking for a
  * signature on a typo fix trains guests to click through re-signs without reading.
  *
+ * This decides WHAT a contract send does, never WHEN one happens. The trigger is and
+ * remains the planner flipping the BMI project to "Send Contract" — the dispatch cron
+ * scans only projects already in that state and detects nothing on its own (owner rule;
+ * lessons.md 2026-06-08, when auto-resign-on-detected-diff was removed from
+ * group-quote-sync for emailing guests behind the planner's back). A material change
+ * makes that planner-initiated send ask for a signature instead of just resending.
+ *
  * Lives in its own module, and not inline in the dispatch cron, for two reasons: a
  * Next.js `route.ts` may only export route handlers, so the rule could not otherwise
  * be tested directly; and this is the one place the definition should be edited.

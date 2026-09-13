@@ -12,10 +12,11 @@ import { RESIGNABLE_STATUSES } from "@/lib/group-function-material-change";
  *
  * Ask a guest to re-sign a contract they have already signed.
  *
- * The dispatch cron does this by itself for a material change (price / date / venue)
- * the moment it sees one. This endpoint is the manual path for the cases it cannot
- * reach: a change that was already synced to us under an older gate, or one that
- * never came through BMI at all.
+ * The dispatch cron does this for a material change (price / date / venue) when a
+ * planner flips the BMI project to "Send Contract" — that flip is the only contract
+ * trigger in the system, and the cron is not a change detector (lessons.md 2026-06-08).
+ * This endpoint is the manual path for what that cannot reach: a change already synced
+ * to us under an older gate, or one that never came through BMI at all.
  *
  * Mirrors the cron's re-sign branch exactly — quote → `resign_required`, BMI project
  * → "Pending Signed Contract", portal webhook, guest + planner notified — with one

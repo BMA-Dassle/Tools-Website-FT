@@ -20,6 +20,16 @@ from the one that happens to be a number you already compute. Money is the easie
 exactly why it becomes the accidental definition of "material". `classifyMaterialChange` in
 `lib/group-function-material-change.ts` is now the single home for that decision.
 
+**It changes WHAT a send does, not WHEN one happens — and say so in exactly those words.** The
+trigger is still only the planner flipping BMI to "Send Contract" (§ "Send Contract is the only
+contract trigger", 2026-06-08); `scanForNewEvents` filters to that state and the cron detects
+nothing on its own. I described the shipped change to the owner as "the cron runs every ~2 minutes,
+so any signed contract whose date moves in BMI stops and asks for a signature" — true of the effect,
+false about the trigger, and it read as though a robot had been handed the customer's mailbox. The
+owner pushed back immediately and was right to. **When a change lands inside a human-initiated gate,
+name the gate in the same sentence as the new behaviour.** "Every 2 minutes" describes a poll for a
+person's decision; do not let it describe the decision.
+
 **Two things that fell out of it, both worth generalising:**
 
 1. **A trigger you cannot render is not shippable.** Making a venue move require a re-sign was two

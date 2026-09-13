@@ -1048,13 +1048,16 @@ export async function updateGfResignNoCharge(
 /**
  * Ask a already-signed contract for a fresh signature (admin-initiated).
  *
- * The dispatch cron raises `resign_required` on its own whenever BMI hands it a
- * material change, but it can only do that on the pass that SEES the change: once the
- * row is synced, a later pass computes no changes at all and takes the no-op resend
- * path. Contract c31e3aec (2026-09-13) landed exactly there — the date move was synced
- * under the old price-only gate, so by the time the gate was fixed there was nothing
- * left for the cron to notice. This is the manual way back in, and the way to handle a
- * change that never reached us through BMI at all.
+ * The dispatch cron raises `resign_required` when a planner flips the BMI project to
+ * "Send Contract" and the change it then reads is material. It is NOT a change
+ * detector — it only ever scans projects already in that state (bmi-scan.ts), and
+ * "Send Contract" is the only contract trigger there is (lessons.md 2026-06-08).
+ *
+ * But it can only act on the pass that SEES the change: once the row is synced, a later
+ * flip computes no changes at all and takes the no-op resend path. Contract c31e3aec
+ * (2026-09-13) landed exactly there — the date move was synced under the old price-only
+ * gate, so by the time the gate was fixed there was nothing left to notice. This is the
+ * manual way back in, and the way to handle a change that never reached us via BMI.
  *
  * Guarded on the three post-signature states so it can never resurrect a cancelled,
  * denied, expired or never-signed contract, and is a no-op (returns 0) if the contract
