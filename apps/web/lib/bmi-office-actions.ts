@@ -1,6 +1,7 @@
 import https from "https";
 import { randomUUID } from "crypto";
 import { parseWithRawIds } from "@ft/db";
+import redis from "./redis";
 import { officeReadSessionId } from "./bmi-office-ids";
 import { getOfficeToken } from "./bmi-office-token";
 import { officeAgent } from "./bmi-office-agent";
@@ -41,11 +42,6 @@ const CLIENT_KEYS: Record<string, string> = {
 export function officeClientKeyForCenter(centerCode: string): string {
   return CLIENT_KEYS[centerCode] || "headpinzftmyers";
 }
-
-const WAIVER_STATE_IDS: Record<string, string> = {
-  headpinzftmyers: "3274635",
-  headpinznaples: "1191926",
-};
 
 const WAIVER_ACTIVITIES = [
   "laser tag",
@@ -163,7 +159,7 @@ const PROJECT_CORE_FIELDS = [
   "id",
 ] as const;
 
-function toMinimalProject(
+export function toMinimalProject(
   project: Record<string, unknown>,
   extraFields?: string[],
 ): Record<string, unknown> {
@@ -894,6 +890,149 @@ export async function fetchProjectRawIds(
   const res = await httpsRequest("GET", `/api/${clientKey}/project/${projectId}`, headers);
   if (res.status >= 400) return null;
   return parseWithRawIds<Record<string, unknown>>(res.body);
+}
+
+// ── The ONE project-field writer for the CRM ────────────────────────
+//
+// `putProjectFields` is the single rail every CRM write of project FIELDS
+// (responsible `userId` / `userAgentId`, `stateId`, name…) goes through — the
+// brief's R5 "one writer per BMI entity". It is a thin wrapper around the SAME
+// private `putProject` the send-contract and notes rails use, so there is
+// exactly one place that knows how a project PUT is built and how Office's
+// 403 confirm prompt is answered (once, and only once).
+//
+//   1. Redis lock `crm:office:project:<id>` (SET NX PX 30000) — two CRM writes
+//      to one project (an assign sweep and a drag-to-status) serialise instead
+//      of racing GET→PUT on the same record. `withIdempotency` is a cache, not
+//      a lock; this is a lock.
+//   2. GET via `fetchProjectRawIds` (precision-safe) → `toMinimalProject` — the
+//      field-for-field payload the Office UI's own Save sends, never the whole
+//      entity — → `{...minimal, ...patch}`.
+//   3. `putProject` — the existing writer, with its confirm-once retry.
+//   4. Verified re-read via `fetchProjectRawIds`: EVERY patched field must read
+//      back equal (string-compared, since ids are strings on our side). A 200
+//      is never trusted on its own — Pandora's included, and Office's when the
+//      write was a no-op.
+//   5. Lock released in `finally`, compare-and-delete so a slow writer cannot
+//      release the next holder's lock.
+
+export const CRM_PROJECT_LOCK_PREFIX = "crm:office:project:";
+const PROJECT_LOCK_TTL_MS = 30_000;
+const PROJECT_LOCK_ATTEMPTS = 6;
+const PROJECT_LOCK_RETRY_MS = 500;
+
+export class OfficeProjectLockedError extends Error {
+  readonly lockKey: string;
+  constructor(lockKey: string) {
+    super(`Office project write in progress (${lockKey}); try again in a moment`);
+    this.name = "OfficeProjectLockedError";
+    this.lockKey = lockKey;
+  }
+}
+
+export class OfficeProjectVerifyError extends Error {
+  readonly projectId: string;
+  readonly field: string;
+  readonly expected: unknown;
+  readonly actual: unknown;
+  constructor(projectId: string, field: string, expected: unknown, actual: unknown) {
+    super(
+      `Office project ${projectId} PUT did not land: ${field} reads ${JSON.stringify(actual)}, ` +
+        `expected ${JSON.stringify(expected)}`,
+    );
+    this.name = "OfficeProjectVerifyError";
+    this.projectId = projectId;
+    this.field = field;
+    this.expected = expected;
+    this.actual = actual;
+  }
+}
+
+const RELEASE_IF_OWNER = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
+
+async function acquireProjectLock(lockKey: string): Promise<string> {
+  const token = randomUUID();
+  for (let attempt = 0; attempt < PROJECT_LOCK_ATTEMPTS; attempt++) {
+    const ok = await redis.set(lockKey, token, "PX", PROJECT_LOCK_TTL_MS, "NX");
+    if (ok === "OK") return token;
+    await new Promise((r) => setTimeout(r, PROJECT_LOCK_RETRY_MS));
+  }
+  throw new OfficeProjectLockedError(lockKey);
+}
+
+async function releaseProjectLock(lockKey: string, token: string): Promise<void> {
+  try {
+    await redis.eval(RELEASE_IF_OWNER, 1, lockKey, token);
+  } catch (err) {
+    // The lock expires on its own in 30 s; a failed release is a log line, not a stall.
+    console.warn(
+      `[bmi-office] could not release ${lockKey}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/** Same equality the verify step uses: ids and numbers compare as their string form. */
+function sameField(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return a == null && b == null;
+  if (typeof a === "object" || typeof b === "object")
+    return JSON.stringify(a) === JSON.stringify(b);
+  return String(a) === String(b);
+}
+
+export interface PutProjectFieldsParams {
+  clientKey: string;
+  projectId: string;
+  /** The project-core fields to change, e.g. `{ userId: "28267036" }` or `{ stateId: "49130082" }`. */
+  patch: Record<string, unknown>;
+  /** Override the lock key (tests, or a caller already holding a wider lock). */
+  lockKey?: string;
+}
+
+export interface PutProjectFieldsResult {
+  status: number;
+  /** The project as re-read after the PUT (precision-safe). */
+  project: Record<string, unknown>;
+}
+
+export async function putProjectFields(
+  params: PutProjectFieldsParams,
+): Promise<PutProjectFieldsResult> {
+  const { clientKey, projectId, patch } = params;
+  const fields = Object.keys(patch);
+  if (fields.length === 0) throw new Error("putProjectFields: empty patch");
+
+  const lockKey = params.lockKey ?? `${CRM_PROJECT_LOCK_PREFIX}${projectId}`;
+  const lockToken = await acquireProjectLock(lockKey);
+  try {
+    const before = await fetchProjectRawIds(clientKey, projectId);
+    if (!before) throw new BmiProjectNotFoundError(projectId);
+
+    const body = { ...toMinimalProject(before), ...patch };
+    const token = await getOfficeToken(clientKey);
+    // One session id for the whole GET → PUT → verify, as the Office UI does.
+    const headers = apiHeaders(token, clientKey);
+    const res = await putProject(clientKey, headers, body);
+    if (res.status >= 400) {
+      throw new Error(
+        `Office project ${projectId} PUT failed: ${res.status} ${res.body.slice(0, 300)}`,
+      );
+    }
+
+    const after = await fetchProjectRawIds(clientKey, projectId);
+    if (!after) throw new OfficeProjectVerifyError(projectId, "*", "readable", "unreadable");
+    for (const field of fields) {
+      if (!sameField(after[field], patch[field])) {
+        throw new OfficeProjectVerifyError(projectId, field, patch[field], after[field]);
+      }
+    }
+    console.log(
+      `[bmi-office] project ${projectId} fields ${fields.join(",")} written and verified`,
+    );
+    return { status: res.status, project: after };
+  } finally {
+    await releaseProjectLock(lockKey, lockToken);
+  }
 }
 
 // ── Remove a person from a reservation (Office projectPerson row) ──
