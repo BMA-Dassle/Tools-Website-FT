@@ -161,7 +161,18 @@ export function makeLead(overrides: Partial<LeadView> & Pick<LeadView, "id">): L
     },
     repSlug: null,
     repName: null,
+    requestedRep: null,
     ...overrides,
+  };
+}
+
+/** The `LeadView.requestedRep` projection of a roster row (B7). */
+export function asRequestedRep(rep: CrmRep) {
+  return {
+    id: rep.id,
+    slug: rep.slug,
+    firstName: rep.firstName,
+    displayName: rep.displayName,
   };
 }
 
