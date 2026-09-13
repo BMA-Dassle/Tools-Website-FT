@@ -1,8 +1,8 @@
 "use client";
 
-import { IconDatabase, IconPlayerPlay, IconRefresh } from "@tabler/icons-react";
+import { IconDatabase, IconPlayerPlay, IconPlayerStop, IconRefresh } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { MirrorStatus } from "~/features/crm/core/contracts";
 import { fStamp } from "~/features/crm/core/dates";
 import type { OfficeClientKey } from "~/features/crm/core/types";
@@ -14,16 +14,30 @@ import { ICON } from "../primitives/icon-props";
 import { Seg } from "../primitives/Seg";
 import { ErrorState } from "../primitives/States";
 import { Table } from "../primitives/Table";
-import { backfillDefaults, isYmd, tenantOptions } from "./model";
+import {
+  backfillDefaults,
+  backfillProgressLine,
+  backfillSummary,
+  isYmd,
+  tenantOptions,
+} from "./model";
 import { runBackfill, runDelta } from "./queries";
 import { HISTORY_TEST_IDS } from "./test-ids";
 
 /**
  * The director's mirror control (brief §1.7: crons never run on a preview, so
- * every job is also an admin action). Starts a chunked backfill for one Office
- * tenant and span — the handler re-enqueues itself window by window — runs a
- * delta on demand, and lists the latest sync runs so "ran" is never mistaken
- * for a result. Not in the prototype; director-only.
+ * every job is also an admin action). Runs a chunked backfill for one Office
+ * tenant and span, a delta on demand, and lists the latest sync runs so "ran"
+ * is never mistaken for a result. Not in the prototype; director-only.
+ *
+ * WHY THE BACKFILL LOOPS HERE. One run covers ONE 30-day window (a 45 s
+ * budget), and the handler enqueues the next window's job for the cron to
+ * drain — but `verifyCron` short-circuits every cron on a preview, and this
+ * branch is not in production at all, so nothing would ever drain it. Each run
+ * hands back the exact cursor the next one needs (`result.nextPayload`), so
+ * the card posts it again, and again, until the span is done — one press, one
+ * finished backfill, nothing left pending. "Stop" ends the walk after the run
+ * in flight; the cursor stays in the queue, so pressing Run again resumes.
  */
 export interface MirrorCardProps {
   mirror: MirrorStatus | null;
@@ -31,6 +45,8 @@ export interface MirrorCardProps {
 }
 
 const TENANTS = tenantOptions();
+/** A guard against a cursor that never resolves: 12 months is ~13 windows. */
+const MAX_RUNS = 120;
 
 export function MirrorCard({ mirror, canEdit }: MirrorCardProps) {
   const crmFetch = useCrmFetch();
@@ -43,14 +59,39 @@ export function MirrorCard({ mirror, canEdit }: MirrorCardProps) {
   );
   const [from, setFrom] = useState(defaults.from);
   const [until, setUntil] = useState(defaults.until);
+  const [progress, setProgress] = useState<string[]>([]);
+  const stopped = useRef(false);
 
   const backfill = useMutation({
-    mutationFn: () => runBackfill(crmFetch, { clientKey, from, until }),
-    onSuccess: (data) => {
-      toast(`Backfill ${data.job.status} · job ${data.job.id}`);
+    mutationFn: async () => {
+      stopped.current = false;
+      setProgress([]);
+      const lines: string[] = [];
+      let payload: Record<string, unknown> | null = { clientKey, from, until };
+      let runs = 0;
+      while (payload && runs < MAX_RUNS) {
+        const data = await runBackfill(crmFetch, payload);
+        runs++;
+        const summary = backfillSummary(data.result);
+        if (!summary) {
+          lines.push(`job ${data.job.id} ${data.job.status}: ${JSON.stringify(data.result)}`);
+          setProgress([...lines]);
+          break;
+        }
+        lines.push(backfillProgressLine(summary));
+        setProgress([...lines]);
+        payload = stopped.current ? null : summary.nextPayload;
+      }
+      return { runs, done: !payload && !stopped.current };
+    },
+    onSuccess: ({ runs, done }) => {
+      toast(done ? `Backfill finished · ${runs} runs` : `Backfill stopped after ${runs} runs`);
       void qc.invalidateQueries({ queryKey: historyKeys.all });
     },
-    onError: (err) => toast(errorMessage(err), "crit"),
+    onError: (err) => {
+      void qc.invalidateQueries({ queryKey: historyKeys.all });
+      toast(errorMessage(err), "crit");
+    },
   });
 
   const delta = useMutation({
@@ -116,6 +157,17 @@ export function MirrorCard({ mirror, canEdit }: MirrorCardProps) {
           >
             <IconPlayerPlay {...ICON} /> {backfill.isPending ? "Running…" : "Run backfill"}
           </button>
+          {backfill.isPending ? (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => {
+                stopped.current = true;
+              }}
+            >
+              <IconPlayerStop {...ICON} /> Stop after this window
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn-sm"
@@ -126,14 +178,19 @@ export function MirrorCard({ mirror, canEdit }: MirrorCardProps) {
           </button>
         </div>
         <div className="xs muted">
-          One 30-day window per run; the job re-enqueues the next window itself and the cron drains
-          the chain. Reads only — nothing is written to Office.
+          One 30-day window per run; this page walks the span window by window and keeps the page
+          open until it is done. Reads only — nothing is written to Office.
         </div>
         {backfill.isError ? <ErrorState message={errorMessage(backfill.error)} /> : null}
         {delta.isError ? <ErrorState message={errorMessage(delta.error)} /> : null}
-        {backfill.data ? (
+        {progress.length > 0 ? (
           <pre className="mono xs" style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-            {JSON.stringify(backfill.data.result, null, 2)}
+            {progress.join("\n")}
+          </pre>
+        ) : null}
+        {delta.data ? (
+          <pre className="mono xs" style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+            {JSON.stringify(delta.data.result, null, 2)}
           </pre>
         ) : null}
         {runs.length > 0 ? (

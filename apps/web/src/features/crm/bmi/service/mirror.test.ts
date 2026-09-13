@@ -208,6 +208,9 @@ describe("chunking and resumption", () => {
     const payload = deps.enqueued[0]!.payload!;
     expect(payload.projectIds).toEqual([FIXTURE_PROJECT_ID, FIXTURE_ONLINE_PROJECT_ID]);
     expect(payload.detailOffset).toBe(1);
+    // The SAME cursor is handed back to the caller, so a client that cannot
+    // wait for the cron can drive the chain itself.
+    expect(first.nextPayload).toEqual(payload);
 
     const parsed = parseBackfillPayload(payload, "ignored");
     if (!parsed.ok) throw new Error(parsed.error);
@@ -238,7 +241,27 @@ describe("chunking and resumption", () => {
     );
     expect(r.next).toBeNull();
     expect(r.nextCreated).toBeNull();
+    expect(r.nextPayload).toBeNull();
     expect(deps.enqueued).toHaveLength(0);
+  });
+
+  it("a caller can walk a whole span on nextPayload alone, ending with null", async () => {
+    const deps = memoryDeps();
+    let payload: Record<string, unknown> | null = {
+      clientKey: "headpinzftmyers",
+      from: "2025-09-01",
+      until: "2025-10-15",
+    };
+    const windows: string[] = [];
+    for (let i = 0; payload && i < 10; i++) {
+      const parsed = parseBackfillPayload(payload, "chain-77");
+      if (!parsed.ok) throw new Error(parsed.error);
+      const run = await runBackfillStep(parsed.cursor, deps);
+      windows.push(run.window.from);
+      payload = run.nextPayload;
+    }
+    expect(payload).toBeNull();
+    expect(windows).toEqual(["2025-09-01", "2025-10-01"]);
   });
 
   it("cursorToPayload round-trips through parseBackfillPayload", () => {

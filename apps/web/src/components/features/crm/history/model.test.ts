@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { HistoryAccount, MirrorEvent } from "~/features/crm/core/contracts";
+import type {
+  BackfillRunSummary,
+  HistoryAccount,
+  MirrorEvent,
+} from "~/features/crm/core/contracts";
 import {
   accountMeta,
   accountSub,
   avgSpendCents,
   backfillDefaults,
+  backfillProgressLine,
+  backfillSummary,
   eventHost,
   eventMeta,
   prettyPhone,
@@ -49,6 +55,37 @@ const EVENT: MirrorEvent = {
   accountId: "201",
   contactId: "34",
   syncedAt: "2026-09-12T23:00:00.000Z",
+};
+
+/** One backfill run's `result` as `/jobs/run` returns it. */
+const RUN: BackfillRunSummary = {
+  ok: true,
+  clientKey: "headpinzftmyers",
+  window: { from: "2025-09-01", until: "2025-09-30" },
+  span: { from: "2025-09-01", until: "2026-09-12" },
+  projectsInWindow: 3_199,
+  groupEvents: 212,
+  detailOffset: 0,
+  detailsThisRun: 80,
+  inserted: 74,
+  updated: 6,
+  onlineBookings: 2_987,
+  onlineInserted: 2_987,
+  failed: [],
+  runId: "8123",
+  next: "bmi-mirror-backfill:headpinzftmyers:2025-10-01#8122",
+  nextPayload: {
+    clientKey: "headpinzftmyers",
+    from: "2025-09-01",
+    until: "2026-09-12",
+    windowFrom: "2025-10-01",
+    windowUntil: "2025-10-30",
+    detailOffset: 0,
+    projectIds: null,
+    scheduleResources: null,
+    chain: "8122",
+  },
+  elapsedMs: 28_412,
 };
 
 describe("account rows (crm-shared.js:431)", () => {
@@ -126,5 +163,27 @@ describe("the mirror control", () => {
     expect(prettyPhone("+12395554021")).toBe("(239) 555-4021");
     expect(prettyPhone("+441onal")).toBe("+441onal");
     expect(prettyPhone(null)).toBeNull();
+  });
+
+  it("reads the backfill run's cursor back, and refuses anything that is not one", () => {
+    const summary = backfillSummary(RUN);
+    expect(summary?.nextPayload).toMatchObject({ windowFrom: "2025-10-01", detailOffset: 0 });
+    // A handler that refused the payload answers {ok:false,error} — not a run.
+    expect(backfillSummary({ ok: false, error: "payload.clientKey is required" })).toBeNull();
+    expect(backfillSummary(null)).toBeNull();
+    expect(backfillSummary("done")).toBeNull();
+  });
+
+  it("each finished window reads as one line of progress", () => {
+    expect(backfillProgressLine(RUN)).toBe(
+      "2025-09-01 → 2025-09-30: 80 of 212 group events · 74 new · 6 updated · 2987 online",
+    );
+    expect(
+      backfillProgressLine({
+        ...RUN,
+        onlineBookings: 0,
+        failed: [{ projectId: "58454076", error: "404" }],
+      }),
+    ).toContain("· 1 failed");
   });
 });
