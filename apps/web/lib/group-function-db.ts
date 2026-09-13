@@ -1045,6 +1045,39 @@ export async function updateGfResignNoCharge(
   return rows.length;
 }
 
+/**
+ * Ask a already-signed contract for a fresh signature (admin-initiated).
+ *
+ * The dispatch cron raises `resign_required` on its own whenever BMI hands it a
+ * material change, but it can only do that on the pass that SEES the change: once the
+ * row is synced, a later pass computes no changes at all and takes the no-op resend
+ * path. Contract c31e3aec (2026-09-13) landed exactly there — the date move was synced
+ * under the old price-only gate, so by the time the gate was fixed there was nothing
+ * left for the cron to notice. This is the manual way back in, and the way to handle a
+ * change that never reached us through BMI at all.
+ *
+ * Guarded on the three post-signature states so it can never resurrect a cancelled,
+ * denied, expired or never-signed contract, and is a no-op (returns 0) if the contract
+ * is already awaiting a re-sign.
+ */
+export async function requestGfResign(id: number): Promise<number> {
+  await ensureGfSchema();
+  const q = sql();
+  // The status list is the SAME one the dispatch cron gates on — imported, not
+  // retyped, so the manual path can never drift from the automatic one.
+  const { RESIGNABLE_STATUSES } = await import("@/lib/group-function-material-change");
+  const rows = await q`
+    UPDATE group_function_quotes SET
+      status = 'resign_required',
+      updated_at = NOW()
+    WHERE id = ${id}
+      AND status = ANY(${RESIGNABLE_STATUSES as unknown as string[]})
+      AND contract_signed_at IS NOT NULL
+    RETURNING id
+  `;
+  return rows.length; // 1 = applied, 0 = not in a re-signable state
+}
+
 export async function updateGfStatus(id: number, status: GfQuoteStatus): Promise<void> {
   await ensureGfSchema();
   const q = sql();
@@ -1449,6 +1482,15 @@ export interface ContractSnapshot {
   event_number: string | null;
   event_date: string;
   event_date_display: string | null;
+  /**
+   * Venue. Added 2026-09-13 when a center move became a re-signature trigger: without
+   * it `diffSnapshots` had nothing to report for a relocated event, and since the guest
+   * page hides the "What Changed" card when there are no diffs, a pure venue move asked
+   * the guest to re-sign with no stated reason. Snapshots written before that date have
+   * no `center_name` key at all — `diffSnapshots` skips keys missing from either side,
+   * so those rows stay silent instead of reporting a phantom "(empty) → HeadPinz …".
+   */
+  center_name?: string | null;
   guest_count: number | null;
   notes: string | null;
   guest_first_name: string;
@@ -1482,6 +1524,7 @@ export function extractContractSnapshot(quote: GroupFunctionQuote): ContractSnap
     event_number: quote.event_number,
     event_date: quote.event_date,
     event_date_display: quote.event_date_display,
+    center_name: quote.center_name,
     guest_count: quote.guest_count,
     notes: quote.notes,
     guest_first_name: quote.guest_first_name,
@@ -1547,6 +1590,7 @@ const FIELD_LABELS: Record<string, string> = {
   event_name: "Event Name",
   event_number: "Event Number",
   event_date_display: "Event Date",
+  center_name: "Venue",
   guest_count: "Guest Count",
   notes: "Notes",
   guest_first_name: "Guest First Name",
@@ -1634,6 +1678,11 @@ export function diffSnapshots(a: ContractSnapshot, b: ContractSnapshot): FieldDi
   const diffs: FieldDiff[] = [];
   for (const key of Object.keys(FIELD_LABELS) as Array<keyof ContractSnapshot>) {
     if (key === "event_date") continue;
+    // A snapshot cut before this field existed has no key for it. Diffing it would
+    // report a change that never happened ("Venue: (empty) → HeadPinz Fort Myers") on
+    // the first edit after the field ships. Presence, not value — a field that is
+    // genuinely null on both sides is still compared, and reports nothing.
+    if (!(key in a) || !(key in b)) continue;
     if (key === "line_items") {
       const itemDiff = diffLineItems(a.line_items, b.line_items);
       if (itemDiff) {

@@ -182,4 +182,44 @@ describe("contract version diffs", () => {
     // is paid, but admin version history should still see it.
     expect(byField(diffSnapshots(V4, LIVE))).toContain("deposit_due_cents");
   });
+
+  // ── Venue (added 2026-09-13 when a centre move became a re-signature trigger) ──
+
+  it("names a venue move, so a relocated event has something to show the guest", () => {
+    // A centre move can carry zero money — same products, same total. Before venue was
+    // in the snapshot, diffSnapshots reported nothing at all for one, and the guest page
+    // hides the What Changed card when there are no diffs: a guest would have been asked
+    // to re-sign a relocated event with no stated reason.
+    const atFortMyers = snapshot({ center_name: "HeadPinz Fort Myers" });
+    const atNaples = snapshot({ center_name: "HeadPinz Naples" });
+    const venue = diffSnapshots(atFortMyers, atNaples).find((d) => d.field === "center_name");
+    expect(venue?.label).toBe("Venue");
+    expect(venue?.before).toBe("HeadPinz Fort Myers");
+    expect(venue?.after).toBe("HeadPinz Naples");
+  });
+
+  it("CONTROL: a snapshot cut before venue existed reports no venue change", () => {
+    // Every version row written before 2026-09-13 has no center_name key. Diffing one
+    // against the live row — which always has it now — must NOT invent
+    // "Venue: (empty) → HeadPinz Fort Myers" on the first edit after deploy. V4 is a real
+    // pre-venue fixture: it is built without the key.
+    expect("center_name" in V4).toBe(false);
+    const live = snapshot({ center_name: "HeadPinz Fort Myers" });
+    expect(byField(diffSnapshots(V4, live))).not.toContain("center_name");
+    // And the reverse direction (live → old row) is equally silent.
+    expect(byField(diffSnapshots(live, V4))).not.toContain("center_name");
+  });
+
+  it("a venue that is genuinely null on both sides reports nothing", () => {
+    // Presence, not truthiness: the skip must key off the key being absent, not off the
+    // value being empty, or a real null → "HeadPinz Naples" move would be swallowed too.
+    const a = snapshot({ center_name: null });
+    const b = snapshot({ center_name: null });
+    expect(byField(diffSnapshots(a, b))).not.toContain("center_name");
+
+    const moved = snapshot({ center_name: "HeadPinz Naples" });
+    const venue = diffSnapshots(a, moved).find((d) => d.field === "center_name");
+    expect(venue?.before).toBe("(empty)");
+    expect(venue?.after).toBe("HeadPinz Naples");
+  });
 });

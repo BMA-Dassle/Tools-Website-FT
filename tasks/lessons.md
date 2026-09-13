@@ -1,5 +1,52 @@
 # Lessons Learned
 
+## A signed agreement has more than one term — gating "does this need re-signing?" on money alone quietly voids the other two (2026-09-13)
+
+**The bug.** `/contract/c31e3aec` (Strikes for Scholarships, FGCU) moved from Sep 13 to Sep 19
+after it was signed. No signature was requested. The gate in `group-quote-dispatch` read:
+
+```ts
+const resignFlow = priceChanged && (status === "deposit_paid" || …);
+```
+
+`priceChanged` is `existing.total_cents !== totalCents` — **money only**. A date move costs nothing,
+so the pass fell to the non-price branch, synced the row, emailed a "Contract Updated" notice and
+left the contract signed. The executed PDF still named Sep 13, and `generateAndStorePdf` only runs
+at sign / deposit / resign-settle, so nothing in the system would ever have corrected it.
+
+**The rule.** A contract is an agreement about **what it costs, when it happens, and where**. Any
+gate that asks "has this changed enough to re-ask the guest?" must be built from all the terms, not
+from the one that happens to be a number you already compute. Money is the easiest to diff, which is
+exactly why it becomes the accidental definition of "material". `classifyMaterialChange` in
+`lib/group-function-material-change.ts` is now the single home for that decision.
+
+**Two things that fell out of it, both worth generalising:**
+
+1. **A trigger you cannot render is not shippable.** Making a venue move require a re-sign was two
+   lines. But `ContractSnapshot` had no venue field, `diffSnapshots` only walks `FIELD_LABELS`, and
+   the guest page hides the What Changed card when there are no diffs — so a pure venue move would
+   have asked the guest to re-sign with **no stated reason on screen**. Whenever you add a reason to
+   interrupt someone, check the surface that has to explain it to them. And when you add a field to
+   a JSONB snapshot, every row already written lacks the key: diff on **presence**
+   (`!(key in a)`), not on value, or the first edit after deploy reports a change that never
+   happened (`Venue: (empty) → HeadPinz Fort Myers`).
+
+2. **A widened gate exposes whatever was already broken behind it.** `resignNeedsCard` in
+   ContractClient read `isResign && dueCents > 0 && !hasCardOnFile`, where the server
+   (`resign-settle`) only ever charges on `wasPaidInFull`. A post-paid or deposit-only event has
+   `collected_cents < total_cents` **by design** and no card on file, so re-signing one demanded the
+   full balance on a card — $8,538.84, to re-confirm a date. It never fired because only a price
+   change could start a re-sign, and price changes mostly land on paid-in-full events, which have a
+   card. **When a UI mirrors a server-side money decision, derive both from the same named fact and
+   test them against each other** — `resignPlan()` now does, with the old formula pinned as a
+   CONTROL test. Before widening a trigger, walk the whole path it now opens.
+
+**Also:** the dirty-tree lint baseline is real. The first cut of the ContractClient change took its
+values by destructuring the result of an imported call; the React Compiler treats such a binding as
+possibly-mutable and skipped optimizing **three** `useCallback`s — 11 warnings → 14. Re-binding
+through explicit comparisons (`plan.isResign === true`) restored it. Measure the baseline by linting
+the file at HEAD (`git show HEAD:path > scratch`), never by assuming the warnings were already there.
+
 ## A catalog split by price is not a catalog split by availability — and the BMI race SKUs are not day-restricted (2026-09-11)
 
 **Ask.** Owner, 5 PM Friday: "Allow pro races for tonight only." Pro is a weekday/Mega product;

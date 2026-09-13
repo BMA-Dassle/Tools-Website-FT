@@ -1,5 +1,66 @@
 # Open Tasks
 
+## A signed contract re-signs when the DATE or VENUE moves, not just the price (2026-09-13) — branch `worktree-resign-on-material-change` — BUILT, gates green, NOT deployed
+
+Owner question: "https://headpinz.com/contract/c31e3aec — this contract changed date and it's not
+requiring them to sign?" Correct, and by design until today.
+
+**What happened.** Quote 230, "Strikes for Scholarships" (Kara Simmons, FGCU, HeadPinz Fort Myers,
+BMI project 30664800). Signed 2026-07-01. On 2026-09-13 14:25 ET the dispatch cron wrote version 2
+with `["date: Sep 13 4:30 PM → Sep 19 4:30 PM", "notes"]` — the event moved off that same evening
+to the following Saturday — with `total_cents` unchanged at 853884. The re-sign gate was
+`priceChanged && …`, so it fell to the non-price branch: BMI → Confirmation, status stays
+`deposit_paid`, guest gets a "Contract Updated" email + SMS. No signature asked for, and the
+executed PDF (`signed_pdf_url`, cut 2026-07-01, `signed_pdf_history` empty) still names Sep 13.
+`generateAndStorePdf` only runs at sign / deposit / resign-settle, so nothing would ever fix it.
+
+**Owner decisions 2026-09-13:** date → re-sign, venue → re-sign, and c31e3aec specifically must be
+asked to sign again.
+
+- [x] `lib/group-function-material-change.ts` (PURE) — `classifyMaterialChange` (price | date |
+      venue) + `canRequestResign` + `RESIGNABLE_STATUSES`. The rule lives outside the cron because a
+      Next `route.ts` may only export handlers, so it could not otherwise be tested. 7 tests
+      including a CONTROL that notes/contacts alone stay non-material.
+- [x] `group-quote-dispatch/route.ts` — `dateChanged` / `venueChanged` hoisted and shared by the
+      diff and the gate so they cannot disagree; `resignFlow = isMaterial && canRequestResign(status)`.
+      Log line and BMI private note now name which term moved instead of always saying "price".
+- [x] `lib/group-function-db.ts` — `center_name` added to `ContractSnapshot` /
+      `extractContractSnapshot` / `FIELD_LABELS` ("Venue"). Without it a pure venue move had NOTHING
+      to show: `diffSnapshots` only walks `FIELD_LABELS`, and the guest page hides the What Changed
+      card when `latestDiffs` is empty — the guest would have been asked to re-sign a relocated
+      event with no stated reason. `diffSnapshots` now skips a key absent from either side, so the
+      ~thousands of pre-existing JSONB snapshots don't emit a phantom `Venue: (empty) → …` on their
+      next edit. 3 new tests incl. a CONTROL on a pre-venue snapshot.
+- [x] `lib/group-function-resign-plan.ts` (PURE) + `ContractClient.tsx` — **pre-existing bug found
+      on the path this change sends contracts down.** `resignNeedsCard` gated on `isResign`, not on
+      "settles now": a post-paid or deposit-only event has `collected_cents < total_cents` by design
+      and no card on file, so re-signing routed the guest to a pay step demanding the FULL balance.
+      c31e3aec would have been asked for $8,538.84 on a card to re-confirm a date change; the server
+      (`resign-settle`, `wasPaidInFull` branch) would have charged nothing, so she simply could not
+      have finished. Now mirrors the server gate exactly. 10 tests, incl. a CONTROL pinning the old
+      formula. 5 signed contracts were exposed; none were sitting in `resign_required`, so no live
+      guest hit it. Latent because only a price change could trigger a re-sign, and paid-in-full
+      events — what a price change usually hits — have a card on file.
+- [x] `POST /api/admin/group-functions/request-resign` — ask a signed contract to re-sign by hand.
+      Needed because the cron cannot rescue c31e3aec on its own: the row is already synced to Sep 19,
+      so a re-flip to "Send Contract" computes `changes.length === 0` and takes the no-op resend
+      path. Idempotent, `isAdminCredential`-guarded, status guard lives in the UPDATE (shared status
+      list, not a second copy), BMI → Pending Signed Contract, portal webhook, `notifyContractUpdated`.
+      Reports `bmiMoved` / `notified` rather than failing silently.
+- [x] Gates: tsc clean on every changed file; 526 suites / 7903 tests pass; `next build` exit 0;
+      a11y gate zero violations; ContractClient lint warnings **11 before, 11 after** (measured
+      against the file at HEAD — the first cut regressed it to 14 by destructuring from an opaque
+      call, which made the React Compiler skip three `useCallback`s).
+- [ ] **Deploy**, then apply to c31e3aec via `request-resign` and confirm Kara gets the re-sign
+      email, the What Changed card reads `Event Date: Sep 13 4:30 PM → Sep 19 4:30 PM`, and the Sign
+      button says **Sign & Confirm** (NOT "Sign & Continue to Payment" — she must never be asked for
+      a card). After she signs, `resign-settle` should return `resigned_deposit`, BMI re-confirms,
+      and the PDF regenerates naming Sep 19.
+- [ ] **Owner question still open:** should a line-item swap at the SAME total (products change,
+      money doesn't) also require a re-sign? Same class as the date. Not built.
+- [ ] Non-material edits (notes / contacts / planner) still never regenerate the signed PDF, so a
+      corrected note leaves the executed document stale. Deliberately left alone — flagging it.
+
 ## Pit station: "PA busy" frozen-cache fix + cue sync (2026-09-10) — branches `fix/pit-pa-busy-frozen-cache`, `feat/pit-cue-sync`
 
 Incident: every pit control struck through as "PA busy · mega" for ~50 min; Pandora's cache of
