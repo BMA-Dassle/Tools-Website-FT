@@ -36,10 +36,83 @@ export function ensureAccountsSchema(): Promise<void> {
       )
     `;
     await q`CREATE INDEX IF NOT EXISTS crm_accounts_name_key ON crm_accounts (name_key)`;
-    // B1: the mirror upserts on the key, so it must be unique per kind.
-    await q`CREATE UNIQUE INDEX IF NOT EXISTS crm_accounts_kind_key ON crm_accounts (kind, name_key)`;
+    await ensureAccountKeyIndex();
   })();
   return schemaReady;
+}
+
+/**
+ * `crm_accounts_kind_key` — the UNIQUE index `upsertAccountByKey`'s
+ * `ON CONFLICT (kind, name_key)` needs (the BMI mirror finds-or-creates an
+ * account for every project it reads).
+ *
+ * TWO THINGS THIS MUST NOT DO.
+ *   1. `CREATE UNIQUE INDEX IF NOT EXISTS` does NOT skip the uniqueness check:
+ *      if duplicate `(kind, name_key)` rows exist — rows the mirror could have
+ *      written before this index did — it RAISES. So the duplicates are merged
+ *      first, every time, before the index is attempted.
+ *   2. It must never poison `ensureAccountsSchema`. That promise is memoised,
+ *      so a rejection would be cached for the life of the lambda and every
+ *      account READ would 500 until a cold start. A failure here is recorded
+ *      and swallowed: reads keep working and only the upsert fails, loudly,
+ *      with Postgres's own message.
+ *
+ * The table belongs to PR1 (§3.8: a later PR may only ADD COLUMN in its own
+ * sub). Flagged to the lead — PR1 should own this index; until it does, this
+ * is the safe way for B1 to depend on it.
+ */
+let accountKeyIndexError: string | null = null;
+
+export function accountKeyIndexStatus(): string | null {
+  return accountKeyIndexError;
+}
+
+async function ensureAccountKeyIndex(): Promise<void> {
+  const q = sql();
+  try {
+    await mergeDuplicateAccountKeys();
+    await q`CREATE UNIQUE INDEX IF NOT EXISTS crm_accounts_kind_key ON crm_accounts (kind, name_key)`;
+    accountKeyIndexError = null;
+  } catch (err) {
+    accountKeyIndexError = err instanceof Error ? err.message : String(err);
+    console.error(`[crm_accounts] unique key index not created: ${accountKeyIndexError}`);
+  }
+}
+
+/**
+ * Point every dependent row at the OLDEST account sharing a `(kind, name_key)`
+ * and delete the rest. A no-op on a clean table (the common case), and the
+ * dependents are only touched when their table exists.
+ */
+async function mergeDuplicateAccountKeys(): Promise<void> {
+  const q = sql();
+  const dupes = (await q`
+    SELECT count(*)::int AS n
+      FROM (SELECT 1 FROM crm_accounts GROUP BY kind, name_key HAVING count(*) > 1) d
+  `) as { n?: number }[];
+  if (!dupes[0]?.n) return;
+  const winners = `
+    SELECT a.id AS dupe_id, MIN(b.id) AS keep_id
+      FROM crm_accounts a
+      JOIN crm_accounts b ON b.kind = a.kind AND b.name_key = a.name_key
+     GROUP BY a.id
+    HAVING MIN(b.id) <> a.id
+  `;
+  for (const [table, column] of [
+    ["crm_bmi_projects", "account_id"],
+    ["crm_contacts", "account_id"],
+    ["crm_leads", "account_id"],
+  ] as const) {
+    const exists = (await q.query(`SELECT to_regclass($1) IS NOT NULL AS ok`, [table])) as {
+      ok: boolean;
+    }[];
+    if (!exists[0]?.ok) continue;
+    await q.query(
+      `UPDATE ${table} t SET ${column} = w.keep_id FROM (${winners}) w WHERE t.${column} = w.dupe_id`,
+    );
+  }
+  await q.query(`DELETE FROM crm_accounts a USING (${winners}) w WHERE a.id = w.dupe_id`);
+  console.warn("[crm_accounts] merged duplicate (kind, name_key) rows before the unique index");
 }
 
 export interface AccountRowRaw {

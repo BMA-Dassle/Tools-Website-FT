@@ -66,8 +66,28 @@ describe("upsertAccountByKey", () => {
     expect(s.text).not.toContain("name = EXCLUDED.name");
     expect(s.params).toEqual(["business", "Acme Corp., Inc.", "acme", "HPFM"]);
     // The schema (memoised once per process, so asserted on this first call)
-    // adds the unique (kind, name_key) index the ON CONFLICT needs.
+    // adds the unique (kind, name_key) index the ON CONFLICT needs, after
+    // checking for the duplicates that would make it raise.
     expect(db.matching(/CREATE UNIQUE INDEX IF NOT EXISTS crm_accounts_kind_key/)).toHaveLength(1);
+    expect(db.matching(/HAVING count\(\*\) > 1/)).toHaveLength(1);
+    expect(db.matching(/DELETE FROM crm_accounts/)).toHaveLength(0); // none to merge
+  });
+
+  it("an index that cannot be created is recorded, not cached as a rejection that kills every read", async () => {
+    vi.resetModules();
+    db.reset();
+    db.respond = (s) => {
+      if (/CREATE UNIQUE INDEX IF NOT EXISTS crm_accounts_kind_key/.test(s.text)) {
+        throw new Error('duplicate key value violates unique constraint "crm_accounts_kind_key"');
+      }
+      return /SELECT count/.test(s.text) ? [{ n: 0 }] : [ACCOUNT_ROW];
+    };
+    const fresh = await import("./accounts-db");
+    expect((await fresh.getAccountById("12"))?.id).toBe("12");
+    expect(fresh.accountKeyIndexStatus()).toContain("duplicate key value");
+    // The memoised promise resolved, so the NEXT read works too.
+    expect((await fresh.getAccountById("12"))?.id).toBe("12");
+    vi.resetModules();
   });
 
   it("refreshAccountLifetime sums non-cancelled group events per account, only for numeric ids", async () => {
