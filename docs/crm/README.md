@@ -91,6 +91,38 @@ and production share). Lease 120 s, batch 50, 45 s deadline; a failure is
 replaces its own. `POST /api/admin/crm/jobs/run` runs a handler inline (how
 previews are smoked — `verifyCron` skips every cron on a preview).
 
+## The public web form (`POST /api/sales-lead/submit`, B3)
+
+v1 alongside v2 (R16): same URL, same request body, same response shape — the
+five `SalesLeadForm.tsx` pages are unchanged except where noted below. What the
+implementer of any later change must know about that body:
+
+- **The form sends every optional control raw**, so an untouched one arrives as
+  `""`, not as an absent key. `WebSubmitSchema` treats `""` as "not filled in"
+  (the `blank()` wrapper) — a blank time still falls back to `12:00` exactly as
+  the legacy route's `body.preferredTime || "12:00"` did. Never tighten one of
+  those fields to reject `""`: it 400s the guest and no `crm_leads` row is
+  written (R2).
+- **`kind` has three values, not two** — `"group" | "birthday" | "all"`.
+  `/group-events`, `/hp/fort-myers/group-events` and `/hp/naples/group-events`
+  all render `<SalesLeadForm kind="all">`.
+- **`preferredDate` is required.** Pandora's party-lead schema has
+  `eventDate: z.iso.date()`, so a blank date has always failed this rail (the
+  legacy route forwarded `""` and answered 502). The route refuses it by name
+  and the form now gates step 2 on the date, so the guest is stopped at the
+  field. A lead whose date is genuinely unknown still cannot be STORED, because
+  `crm_leads.event_date` is `NOT NULL` (PR1 DDL) and `CrmLead.eventDate` is
+  `string` in the shared vocabulary — making it nullable is a cross-sub change
+  (`core/types.ts` + every reader), so it is an owner/lead decision, not a
+  B3 edit.
+- **"Missing" and "invalid" are different answers.** `classifyWebSubmitIssues`
+  decides from the RAW body: a key the guest left blank is missing (legacy
+  wording, legacy order), anything present-but-rejected is
+  `Invalid fields: …`. A malformed email must never be reported as missing.
+- The contract test (`app/api/sales-lead/submit/route.test.ts`) is fed the
+  literal object `SalesLeadForm.tsx` builds, empty strings included. Keep it
+  that way — an idealised fixture certifies a contract the form never sends.
+
 ## Environment
 
 | Variable                                                                                               | Used by                                                                         | Notes                                                                                                           |

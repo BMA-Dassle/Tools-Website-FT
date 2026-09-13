@@ -36,19 +36,40 @@ const post = (body: unknown) =>
     }),
   );
 
-const BODY = {
+/**
+ * THE BODY THE FORM ACTUALLY BUILDS (`components/SalesLeadForm.tsx:347-363`),
+ * key for key, including the empty strings an untouched step-2 control sends.
+ * A contract test for an untouched public route has to be fed the caller's
+ * real payload — an idealised one certifies a contract the form never
+ * exercises (`feedback_fixture_must_match_the_ugly_case`).
+ */
+const formBody = (over: Record<string, unknown> = {}) => ({
   centerKey: "fasttrax-ft-myers",
-  kind: "group",
+  kind: "all",
   firstName: "CRM",
   lastName: "Test",
   email: "crm-test@example.com",
   phone: "(239) 555-1234",
   eventType: "birthday-kid",
   preferredDate: "2026-10-16",
+  preferredTime: "",
   guestCount: 12,
-  notes: "test",
+  notes: "",
+  activityInterest: [] as string[],
   preferredContactMethod: "text",
-};
+  bestTimeToCall: "Afternoon",
+  packagePrefill: undefined,
+  ...over,
+});
+
+/** The same submission with step 2 filled in — the second fixture. */
+const BODY = formBody({
+  kind: "group",
+  preferredTime: "17:30",
+  notes: "test",
+  activityInterest: ["bowling"],
+  packagePrefill: "VIP Birthday",
+});
 
 function minted(): CreateLeadResult {
   return {
@@ -104,7 +125,50 @@ describe("POST /api/sales-lead/submit", () => {
     expect(await res.json()).toEqual({ error: "Unknown centerKey: bowlero" });
   });
 
-  it("success: the legacy body, and createLead was called with source web, FT, kids birthday, 12:00 default time", async () => {
+  it("THE FORM'S OWN BODY: step 2 skipped entirely → 200 and the 12:00 default, exactly as the legacy route", async () => {
+    const res = await post(formBody());
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+    expect(bag.calls).toHaveLength(1);
+    const [input] = bag.calls[0] as [Record<string, unknown>];
+    expect(input.eventTime).toBe("12:00");
+    expect(input.notes).toBeNull();
+  });
+
+  it("kind='all' — three of the five pages send it — is accepted", async () => {
+    for (const kind of ["all", "group", "birthday"]) {
+      bag.calls = [];
+      const res = await post(formBody({ kind }));
+      expect([kind, res.status]).toEqual([kind, 200]);
+    }
+  });
+
+  it("a blank date is refused BY NAME (Pandora requires eventDate; the form now gates step 2 on it)", async () => {
+    const res = await post(formBody({ preferredDate: "" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Missing required fields: preferredDate" });
+    expect(bag.calls).toHaveLength(0);
+  });
+
+  it("a present-but-invalid field is 'invalid', not 'missing'", async () => {
+    const bad = await post(formBody({ email: "not-an-email" }));
+    expect(await bad.json()).toEqual({ error: "Invalid fields: email" });
+    const short = await post(formBody({ phone: "12345" }));
+    expect(await short.json()).toEqual({ error: "Invalid fields: phone" });
+    const time = await post(formBody({ preferredTime: "half five" }));
+    expect(await time.json()).toEqual({ error: "Invalid fields: preferredTime" });
+    const notes = await post(formBody({ notes: "x".repeat(4001) }));
+    expect(await notes.json()).toEqual({ error: "Invalid fields: notes" });
+  });
+
+  it("blank required fields keep the legacy wording and the legacy order", async () => {
+    const res = await post(formBody({ firstName: "", email: "", phone: "" }));
+    expect(await res.json()).toEqual({
+      error: "Missing required fields: firstName, email, phone",
+    });
+  });
+
+  it("success: the legacy body, and createLead was called with source web, FT, kids birthday, the chosen time", async () => {
     const res = await post(BODY);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -123,7 +187,7 @@ describe("POST /api/sales-lead/submit", () => {
       centre: "FT",
       type: "birthday",
       kids: true,
-      eventTime: "12:00",
+      eventTime: "17:30",
       guests: 12,
       email: "crm-test@example.com",
       preferredContactMethod: "text",

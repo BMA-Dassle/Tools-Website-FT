@@ -325,7 +325,12 @@ export function SalesLeadForm({
   // Per-step validation — drives the Next button on steps 1 & 2 and
   // the Submit button on step 3.
   const canAdvanceFromStep1 = Boolean(selectedCenter && eventType && Number(guestCount) >= 1);
-  const canAdvanceFromStep2 = true; // date/time/activities/notes are all optional
+  // The date is NOT optional: Pandora's party-lead schema requires eventDate,
+  // so a blank one has always failed the submit — previously as an opaque
+  // "Submit failed" on step 3, after the guest had filled the whole form in.
+  // Gate it here, where the field lives, so they are told at the field.
+  // Time / activities / notes stay optional.
+  const canAdvanceFromStep2 = Boolean(preferredDate);
   const canSubmit =
     firstName.trim() &&
     lastName.trim() &&
@@ -611,13 +616,19 @@ export function SalesLeadForm({
           {step === 2 && (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Preferred date">
+                <Field label="Preferred date" required>
                   <input
                     type="date"
+                    required
                     value={preferredDate}
                     onChange={(e) => setPreferredDate(e.target.value)}
                     className={inputCls(accent)}
                   />
+                  {!preferredDate && (
+                    <p className="text-xs text-white/50 mt-1.5">
+                      Pick a date to continue — we can still move it later.
+                    </p>
+                  )}
                 </Field>
                 <Field label="Preferred time">
                   <select
@@ -666,6 +677,9 @@ export function SalesLeadForm({
               <Field label="Anything else we should know?">
                 <textarea
                   rows={3}
+                  /* The submit endpoint bounds this at 4000 characters; stop
+                     the guest at the field rather than at the API. */
+                  maxLength={4000}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Dietary needs, age range, special occasions, timing flexibility…"
