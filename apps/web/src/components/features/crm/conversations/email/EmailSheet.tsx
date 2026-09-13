@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { EMAIL_TEST_IDS, type EmailMessageView } from "~/features/crm/email/contracts";
-import { emailKeys } from "~/features/crm/email/queries";
+import { EMAIL_POLL_MS, emailKeys } from "~/features/crm/email/queries";
 import type { QuickActionSheetProps } from "../../deal/actions";
 import { errorMessage } from "../../lib/crm-fetch";
 import { useCrmFetch, useCrmUser } from "../../lib/use-crm-user";
@@ -30,6 +30,11 @@ export default function EmailSheet({ lead, onCancel, onDone }: QuickActionSheetP
   const ctx = useQuery({
     queryKey: emailKeys.context(lead.publicId),
     queryFn: () => fetchEmailContext(crmFetch, lead.publicId),
+    // A guest reply arrives by webhook while the sheet is open; without this it
+    // would not show until the rep closed and reopened it. Foreground only
+    // (§3.4) — a sheet left open on a locked phone polls nothing.
+    refetchInterval: EMAIL_POLL_MS,
+    refetchIntervalInBackground: false,
   });
 
   if (ctx.isPending) return <LoadingState label="Loading this thread…" />;
@@ -46,7 +51,12 @@ export default function EmailSheet({ lead, onCancel, onDone }: QuickActionSheetP
 
   return (
     <div className="stack" data-testid={EMAIL_TEST_IDS.sheet}>
-      <div className="conv-from xs muted">{convFromLine(lead, sender)}</div>
+      {/* `xs muted` only: the ported `.conv-from` rules are scoped to
+          `.conv-tabs .conv-from`, and this line is not inside a `.conv-tabs`,
+          so the class matched nothing — neither the desktop ellipsis nor the
+          phone `display:none`. C1 mounts the real `.conv-tabs` wrapper on the
+          Conversations screen; here the line simply wraps, which is harmless. */}
+      <div className="xs muted">{convFromLine(lead, sender)}</div>
       <EmailThread
         lead={lead}
         sender={sender}
