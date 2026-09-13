@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { listRoster } from "~/features/crm/reps";
-import { plannerOptions, type PlannerOption } from "~/features/crm/leads/planners";
+import {
+  plannerOptions,
+  type PlannerOption,
+  type PlannersResponse,
+} from "~/features/crm/leads/planners";
 
 /**
  * GET /api/sales-lead/planners — the planner list the PUBLIC lead form shows
@@ -32,9 +36,20 @@ import { plannerOptions, type PlannerOption } from "~/features/crm/leads/planner
  * be evaluated during `next build`, which would mean reading Neon at build
  * time. The header does the caching instead.
  *
- * FAILURE: never fatal to the form. An unconfigured or unreachable database
- * answers `{ ok: true, planners: [] }`, the control hides itself, and the
- * guest submits exactly as they did before this feature existed.
+ * FAILURE: never fatal to the form, and never a WORSE answer than the one we
+ * already have. A refresh that throws keeps serving the last roster we read
+ * (the memo is held, not discarded, and retried a minute later) — a thirty
+ * second Neon blip must not empty the dropdown on every marketing page. Only
+ * a cold process with no memo at all answers `{ ok: true, planners: [] }`, and
+ * then the control hides itself and the guest submits exactly as they did
+ * before this feature existed.
+ *
+ * PUBLIC SURFACE, declared: the brief's §6.4 enumerates three public CRM
+ * routes under `/api/crm/**` (graph-webhook, 3cx/*, share/[token]). This is
+ * not a fourth — it is part of the public lead form's own rail at
+ * `/api/sales-lead/*`, it is read-only, and it discloses only what the form
+ * renders to every visitor anyway. It is listed in `docs/crm/README.md`
+ * beside those three so the public surface stays enumerable.
  */
 
 export const runtime = "nodejs";
@@ -42,11 +57,14 @@ export const dynamic = "force-dynamic";
 
 const CACHE_CONTROL = "public, max-age=0, s-maxage=300, stale-while-revalidate=3600";
 const MEMO_MS = 300_000;
+/** After a failed refresh, try Neon again in a minute rather than in five. */
+const RETRY_MS = 60_000;
 
 let memo: { at: number; planners: PlannerOption[] } | null = null;
 
 export async function GET() {
-  let planners: PlannerOption[] = memo && Date.now() - memo.at < MEMO_MS ? memo.planners : [];
+  // The last roster we read is the floor: a failed refresh serves it again.
+  let planners: PlannerOption[] = memo?.planners ?? [];
   if (!memo || Date.now() - memo.at >= MEMO_MS) {
     try {
       planners = plannerOptions(await listRoster());
@@ -55,7 +73,10 @@ export async function GET() {
       console.error("[crm] planner list unavailable for the lead form", {
         error: err instanceof Error ? err.message : String(err),
       });
+      // Keep serving what we have, and come back to Neon sooner than MEMO_MS.
+      if (memo) memo = { at: Date.now() - MEMO_MS + RETRY_MS, planners: memo.planners };
     }
   }
-  return NextResponse.json({ ok: true, planners }, { headers: { "Cache-Control": CACHE_CONTROL } });
+  const body: PlannersResponse = { ok: true, planners };
+  return NextResponse.json(body, { headers: { "Cache-Control": CACHE_CONTROL } });
 }
