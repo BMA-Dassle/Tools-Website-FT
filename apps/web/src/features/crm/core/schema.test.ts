@@ -68,6 +68,25 @@ function createdTables(): string[] {
     .map((s) => /CREATE TABLE IF NOT EXISTS (\w+)/.exec(s.text)?.[1] ?? "?");
 }
 
+/**
+ * WARM THE GRAPH OUTSIDE ANY TEST'S BUDGET.
+ *
+ * The aggregator pulls in every sub's `data/*-db.ts`, and transforming those
+ * thirty-odd modules from cold costs about four seconds — inside vitest's 5 s
+ * default by less than a second, so under a loaded parallel run the first case
+ * times out and the NEXT one then sees the statements the timed-out one left
+ * behind ("expected 49 to be 30"). Importing once here pays that cost at
+ * module scope, where no timeout applies.
+ *
+ * `vi.resetModules()` still runs per test, because "exactly once per process,
+ * however many times it is called" IS the memo, and a memo can only be
+ * observed from a fresh instance. What it no longer costs is a re-TRANSFORM:
+ * resetting clears the execution cache, not vite's transform cache, so the
+ * per-test re-import merely re-runs the module bodies.
+ */
+await import("./schema");
+await import("~/features/crm/jobs");
+
 beforeEach(() => {
   vi.resetModules();
   db.reset();
