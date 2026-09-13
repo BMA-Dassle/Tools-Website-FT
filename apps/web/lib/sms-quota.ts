@@ -67,6 +67,9 @@ export interface QueuedSend {
     | "vip-almost-here"
     | "cancel-refund"
     | "cancel-credit"
+    /** CRM sales text (see `lib/sms-log.ts`). Kept in step with that union so
+     *  a queued CRM send can be drained without widening the type here too. */
+    | "crm-sms"
     | "other";
   /** ISO timestamp of original (failed) attempt */
   queuedAt: string;

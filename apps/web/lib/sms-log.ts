@@ -44,6 +44,12 @@ export interface SmsLogEntry {
     | "group-event-rsvp"
     | "cancel-refund"
     | "cancel-credit"
+    /** A sales rep texting a guest from their own DID in the CRM
+     *  (`src/features/crm/sms/service/send.ts`). Its own source so the admin
+     *  board can tell one-to-one sales conversation apart from automated
+     *  traffic — they leave from different numbers and answer to different
+     *  consent rules. */
+    | "crm-sms"
     | "other";
   /** Voxtelesys HTTP status, or null if we didn't reach the API */
   status: number | null;
