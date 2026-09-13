@@ -5,13 +5,17 @@ import type { CreateLeadResult } from "./create-lead";
 import {
   FORM_EVENT_TO_CRM,
   WEB_DEFAULT_EVENT_TIME,
+  WEB_REQUIRED_ORDER,
   buildPandoraNotes,
   centreForCenterKey,
+  classifyWebSubmitIssues,
   friendlyEventLabel,
+  isBlankWebValue,
   legacyWebResponse,
   missingFieldsMessage,
   webBodyToCreateInput,
   webEventType,
+  webSubmitErrorMessage,
 } from "./web-submit";
 
 /**
@@ -199,5 +203,115 @@ describe("WebSubmitSchema", () => {
       for (const k of ["firstName", "lastName", "email", "phone", "guestCount"])
         expect(paths.has(k)).toBe(true);
     }
+  });
+
+  /**
+   * The form posts every optional control raw, so an untouched one is `""`
+   * on the wire, not an absent key (`SalesLeadForm.tsx:347-363`). `""` is
+   * "not filled in": it must fall through to the same defaults the legacy
+   * route applied, never produce a 400 that loses the capture.
+   */
+  it("every optional control accepts the empty string the form sends", () => {
+    const p = WebSubmitSchema.safeParse({
+      centerKey: "fasttrax-ft-myers",
+      kind: "",
+      firstName: "CRM",
+      lastName: "Test",
+      email: "crm-test@example.com",
+      phone: "2395551234",
+      eventType: "",
+      preferredDate: "",
+      preferredTime: "",
+      guestCount: 12,
+      notes: "",
+      activityInterest: [],
+      preferredContactMethod: "",
+      bestTimeToCall: "",
+      packagePrefill: "",
+    });
+    expect(p.success).toBe(true);
+    if (p.success) {
+      for (const k of [
+        "kind",
+        "eventType",
+        "preferredDate",
+        "preferredTime",
+        "notes",
+        "preferredContactMethod",
+        "bestTimeToCall",
+        "packagePrefill",
+      ] as const)
+        expect([k, p.data[k]]).toEqual([k, undefined]);
+      expect(webBodyToCreateInput(p.data, "FT").eventTime).toBe(WEB_DEFAULT_EVENT_TIME);
+    }
+  });
+
+  it("kind 'all' is a real form value (three of the five pages)", () => {
+    for (const kind of ["group", "birthday", "all"])
+      expect(WebSubmitSchema.safeParse({ ...BODY, kind }).success).toBe(true);
+    expect(WebSubmitSchema.safeParse({ ...BODY, kind: "nope" }).success).toBe(false);
+  });
+
+  it("each bound rejects only a value the guest actually typed", () => {
+    const bad = (over: Record<string, unknown>) => {
+      const p = WebSubmitSchema.safeParse({ ...BODY, ...over });
+      expect(p.success).toBe(false);
+      return p.success ? [] : p.error.issues.map((i) => String(i.path[0]));
+    };
+    expect(bad({ notes: "x".repeat(4001) })).toContain("notes");
+    expect(bad({ phone: "12345" })).toContain("phone");
+    expect(bad({ email: "not-an-email" })).toContain("email");
+    expect(bad({ preferredTime: "half five" })).toContain("preferredTime");
+    expect(bad({ preferredDate: "16/10/2026" })).toContain("preferredDate");
+    expect(bad({ activityInterest: Array.from({ length: 21 }, () => "x") })).toContain(
+      "activityInterest",
+    );
+    expect(bad({ activityInterest: ["x".repeat(61)] })).toContain("activityInterest");
+    expect(bad({ bestTimeToCall: "Midnight" })).toContain("bestTimeToCall");
+    expect(bad({ guestCount: 0 })).toContain("guestCount");
+    // The textarea carries the matching maxLength, so 4000 is reachable.
+    expect(WebSubmitSchema.safeParse({ ...BODY, notes: "x".repeat(4000) }).success).toBe(true);
+  });
+});
+
+describe("missing vs invalid", () => {
+  it("blank is missing; present-but-rejected is invalid", () => {
+    expect(isBlankWebValue(undefined)).toBe(true);
+    expect(isBlankWebValue(null)).toBe(true);
+    expect(isBlankWebValue("   ")).toBe(true);
+    expect(isBlankWebValue([])).toBe(true);
+    expect(isBlankWebValue("x")).toBe(false);
+    expect(isBlankWebValue(0)).toBe(false);
+  });
+
+  it("classifies against the RAW body, in the legacy order", () => {
+    const raw = { email: "nope", phone: "", firstName: "", notes: "x".repeat(4001) };
+    expect(classifyWebSubmitIssues(raw, ["email", "notes", "phone", "firstName"])).toEqual({
+      missing: ["firstName", "phone"],
+      invalid: ["email", "notes"],
+    });
+  });
+
+  it("the message keeps the legacy wording for blanks and names invalid values honestly", () => {
+    expect(webSubmitErrorMessage({ missing: ["firstName", "email"], invalid: [] })).toBe(
+      "Missing required fields: firstName, email",
+    );
+    // A malformed email used to read "Missing required fields: email".
+    expect(webSubmitErrorMessage({ missing: [], invalid: ["email"] })).toBe(
+      "Invalid fields: email",
+    );
+    expect(webSubmitErrorMessage({ missing: [], invalid: [] })).toBe("Invalid fields: body");
+  });
+
+  it("WEB_REQUIRED_ORDER is the legacy list plus preferredDate", () => {
+    expect([...WEB_REQUIRED_ORDER]).toEqual([
+      "centerKey",
+      "firstName",
+      "lastName",
+      "email",
+      "phone",
+      "preferredDate",
+      "guestCount",
+    ]);
   });
 });

@@ -103,27 +103,49 @@ export type LeadAssignBody = z.infer<typeof LeadAssignSchema>;
 
 export const EmptySchema = z.object({});
 
+/**
+ * `""` means "the guest never filled this control in", not "invalid".
+ *
+ * `SalesLeadForm.tsx:347-363` sends every optional control RAW: the time
+ * `<select>`'s default option is `value=""`, the date input initialises to
+ * `""`, the textarea to `""` — and step 2 is skippable, so the common body
+ * carries empty strings, not absent keys. Without this, an untouched control
+ * produced a zod issue and a 400, and the guest's submission was never
+ * written to Neon (R2). The legacy route coerced the same way
+ * (`body.preferredTime || "12:00"`).
+ */
+const blank = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), schema);
+
 /** The web form's body (`components/SalesLeadForm.tsx`), unchanged on the wire. */
 export const WebSubmitSchema = z.object({
   centerKey: z.string().trim().min(1).max(40),
-  kind: z.enum(["group", "birthday"]).optional(),
+  /**
+   * "all" is a real value: `/group-events`, `/hp/fort-myers/group-events` and
+   * `/hp/naples/group-events` all render `<SalesLeadForm kind="all">` (the
+   * combined dropdown), and the form posts the prop verbatim. Three of the
+   * five pages send it — omitting it here 400s them all.
+   */
+  kind: blank(z.enum(["group", "birthday", "all"]).optional()),
   firstName: Name,
   lastName: Name,
   email: Email,
   phone: Phone,
-  eventType: z.string().trim().max(40).optional(),
-  preferredDate: Ymd.optional(),
-  preferredTime: z
-    .string()
-    .trim()
-    .regex(/^\d{2}:\d{2}(:\d{2})?$/)
-    .optional(),
+  eventType: blank(z.string().trim().max(40).optional()),
+  preferredDate: blank(Ymd.optional()),
+  preferredTime: blank(
+    z
+      .string()
+      .trim()
+      .regex(/^\d{2}:\d{2}(:\d{2})?$/)
+      .optional(),
+  ),
   guestCount: z.coerce.number().int().min(1).max(5000),
-  notes: z.string().trim().max(4000).optional(),
+  notes: blank(z.string().trim().max(4000).optional()),
   activityInterest: z.array(z.string().trim().max(60)).max(20).optional(),
-  preferredContactMethod: z.enum(["phone", "text", "email"]).optional(),
-  bestTimeToCall: z.enum(["Morning", "Afternoon", "Evening"]).optional(),
-  packagePrefill: z.string().trim().max(120).optional(),
+  preferredContactMethod: blank(z.enum(["phone", "text", "email"]).optional()),
+  bestTimeToCall: blank(z.enum(["Morning", "Afternoon", "Evening"]).optional()),
+  packagePrefill: blank(z.string().trim().max(120).optional()),
 });
 
 export type WebSubmitBody = z.infer<typeof WebSubmitSchema>;

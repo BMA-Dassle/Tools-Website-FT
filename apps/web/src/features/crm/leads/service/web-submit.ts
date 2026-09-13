@@ -47,7 +47,8 @@ export const FORM_EVENT_TO_CRM: Record<string, { type: EventType; kids: boolean 
 
 export function webEventType(
   formValue: string | undefined,
-  kind: "group" | "birthday" | undefined,
+  /** The form's own prop; `"all"` is the combined group-events dropdown. */
+  kind: "group" | "birthday" | "all" | undefined,
 ) {
   if (formValue && FORM_EVENT_TO_CRM[formValue]) return FORM_EVENT_TO_CRM[formValue];
   if (kind === "birthday") return { type: "birthday" as EventType, kids: false };
@@ -134,6 +135,79 @@ export function webBodyToCreateInput(body: WebSubmitBody, centre: CentreCode): C
 /** Legacy `validateBody` wording from zod's issues. */
 export function missingFieldsMessage(paths: readonly string[]): string {
   return `Missing required fields: ${paths.join(", ")}`;
+}
+
+/**
+ * The legacy required-field names, in the legacy order, for the legacy
+ * message (`route.ts` validateBody, before the cutover) — plus
+ * `preferredDate`, which Pandora requires (`eventDate: z.iso.date()`) and the
+ * form now gates step 2 on.
+ */
+export const WEB_REQUIRED_ORDER = [
+  "centerKey",
+  "firstName",
+  "lastName",
+  "email",
+  "phone",
+  "preferredDate",
+  "guestCount",
+] as const;
+
+export interface WebSubmitRejection {
+  /** The guest left it blank (absent, null, `""`, or an empty list). */
+  missing: string[];
+  /** The guest filled it in and the shape rejected the value. */
+  invalid: string[];
+}
+
+/** Blank as the FORM means it: an absent key, null, `""`, or an empty list. */
+export function isBlankWebValue(v: unknown): boolean {
+  if (v === undefined || v === null) return true;
+  if (typeof v === "string") return v.trim() === "";
+  if (Array.isArray(v)) return v.length === 0;
+  return false;
+}
+
+/**
+ * "Missing" and "invalid" are different failures and the guest must be told
+ * which: a present-but-malformed email used to come back as
+ * "Missing required fields: email", which reads as a bug in our form. The
+ * raw body decides — a key the guest never filled in is missing, anything
+ * else the shape rejected is invalid.
+ */
+export function classifyWebSubmitIssues(
+  raw: unknown,
+  paths: readonly string[],
+): WebSubmitRejection {
+  const body = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const k of WEB_REQUIRED_ORDER) {
+    if (paths.includes(k) && !seen.has(k)) {
+      seen.add(k);
+      ordered.push(k);
+    }
+  }
+  for (const k of paths) {
+    if (k && !seen.has(k)) {
+      seen.add(k);
+      ordered.push(k);
+    }
+  }
+  const missing: string[] = [];
+  const invalid: string[] = [];
+  for (const k of ordered) (isBlankWebValue(body[k]) ? missing : invalid).push(k);
+  return { missing, invalid };
+}
+
+/**
+ * The 400 body. Blank fields keep the legacy wording byte-for-byte (the form
+ * shows `data.error` verbatim); anything present-but-rejected is named as
+ * invalid instead of pretending it was never sent.
+ */
+export function webSubmitErrorMessage(r: WebSubmitRejection): string {
+  if (r.missing.length) return missingFieldsMessage(r.missing);
+  return `Invalid fields: ${r.invalid.join(", ") || "body"}`;
 }
 
 export interface LegacyWebResponse {

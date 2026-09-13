@@ -179,9 +179,14 @@ export {
   friendlyEventLabel,
   legacyWebResponse,
   missingFieldsMessage,
+  classifyWebSubmitIssues,
+  isBlankWebValue,
+  webSubmitErrorMessage,
   FORM_EVENT_TO_CRM,
   FORM_EVENT_FRIENDLY,
   WEB_DEFAULT_EVENT_TIME,
+  WEB_REQUIRED_ORDER,
   type LegacyWebResponse,
+  type WebSubmitRejection,
 } from "./service/web-submit";
 export { runLeadBmiJob, defaultLeadBmiJobDeps, type LeadBmiJobDeps } from "./service/jobs";
