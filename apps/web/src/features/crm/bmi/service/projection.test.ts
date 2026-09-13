@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { canonicalizePhone } from "@/lib/participant-contact";
 import { fixtureText } from "@/test/msw/handlers/fixture";
 import {
+  FIXTURE_COMPANY_PERSON_ID,
   FIXTURE_HOST_PERSON_ID,
   FIXTURE_ONLINE_PERSON_ID,
   FIXTURE_ONLINE_PROJECT_ID,
@@ -13,10 +14,12 @@ import {
   ONLINE_KIND_ID,
   accountKeyFor,
   centreCodeForLocation,
+  companyNameOf,
   dayPlannerEntries,
   dayPlannerPersons,
   dayPlannerProjects,
   dayPlannerStubRow,
+  idString,
   liveReservationIds,
   liveReservationRow,
   locationIdFor,
@@ -41,6 +44,7 @@ import {
 
 const PROJECT_TEXT = fixtureText("office-project-58454076.json.txt");
 const PERSON_TEXT = fixtureText("office-person-63000000009561437.json.txt");
+const COMPANY_TEXT = fixtureText("office-person-63000000009561447.json.txt");
 
 describe("ids survive as strings (R1)", () => {
   it("NEGATIVE CONTROL — JSON.parse rounds the 17-digit ids in the fixtures", () => {
@@ -75,11 +79,13 @@ describe("ids survive as strings (R1)", () => {
 describe("projectDetail — names, dates, money, location", () => {
   const detail = officeParse<OfficeProjectDetail>(PROJECT_TEXT);
   const person = officeParse<OfficePersonEntity>(PERSON_TEXT);
+  const company = officeParse<OfficePersonEntity>(COMPANY_TEXT);
   const projected = projectDetail(detail, person, {
     clientKey: "headpinzftmyers",
     source: "backfill",
     lookups: fixtureMetadata(),
     scheduleResourceIds: ["305133"],
+    companyName: companyNameOf(company),
   });
   const { row, account, contact } = projected;
 
@@ -103,7 +109,7 @@ describe("projectDetail — names, dates, money, location", () => {
     expect(row.balanceCents).toBe(0);
   });
 
-  it("the host: E.164 phone, lower-cased email key, and a BUSINESS account from the company", () => {
+  it("the host: E.164 phone, lower-cased email key, and a BUSINESS account from the company RECORD", () => {
     expect(contact).toEqual({
       firstName: "Dana",
       lastName: "Acme",
@@ -116,6 +122,41 @@ describe("projectDetail — names, dates, money, location", () => {
     expect(row.personPhone).toBe("+12395554021");
     expect(row.personEmail).toBe("Dana@AcmeCorp.com");
     expect(account).toEqual({ kind: "business", name: "Acme Corp., Inc.", nameKey: "acme" });
+  });
+
+  it("the company name comes from the project's companyId PERSON — a host entity has no company field", () => {
+    // Probed live 2026-09-13: five Naples host records carry no `company` key
+    // at all, while `project.companyId` resolves to a person whose `name` is
+    // the business ("Naples Bears", "Blossom Academy", "Home Team Pest
+    // Defense"). The fixtures now match that shape, so the business branch is
+    // exercised through the real rail and not through an invented field.
+    expect(person).not.toHaveProperty("company");
+    expect(idString(detail.companyId)).toBe(FIXTURE_COMPANY_PERSON_ID);
+    expect(companyNameOf(company)).toBe("Acme Corp., Inc.");
+    expect(String((JSON.parse(COMPANY_TEXT) as { id: number }).id)).not.toBe(
+      FIXTURE_COMPANY_PERSON_ID,
+    );
+    // Without the company record the same booking is a household, not a business.
+    const bare = projectDetail(detail, person, {
+      clientKey: "headpinzftmyers",
+      source: "backfill",
+      lookups: fixtureMetadata(),
+    });
+    expect(bare.account?.kind).toBe("household");
+    // Two different hosts booking the same company land on ONE account key.
+    const other = accountKeyFor(
+      { id: "5718917", firstName: "Selome", name: "Spurlock" },
+      {
+        firstName: "Selome",
+        lastName: "Spurlock",
+        phoneE164: "+12395550001",
+        email: null,
+        emailKey: null,
+        bmiPersonId: "5718917",
+      },
+      "Acme Corp Inc",
+    );
+    expect(other?.nameKey).toBe(account?.nameKey);
   });
 
   it("the Fort Myers tenant splits by schedule resource: lanes → HPFM, karting-only → FT", () => {

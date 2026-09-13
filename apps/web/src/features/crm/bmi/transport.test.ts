@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { http, installMsw, rawJson } from "@/test/msw/server";
-import { OFFICE_BASE, officeFixtures, officeHandlers } from "@/test/msw/handlers/office";
 import {
+  OFFICE_BASE,
+  OFFICE_PROJECT_ID,
+  officeFixtures,
+  officeHandlers,
+} from "@/test/msw/handlers/office";
+import {
+  OFFICE_COMPANY_PERSON_ID,
   OFFICE_HOST_PERSON_ID,
   OFFICE_ONLINE_PROJECT_ID,
   officeMirrorCalls,
@@ -36,6 +42,7 @@ const {
   mapWithConcurrency,
   tenantResourceIds,
   collectResourceIds,
+  collectUserNames,
   chunk,
 } = await import("./transport");
 const { officeGet } = await import("~/features/daily-events/data/bmi-office");
@@ -74,6 +81,20 @@ describe("session tags", () => {
     ]);
   });
 
+  it("a project's companyId survives the parse as a string — it is another PERSON id", async () => {
+    // OFFICE_ID_FIELDS gained "companyId" in this PR: the field points at the
+    // person record that carries the BUSINESS name, so rounding it would read
+    // the wrong company. The fixture's value is deliberately one that a naive
+    // parse corrupts (…447 → …450).
+    const text = officeFixtures.project();
+    expect(String((JSON.parse(text) as { companyId: number }).companyId)).not.toBe(
+      OFFICE_COMPANY_PERSON_ID,
+    );
+    const p = await officeProject<{ companyId: string }>("headpinzftmyers", OFFICE_PROJECT_ID);
+    expect(p.companyId).toBe(OFFICE_COMPANY_PERSON_ID);
+    expect(typeof p.companyId).toBe("string");
+  });
+
   it("officeGet WITHOUT a tag still rides the shared events session (guest reads unchanged)", async () => {
     await officeGet("headpinznaples", `person/${OFFICE_HOST_PERSON_ID}`);
     expect(officeMirrorCalls[0]?.sessionId).toBe("events-headpinznaples");
@@ -98,6 +119,25 @@ describe("tenant resource ids", () => {
     const ids = await tenantResourceIds("headpinznaples");
     expect(ids).toEqual(["11208654", "11208660"]); // the metadata fixture's resources, nothing else
     expect(sessionId).toBe("crm-backfill-headpinznaples");
+  });
+
+  it("collectUserNames reads Office's `username` — the field the shared lookup misses", () => {
+    // An Office metadata user row is {active, username, personId, agent, id} —
+    // no `name`, no `displayName`. `getMetadataLookups` looks only for those
+    // two, so its userNames map holds the hard-coded Fort Myers list and
+    // nothing else, and every Naples project mirrored with a null responsible
+    // name (probed 2026-09-13: 46 projects under user 41096 alone).
+    expect(
+      collectUserNames({
+        users: [
+          { id: "41096", username: "mvargas", active: true },
+          { id: "-6", username: "ONLINE", active: true },
+          { id: "7", username: "  ", name: "Curated Name" },
+          { id: "", username: "dropped" },
+        ],
+      }),
+    ).toEqual({ "41096": "mvargas", "-6": "ONLINE", "7": "Curated Name" });
+    expect(collectUserNames({})).toEqual({});
   });
 
   it("collectResourceIds walks resources, children, sub-resources, groups AND group members, deduped", () => {

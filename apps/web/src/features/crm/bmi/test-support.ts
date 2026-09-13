@@ -36,6 +36,8 @@ export const FIXTURE_PROJECT_ID = "58454076";
 export const FIXTURE_ONLINE_PROJECT_ID = "58454077";
 export const FIXTURE_HOST_PERSON_ID = "63000000009561437";
 export const FIXTURE_ONLINE_PERSON_ID = "63000000009561440";
+/** The BUSINESS record project 58454076 points at with `companyId`. */
+export const FIXTURE_COMPANY_PERSON_ID = "63000000009561447";
 
 export function fixtureMetadata(): OfficeMetadata {
   const meta = officeParse<{
@@ -70,6 +72,8 @@ export const FIXTURE_PERSONS: Record<string, () => OfficePersonEntity> = {
     officeParse(fixtureText("office-person-63000000009561437.json.txt")),
   [FIXTURE_ONLINE_PERSON_ID]: () =>
     officeParse(fixtureText("office-person-63000000009561440.json.txt")),
+  [FIXTURE_COMPANY_PERSON_ID]: () =>
+    officeParse(fixtureText("office-person-63000000009561447.json.txt")),
 };
 
 export interface OfficeCall {

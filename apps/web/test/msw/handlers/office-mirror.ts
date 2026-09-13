@@ -23,6 +23,12 @@ import { OFFICE_BASE } from "./office";
 export const OFFICE_ONLINE_PROJECT_ID = "58454077";
 export const OFFICE_HOST_PERSON_ID = "63000000009561437";
 export const OFFICE_ONLINE_PERSON_ID = "63000000009561440";
+/**
+ * The BUSINESS behind project 58454076: Office keeps a company as a second
+ * PERSON record and the project points at it with `companyId` (probed live
+ * 2026-09-13 — a host person entity has no `company` field of its own).
+ */
+export const OFFICE_COMPANY_PERSON_ID = "63000000009561447";
 
 export const officeMirrorFixtures = {
   dayPlanner: () => fixtureText("office-dayplanner-2025-09.json.txt"),
@@ -30,6 +36,7 @@ export const officeMirrorFixtures = {
   onlineProject: () => fixtureText("office-project-58454077.json.txt"),
   hostPerson: () => fixtureText("office-person-63000000009561437.json.txt"),
   onlinePerson: () => fixtureText("office-person-63000000009561440.json.txt"),
+  companyPerson: () => fixtureText("office-person-63000000009561447.json.txt"),
 };
 
 export interface RecordedOfficeCall {
@@ -67,6 +74,8 @@ export const officeMirrorHandlers = [
     record(request);
     if (params.id === OFFICE_HOST_PERSON_ID) return rawJson(officeMirrorFixtures.hostPerson());
     if (params.id === OFFICE_ONLINE_PERSON_ID) return rawJson(officeMirrorFixtures.onlinePerson());
+    if (params.id === OFFICE_COMPANY_PERSON_ID)
+      return rawJson(officeMirrorFixtures.companyPerson());
     return new HttpResponse("Not found", { status: 404 });
   }),
 ];

@@ -85,6 +85,14 @@ export interface OfficeProductLine {
 }
 
 export interface OfficeProjectDetail extends OfficeDpProject {
+  /**
+   * The BUSINESS behind the booking, as a second PERSON record whose `name` is
+   * the company (probed live 2026-09-13: Naples project 5725493 `companyId`
+   * 5725529 → `person/5725529.name` = "Naples Bears"; 5638044 = "Blossom
+   * Academy"; 5843900 = "Home Team Pest Defense"). Null on ~90% of projects —
+   * those are households. See `accountKeyFor`.
+   */
+  companyId?: unknown;
   balance?: number;
   bills?: Array<{ id?: unknown; total?: number; balance?: number }>;
   products?: OfficeProductLine[];
@@ -328,21 +336,43 @@ export function personContact(person: OfficePersonEntity | null): ContactKey | n
   };
 }
 
+/**
+ * A company name from the HOST person record. Kept as a secondary rail only:
+ * a real Office person entity has no `company` field at all (probed live
+ * 2026-09-13 against five Naples hosts — the keys are `privateMemo, publicMemo,
+ * tags, memberships, alias, …, name2, free1, free2, kind, …, addresses`), so
+ * in production this always returns null and the company comes from the
+ * project's `companyId` person instead (`companyNameOf`).
+ */
 export function personCompany(person: OfficePersonEntity | null): string | null {
   if (!person) return null;
   return firstString(person.company, person.companyName);
 }
 
+/** The business name on a `companyId` person record: its `name` field. */
+export function companyNameOf(company: OfficePersonEntity | null): string | null {
+  if (!company) return null;
+  return firstString(company.name, company.company, company.companyName);
+}
+
 /**
- * The account a project belongs to. Business when the person carries a company;
- * else a household keyed on `lastName + phone digits` (brief B1), then email,
- * then the person id — never on the last name alone.
+ * The account a project belongs to. BUSINESS when the project names a company
+ * (`companyId` → that person's `name`, passed in as `companyName`; the host
+ * person's own `company` field is a fallback for rails that carry one); else a
+ * household keyed on `lastName + phone digits` (brief B1), then email, then the
+ * person id — never on the last name alone.
+ *
+ * Two bookings by different people for the same company (Naples had two
+ * "Arthrex" events in one month, each with its own `companyId` record) share a
+ * `nameKey`, so they land on ONE account — which is the whole point of the
+ * History screen's business rows.
  */
 export function accountKeyFor(
   person: OfficePersonEntity | null,
   contact: ContactKey | null,
+  companyName?: string | null,
 ): AccountKey | null {
-  const company = personCompany(person);
+  const company = firstString(companyName) ?? personCompany(person);
   if (company) {
     const key = normalizeNameKey(company);
     if (key) return { kind: "business", name: company, nameKey: key };
@@ -427,6 +457,8 @@ export interface ProjectionContext {
   lookups: NameLookups | null;
   /** Resource ids from the dayPlanner schedules for this project (location split). */
   scheduleResourceIds?: readonly string[];
+  /** The business name read from the project's `companyId` person, when it has one. */
+  companyName?: string | null;
 }
 
 /**
@@ -453,7 +485,7 @@ export function projectDetail(
       : []),
   ];
   const contact = personContact(person);
-  const account = accountKeyFor(person, contact);
+  const account = accountKeyFor(person, contact, ctx.companyName ?? null);
   const personName = contact
     ? [contact.firstName, contact.lastName].filter(Boolean).join(" ") || null
     : null;

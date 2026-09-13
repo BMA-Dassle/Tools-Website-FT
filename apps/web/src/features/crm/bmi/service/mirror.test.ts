@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  FIXTURE_COMPANY_PERSON_ID,
   FIXTURE_HOST_PERSON_ID,
   FIXTURE_ONLINE_PROJECT_ID,
   FIXTURE_PROJECT_ID,
@@ -52,9 +53,22 @@ describe("one window, end to end", () => {
     const projectReads = deps.office.calls.filter((c) => c.op === "project");
     expect(projectReads.map((c) => c.args[1])).toEqual([FIXTURE_PROJECT_ID]);
     expect(projectReads[0]?.args[2]).toBe("crm-backfill");
+    // The host AND the project's `companyId` record — Office keeps a business
+    // as a second person row, and its `name` is the only company name on this
+    // rail (probed live 2026-09-13).
     expect(deps.office.calls.filter((c) => c.op === "person").map((c) => c.args[1])).toEqual([
       FIXTURE_HOST_PERSON_ID,
+      FIXTURE_COMPANY_PERSON_ID,
     ]);
+    expect(deps.office.calls.filter((c) => c.op === "person").map((c) => c.args[2])).toEqual([
+      "crm-backfill",
+      "crm-backfill",
+    ]);
+    expect(deps.linker.linked[0]?.account).toEqual({
+      kind: "business",
+      name: "Acme Corp., Inc.",
+      nameKey: "acme",
+    });
 
     expect(result).toMatchObject({
       ok: true,
