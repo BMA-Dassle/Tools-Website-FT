@@ -50,6 +50,12 @@ export const OFFICE_ID_FIELDS = [
   "payMethodId",
   "productId",
   "contactPersonId",
+  // A project's BUSINESS: `companyId` is another PERSON id (probed 2026-09-13 —
+  // Naples project 5725493 `companyId` 5725529 reads back as the person record
+  // named "Naples Bears"), so it is as precision-critical as `personId`. It was
+  // missing from this list, which on a 17-digit tenant would have rounded it
+  // and read the WRONG person — the 2026 off-by-one, under a new field name.
+  "companyId",
 ] as const;
 
 export class OfficeApiError extends Error {

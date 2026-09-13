@@ -44,6 +44,7 @@ import {
 } from "./deps";
 import {
   ONLINE_KIND_ID,
+  companyNameOf,
   dayPlannerEntries,
   dayPlannerPersons,
   dayPlannerProjects,
@@ -121,11 +122,22 @@ export async function mirrorOneProject(
   const detail = await deps.office.project(clientKey, projectId, sessionTag);
   const personId = idString(detail.personId) ?? idString(detail.contactPersonId);
   const person = personId ? await deps.office.person(clientKey, personId, sessionTag) : null;
+  // A corporate booking names its BUSINESS as a second person record
+  // (`companyId` → that record's `name`) — the only place a company name lives
+  // on this rail (probed 2026-09-13; the host person entity has no `company`
+  // field at all). ~10% of projects have one, so this is one extra read per
+  // business event, serialised behind the host read inside the same worker.
+  const companyId = idString(detail.companyId);
+  const company =
+    companyId && companyId !== personId
+      ? await deps.office.person(clientKey, companyId, sessionTag)
+      : null;
   const projected = projectDetail(detail, person, {
     clientKey,
     source,
     lookups,
     scheduleResourceIds,
+    companyName: companyNameOf(company),
   });
   const link = await deps.linker.link(projected);
   const { inserted } = await deps.store.upsert(projected.row, link);
