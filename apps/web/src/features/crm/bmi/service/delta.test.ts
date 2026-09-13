@@ -158,20 +158,59 @@ describe("what a complete run does", () => {
     expect(deps.enqueued).toHaveLength(0);
   });
 
-  it("a failed detail keeps the live row (partial), still advances, and says so in the run's error", async () => {
+  it("a failed detail keeps the live row (partial), enqueues a retry for that id, and says so in the run's error", async () => {
     const deps = memoryDeps(NOW);
     deps.office.failProjects.add(FIXTURE_ONLINE_PROJECT_ID);
     const r = await runDelta(cursor(), deps);
-    expect(r).toMatchObject({ ok: true, partial: 1, failed: [], complete: true });
+    expect(r).toMatchObject({
+      ok: true,
+      partial: 1,
+      failed: [],
+      complete: true,
+      partialRetry: "bmi-mirror-delta:headpinzftmyers:2026-09-12T23:32:10.000Z:partial",
+    });
     const row = deps.store.rows.get(FIXTURE_ONLINE_PROJECT_ID)!.row;
+    // The live row says "Confirmation"; the id is resolved from the tenant's
+    // metadata so the row never carries a fresh NAME beside a stale id.
     expect(row).toMatchObject({
       number: "W59922",
       stateName: "Confirmation",
-      stateId: null,
+      stateId: "-3",
       source: "delta",
     });
     expect(deps.store.runs[0]?.ok).toBe(true);
     expect(deps.store.runs[0]?.error).toContain(FIXTURE_ONLINE_PROJECT_ID);
+
+    // The retry carries ONLY the partial id, on the same window, chain off.
+    const retry = deps.enqueued.find((e) => e.idempotencyKey === r.partialRetry)!;
+    expect(retry.payload).toMatchObject({
+      clientKey: "headpinzftmyers",
+      fromIso: r.window.from,
+      untilIso: r.window.until,
+      projectIds: [FIXTURE_ONLINE_PROJECT_ID],
+      offset: 0,
+      chain: false,
+    });
+
+    // A second partial run of the same window adds no second retry job.
+    const again = await runDelta(cursor(), deps);
+    expect(again.partialRetry).toBe(r.partialRetry);
+    expect(deps.enqueued.filter((e) => e.idempotencyKey === r.partialRetry)).toHaveLength(2);
+    expect(
+      deps.enqueued.filter((e) => e.idempotencyKey === r.partialRetry && e.created),
+    ).toHaveLength(1);
+  });
+
+  it("a live row whose state name the tenant's metadata cannot place stores NEITHER half", async () => {
+    const deps = memoryDeps(NOW);
+    deps.office.failProjects.add(FIXTURE_ONLINE_PROJECT_ID);
+    const rows = deps.office.liveRows;
+    deps.office.liveRows = () => rows().map((lr) => ({ ...lr, state: "Brand New State" }));
+    await runDelta(cursor(), deps);
+    expect(deps.store.rows.get(FIXTURE_ONLINE_PROJECT_ID)!.row).toMatchObject({
+      stateId: null,
+      stateName: null,
+    });
   });
 
   it("nothing changed → an ok run with zero rows and the next bucket", async () => {

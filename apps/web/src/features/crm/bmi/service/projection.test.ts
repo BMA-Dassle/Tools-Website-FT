@@ -356,15 +356,16 @@ describe("liveReservations → ids and partial rows", () => {
     ]);
   });
 
-  it("a partial row keeps names and money, never invents ids", () => {
-    const row = liveReservationRow(live[0]!, "headpinzftmyers");
+  it("a partial row resolves the live row's NAMES back to ids and never invents one", () => {
+    const meta = fixtureMetadata();
+    const row = liveReservationRow(live[0]!, "headpinzftmyers", meta);
     expect(row).toMatchObject({
       projectId: FIXTURE_PROJECT_ID,
       number: "H3248",
       stateName: "Send Contract",
-      stateId: null,
+      stateId: "49130082",
       responsibleName: "Kelsea Kosco",
-      responsibleUserId: null,
+      responsibleUserId: "28267036",
       personName: "Dana Acme",
       eventDate: "2025-09-20",
       totalValueCents: 119_997,
@@ -372,6 +373,20 @@ describe("liveReservations → ids and partial rows", () => {
       source: "delta",
       raw: null,
     });
-    expect(liveReservationRow({ id: "" }, "x")).toBeNull();
+    // Ids the metadata cannot place take their NAME down with them: the upsert
+    // COALESCEs the id, so a fresh name beside a stale id would be a lie.
+    const unknown = liveReservationRow(
+      { ...live[0]!, state: "Fresh Status", responsible: "Nobody At All" },
+      "headpinzftmyers",
+      meta,
+    );
+    expect(unknown).toMatchObject({
+      stateId: null,
+      stateName: null,
+      responsibleUserId: null,
+      responsibleName: null,
+      number: "H3248",
+    });
+    expect(liveReservationRow({ id: "" }, "x", meta)).toBeNull();
   });
 });
