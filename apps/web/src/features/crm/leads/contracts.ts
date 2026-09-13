@@ -77,9 +77,15 @@ export interface LeadView extends CrmLead {
 
 export type AssignmentReason = "manual" | "auto" | "reassign" | "rule" | "release";
 
-/** One `.tr-row` of a rule trace: the step plus the rule's label. */
+/**
+ * One `.tr-row` of a rule trace: the step plus the rule's label, and the
+ * on-screen code ("R6") the pill shows. `ruleId` stays the DATABASE id — it is
+ * what `crm_assignments.rule_id` stores and what the sheet matches the final
+ * row on — so the code travels beside it rather than replacing it.
+ */
 export interface RuleTraceRowView extends RuleTraceStep {
   label: string;
+  code?: string;
 }
 
 export interface LeadAssignmentView {
@@ -99,11 +105,13 @@ export interface LeadAssignmentView {
   createdAt: string;
 }
 
-/** What the engine (B2, later) proposes for an unassigned lead. */
+/** What the assignment engine proposes for an unassigned lead. */
 export interface LeadSuggestionView {
   rep: PublicRep;
   reason: string;
   ruleId: string | null;
+  /** "R6" — the deciding rule's on-screen code, for the trace's `.final` row. */
+  finalRuleCode?: string | null;
 }
 
 // ---------------------------------------------------------------------------

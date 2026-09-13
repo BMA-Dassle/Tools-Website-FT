@@ -2,13 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdminCredential } from "@/lib/admin-request-auth";
 import { verifyCron } from "@/lib/cron-auth";
 import { ensureCrmSchema } from "~/features/crm/core/schema";
-import { drainDueJobs } from "~/features/crm/jobs";
+import { drainDueJobs, enqueueScheduled } from "~/features/crm/jobs";
 
 /**
  * GET /api/cron/crm-jobs — every 2 minutes (the ONE CRM cron, brief §3.9).
  *
- * Drains due `crm_jobs` rows through `HANDLERS[kind]`: lease 120 s, batch 50,
- * 45 s deadline (rows leased but not reached are released untouched).
+ * Each tick does two things, in this order:
+ *   1. `enqueueScheduled(now)` — puts the CURRENT BUCKET of every scheduled
+ *      kind into `crm_jobs` (`assign-sweep:<ET date>THH`, `sevenshifts-mirror:
+ *      <ET date>`). The unique index on `idempotency_key` with ON CONFLICT DO
+ *      NOTHING is what makes a 2-minute cron enqueue an hourly sweep once an
+ *      hour; a later PR adds one line to `SCHEDULED_KINDS` for its own kind.
+ *      It never throws — a failed enqueue must not cost us the drain.
+ *   2. drain due `crm_jobs` rows through `HANDLERS[kind]`: lease 120 s, batch
+ *      50, 45 s deadline (rows leased but not reached are released untouched).
+ *
+ * The enqueue runs FIRST so a bucket that just opened is drained on the same
+ * tick rather than waiting two more minutes.
  *
  * AUTH IS TOKEN-FIRST (R15), the same order as `bmi-sync-queue/route.ts:70-76`:
  * `verifyCron` returns `{skipped:"not production"}` on EVERY preview before it
@@ -34,14 +44,17 @@ export async function GET(req: NextRequest) {
 
   await ensureCrmSchema();
   const started = Date.now();
+  const scheduled = await enqueueScheduled(new Date());
   const summary = await drainDueJobs();
+  const opened = scheduled.filter((s) => s.created).map((s) => s.idempotencyKey);
   console.log(
-    `[crm-jobs] leased=${summary.leased} ran=${summary.ran} done=${summary.done} ` +
+    `[crm-jobs] enqueued=${opened.length}${opened.length ? ` (${opened.join(", ")})` : ""} ` +
+      `leased=${summary.leased} ran=${summary.ran} done=${summary.done} ` +
       `retry=${summary.retry} parked=${summary.parked} deferred=${summary.deferred} ` +
       `in ${Date.now() - started}ms`,
   );
   return NextResponse.json(
-    { ok: true, manual, ...summary },
+    { ok: true, manual, scheduled, ...summary },
     { headers: { "cache-control": "no-store" } },
   );
 }

@@ -9,10 +9,18 @@
  *      `mint_status` 'pending' — or 'none' with `needs_email_or_time` when
  *      Pandora could not accept it, or 'none' for a prospect — COMMITTED
  *   3. activity "Lead captured …"
- *   4. `suggestFor` (the engine seam; null until B2 is wired)
+ *   4. `suggestFor` — the assignment rules (B2's engine)
  *   5. `mintLead` → Pandora, `agent` = the pick's Office name or "First Available"
  *   6. notifications — never fatal
- *   7. `assignLead(reason:'rule')` when the engine picked someone
+ *   7. `assignLead(reason:'rule')` for a HOLD or ROUTE decision
+ *
+ * Step 7 applies only the decisions that exist for a business reason — a
+ * ≥ 100-guest enquiry held for the Marketing Director, a kids' birthday or a
+ * small school group routed to Guest Services. The balancing rule's pick
+ * ("lowest Oct volume") is shown in the queue with its trace and applied by
+ * the assign sweep once the director's delay has passed, which is what the
+ * queue's "auto-assign in 52m" countdown promises; assigning it here would
+ * make that countdown a lie and take the lead off Jacob's board instantly.
  *
  * A form resubmitted within 15 minutes for the same guest / centre / date
  * after a failed mint re-uses the row instead of creating a second one; a
@@ -30,7 +38,7 @@ import { findRecentDuplicateLead, getLead, insertLead } from "../data/leads-db";
 import { assignLead, type AssignResult } from "./assign";
 import { NEEDS_EMAIL_OR_TIME, mintLead, type MintOutcome } from "./mint";
 import { notifyAlreadySent, notifyNewLead, summarizeNotify, type NotifyOutcome } from "./notify";
-import { suggestFor, type SuggestResult } from "./suggest";
+import { NO_SUGGESTION, isImmediate, suggestFor, type SuggestResult } from "./suggest";
 
 export interface CreateLeadInput {
   centre: CentreCode;
@@ -166,7 +174,7 @@ export async function createLead(
         assignedAgent: null,
       },
       notify: await deps.notifyAlreadySent({ lead: dup, projectId: dup.bmi.projectId }),
-      suggestion: { suggestion: null, trace: [] },
+      suggestion: NO_SUGGESTION,
       assignment: null,
     };
   }
@@ -291,9 +299,14 @@ export async function createLead(
     }
   }
 
-  // 7. the engine's pick, if any
+  // 7. the engine's pick — only the decisions that are due NOW
   let assignment: AssignResult | null = null;
-  if (suggestion.suggestion && opts.autoAssign !== false && !lead.rep) {
+  if (
+    suggestion.suggestion &&
+    isImmediate(suggestion.outcome) &&
+    opts.autoAssign !== false &&
+    !lead.rep
+  ) {
     try {
       assignment = await deps.assign({
         leadId: lead.id,

@@ -18,7 +18,7 @@ import { useCrmFetch, useCrmToast } from "../lib/use-crm-user";
 import { Avatar } from "../primitives/Avatar";
 import { Chip } from "../primitives/Chip";
 import { MON } from "../primitives/DateBlock";
-import { RuleTrace } from "../primitives/RuleTrace";
+import { RuleTrace, type RuleTraceRow } from "../primitives/RuleTrace";
 import { centreShort } from "../leads/LeadCard";
 import { assignToastText, leadTitle } from "../leads/model";
 import { fetchQueue, postAssign } from "../leads/queries";
@@ -42,6 +42,22 @@ export interface AssignSheetProps {
   trace: RuleTraceRowView[];
   onCancel: () => void;
   onDone: () => void;
+}
+
+/**
+ * The pill on a trace row shows the rule's on-screen code ("R6"), the way the
+ * Rules screen's own "Try a lead" does — the numeric `crm_assignment_rules.id`
+ * travels on the wire so `crm_assignments.rule_id` stays a real foreign key,
+ * but it means nothing to a director. Falls back to the id when a row has no
+ * code (a rule deleted since the decision was traced).
+ */
+export function toTraceSteps(rows: readonly RuleTraceRowView[]): RuleTraceRow[] {
+  return rows.map((t) => ({
+    ruleId: t.code ?? t.ruleId,
+    hit: t.hit,
+    note: t.note,
+    label: t.label,
+  }));
 }
 
 export function AssignSheet({ lead, suggestion, trace, onCancel, onDone }: AssignSheetProps) {
@@ -73,6 +89,7 @@ export function AssignSheet({ lead, suggestion, trace, onCancel, onDone }: Assig
 
   const month = monthKey(lead.eventDate);
   const monLabel = MON[Number(month.slice(5)) - 1] ?? month;
+  const traceSteps = toTraceSteps(trace);
   const columns: QueueRepColumn[] = queue.data?.reps ?? [];
   const pickedCol = columns.find((c) => c.rep.id === picked) ?? null;
   const pickFirst = pickedCol?.rep.firstName ?? suggestion?.rep.firstName ?? null;
@@ -87,8 +104,8 @@ export function AssignSheet({ lead, suggestion, trace, onCancel, onDone }: Assig
 
       {trace.length > 0 && suggestion ? (
         <RuleTrace
-          steps={trace}
-          finalRuleId={suggestion.ruleId ?? undefined}
+          steps={traceSteps}
+          finalRuleId={suggestion.finalRuleCode ?? suggestion.ruleId ?? undefined}
           heading={`Why ${suggestion.rep.firstName}`}
           footer={
             <Link className="xs" href={`${CRM_BASE}/rules`}>
@@ -101,9 +118,18 @@ export function AssignSheet({ lead, suggestion, trace, onCancel, onDone }: Assig
           <div className="eyebrow" style={{ marginBottom: 6 }}>
             Auto-pick
           </div>
-          <div className="small muted">
-            No auto-pick yet — the assignment rules are not wired to the queue. Pick a rep below.
-          </div>
+          {trace.length > 0 ? (
+            <>
+              <div className="small muted">
+                No auto-pick — the rules ran and left this one for you. Pick a rep below.
+              </div>
+              <RuleTrace steps={traceSteps} />
+            </>
+          ) : (
+            <div className="small muted">
+              No auto-pick — the rules could not run for this lead. Pick a rep below.
+            </div>
+          )}
           <Link className="xs" href={`${CRM_BASE}/rules`}>
             Edit rules ↗
           </Link>
