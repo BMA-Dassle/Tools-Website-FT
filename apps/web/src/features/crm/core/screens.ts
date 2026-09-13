@@ -46,7 +46,7 @@ export const SCREENS: Record<ScreenId, ScreenLoader> = {
   goals: () => import("~/components/features/crm/shell/NotBuiltYet"),
   rules: () => import("~/components/features/crm/rules/RulesScreen"),
   statuses: () => import("~/components/features/crm/statuses/StatusesScreen"),
-  availability: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  availability: () => import("~/components/features/crm/availability/AvailabilityScreen"),
   builder: () => import("~/components/features/crm/shell/NotBuiltYet"),
   more: () => import("~/components/features/crm/shell/NotBuiltYet"),
 };
