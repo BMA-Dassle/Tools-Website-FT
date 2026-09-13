@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EVENING_CLOSE_MIN, EVENING_OPEN_MIN } from "~/features/crm/availability";
+import { EVENING_CLOSE_MIN, EVENING_OPEN_MIN } from "~/features/crm/availability/service/engine";
 import type { LaneOccupancy } from "~/features/crm/availability/contracts";
 import {
   contiguousLabel,
