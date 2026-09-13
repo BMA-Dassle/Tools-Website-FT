@@ -28,12 +28,21 @@ export interface ScheduledKind {
 }
 
 /**
- * Every scheduled kind that exists on `feat/crm` today.
+ * Every scheduled kind that existed on `feat/crm` when this branch was cut.
  *
- * TODO(B1): add `{ kind: "bmi-mirror-delta", key: deltaIdempotencyKey }` when
- * `feat/crm-bmi-mirror` lands its `deltaIdempotencyKey(now)` export (the 5-minute
- * bucket, §3.9). C2 adds `graph-renew:<day>` and C3 `threecx-reconcile:<minute>`
- * the same way — one line each, no change to this file's shape.
+ * TODO(release): `bmi-mirror-delta` landed with B1 AFTER this branch's rebase
+ * point (`feat/crm` 224eaf875). It does NOT fit the one-key-per-tick shape
+ * below — its bucket is per TENANT (`deltaIdempotencyKey(now, clientKey)`, one
+ * row per Office client key) and it defers the row to the next 5-minute bucket
+ * with a `{clientKey, chain: true}` payload. B1 already exports the exact
+ * entry point a central scheduler wants: `enqueueDeltaTicks(now, { enqueue })`
+ * from `~/features/crm/bmi` (`bmi/service/delta.ts`, "what a central scheduler
+ * would call"). Wire it as its own step in `enqueueScheduled` rather than
+ * bending `ScheduledKind` around it — duplicating the bucket maths here would
+ * be a second writer of B1's key.
+ *
+ * C2 (`graph-renew:<day>`) and C3 (`threecx-reconcile:<minute>`) are the simple
+ * shape and are one line each.
  */
 export const SCHEDULED_KINDS: readonly ScheduledKind[] = [
   { kind: "assign-sweep", key: sweepIdempotencyKey },
