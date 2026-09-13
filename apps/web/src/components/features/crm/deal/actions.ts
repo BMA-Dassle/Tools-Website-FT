@@ -6,7 +6,9 @@ import {
   IconZzz,
   type TablerIcon,
 } from "@tabler/icons-react";
+import { CRM_BASE } from "~/features/crm/core/contracts";
 import type { LeadView } from "~/features/crm/leads/contracts";
+import { phoneKey } from "~/features/crm/sms/keys";
 import { contactHrefs } from "../leads/model";
 
 /**
@@ -69,7 +71,12 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
     id: "text",
     label: "Text",
     Icon: IconMessage,
-    resolve: (lead) => href(contactHrefs(lead).sms),
+    // C1: the rep's own DID composer, which is the Conversations thread for
+    // this person — one composer, one consent check, one place the text is
+    // recorded. Deliberately NOT a second in-drawer composer: two of them
+    // would be two chances to send a text the other one has not logged.
+    resolve: (lead) =>
+      href(lead.guest.phone ? `${CRM_BASE}/conversations/${phoneKey(lead.guest.phone)}` : null),
     disabledTitle: "No phone on file",
     owner: "C1",
   },
