@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext } from "react";
+import { useContext, useEffect } from "react";
 import type { PublicCrmUser } from "~/features/crm/core/contracts";
 import { CrmContext, type CrmContextValue } from "./crm-context";
 import type { CrmFetch } from "./crm-fetch";
@@ -60,4 +60,19 @@ export function useOverlayRoot(): HTMLElement | null {
 
 export function useTopbarSlot(): HTMLElement | null {
   return useCrm().topbarSlot;
+}
+
+/**
+ * Name the topbar after the RECORD in view, not the screen — `title` null
+ * while it is still loading, so the screen's own meta stands in the meantime.
+ * Set in an effect (never during render) and cleared when the screen unmounts,
+ * so navigating away restores the screen title.
+ */
+export function useScreenHead(title: string | null, sub?: string | null): void {
+  const { setScreenHead } = useCrm();
+  useEffect(() => {
+    if (!title) return;
+    setScreenHead({ title, sub: sub ?? undefined });
+    return () => setScreenHead(null);
+  }, [title, sub, setScreenHead]);
 }

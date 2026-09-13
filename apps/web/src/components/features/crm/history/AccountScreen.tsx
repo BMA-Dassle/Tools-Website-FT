@@ -1,6 +1,6 @@
 "use client";
 
-import { IconBuilding, IconPlus, IconUser } from "@tabler/icons-react";
+import { IconPlus } from "@tabler/icons-react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { createPortal } from "react-dom";
@@ -10,13 +10,12 @@ import { fDateY } from "~/features/crm/core/dates";
 import { money } from "~/features/crm/core/format";
 import { historyKeys } from "~/features/crm/bmi/queries";
 import { errorMessage } from "../lib/crm-fetch";
-import { useCrmFetch, useTopbarSlot } from "../lib/use-crm-user";
+import { useCrmFetch, useScreenHead, useTopbarSlot } from "../lib/use-crm-user";
 import { Avatar } from "../primitives/Avatar";
 import { ICON } from "../primitives/icon-props";
 import { EmptyState, ErrorState, LoadingState } from "../primitives/States";
 import { Table } from "../primitives/Table";
 import { Tile } from "../primitives/Tile";
-import { IconAvatar } from "./IconAvatar";
 import { accountSub, avgSpendCents, prettyPhone } from "./model";
 import { fetchAccount } from "./queries";
 import { HISTORY_TEST_IDS } from "./test-ids";
@@ -35,6 +34,7 @@ export default function AccountScreen({ view }: ScreenProps) {
   const crmFetch = useCrmFetch();
   const slot = useTopbarSlot();
   const id = view[0] ?? "";
+  // Hooks stay above every early return (react-hooks/rules-of-hooks).
 
   const accountQ = useInfiniteQuery({
     queryKey: historyKeys.account(id),
@@ -48,6 +48,10 @@ export default function AccountScreen({ view }: ScreenProps) {
   const account = first?.account ?? null;
   const contacts = first?.contacts ?? [];
   const events = accountQ.data?.pages.flatMap((p) => p.events) ?? [];
+
+  // The topbar names the ACCOUNT (prototype: "Acme Corp" · "Business · HeadPinz
+  // Fort Myers · lifetime $14,260"), so the page has one heading, not two.
+  useScreenHead(account?.name ?? null, account ? accountSub(account) : null);
 
   if (!id) {
     return (
@@ -85,16 +89,6 @@ export default function AccountScreen({ view }: ScreenProps) {
 
       {account ? (
         <>
-          <div className="hstack" style={{ alignItems: "flex-start" }}>
-            <IconAvatar label={account.kind === "business" ? "Business" : "Household"}>
-              {account.kind === "business" ? <IconBuilding {...ICON} /> : <IconUser {...ICON} />}
-            </IconAvatar>
-            <div>
-              <h2 style={{ fontSize: 18, margin: 0 }}>{account.name}</h2>
-              <div className="small muted">{accountSub(account)}</div>
-            </div>
-          </div>
-
           <div className="grid grid-3">
             <Tile label="Events" value={account.eventCount} />
             <Tile label="Avg spend" value={money(avgSpendCents(account))} />

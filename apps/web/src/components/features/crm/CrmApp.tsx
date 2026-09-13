@@ -22,6 +22,7 @@ import { SCREEN_IDS, type ScreenId } from "~/features/crm/core/types";
 import {
   CrmContext,
   type CrmContextValue,
+  type ScreenHead,
   type SheetSpec,
   type ToastKind,
 } from "./lib/crm-context";
@@ -102,6 +103,8 @@ export default function CrmApp(props: CrmAppProps) {
   const [sheet, setSheet] = useState<SheetSpec | null>(null);
   const [overlayRoot, setOverlayRoot] = useState<HTMLElement | null>(null);
   const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null);
+  // A screen showing one record names the topbar after it (`useScreenHead`).
+  const [screenHead, setScreenHead] = useState<ScreenHead | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const crmFetch = useMemo(() => createCrmFetch(token), [token]);
@@ -123,7 +126,17 @@ export default function CrmApp(props: CrmAppProps) {
   const closeSheet = useCallback(() => setSheet(null), []);
 
   const ctx = useMemo<CrmContextValue>(
-    () => ({ token, user, crmFetch, toast, openSheet, closeSheet, overlayRoot, topbarSlot }),
+    () => ({
+      token,
+      user,
+      crmFetch,
+      toast,
+      openSheet,
+      closeSheet,
+      overlayRoot,
+      topbarSlot,
+      setScreenHead,
+    }),
     [token, user, crmFetch, toast, openSheet, closeSheet, overlayRoot, topbarSlot],
   );
 
@@ -134,9 +147,15 @@ export default function CrmApp(props: CrmAppProps) {
   const allowed = known && canViewScreen(user.role, screenId);
   const Screen = LAZY_SCREENS[screenId];
   const rest = view.slice(1);
-  const title = known ? SCREEN_META[screenId].title : "Not found";
+  // A screen that has named its record wins over the screen's own meta.
+  const title = screenHead?.title ?? (known ? SCREEN_META[screenId].title : "Not found");
   const sub =
-    known && allowed && isScreenReady(screenId) ? SCREEN_META[screenId].description : undefined;
+    screenHead?.sub ??
+    (screenHead
+      ? undefined
+      : known && allowed && isScreenReady(screenId)
+        ? SCREEN_META[screenId].description
+        : undefined);
   const backHref = known ? BACK_HREF[screenId]?.(rest) : undefined;
   const activeId: ScreenId | null = known ? screenId : null;
 
