@@ -3679,6 +3679,12 @@
   align-items: center;
   gap: 8px;
 }
+/* The typography of a `.field label`, for the one caption in the request bar
+   that names a read-only pill rather than a control. */
+.crm-root .avail-caption {
+  font-size: 12px;
+  color: var(--muted);
+}
 .crm-root .avail-verdict {
   margin: 0 14px 14px;
 }
