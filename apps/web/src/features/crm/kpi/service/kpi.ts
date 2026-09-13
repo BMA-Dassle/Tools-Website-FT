@@ -195,7 +195,7 @@ export async function kpiDashboard(query: KpiQuery = {}): Promise<Omit<KpiRespon
     }),
     lastYearHostCounts({ from: lyFrom, until: lyUntil, locationId }),
     reachOutCount({ from: window.from, until: window.until }),
-    depositsDue(depositWindow(now), centerCode),
+    depositsDue({ ...depositWindow(now), centerCode }),
   ]);
 
   // ---- attribute the mirror rollups -------------------------------------
