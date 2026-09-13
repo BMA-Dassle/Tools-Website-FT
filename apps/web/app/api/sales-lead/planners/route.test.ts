@@ -76,4 +76,37 @@ describe("GET /api/sales-lead/planners", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, planners: [] });
   });
+
+  it("a Neon blip serves the LAST GOOD roster, not an empty dropdown", async () => {
+    vi.resetModules();
+    const fresh = await import("./route");
+    // Prime the memo with a good read.
+    const primed = (await (await fresh.GET()).json()) as { planners: { slug: string }[] };
+    expect(primed.planners.map((p) => p.slug)).toEqual(["kelsea", "lori", "stephanie"]);
+
+    // Expire it, then make the refresh throw.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now() + 300_001);
+      bag.error = new Error("Neon unreachable");
+      bag.calls = 0;
+      const stale = (await (await fresh.GET()).json()) as {
+        ok: boolean;
+        planners: { slug: string }[];
+      };
+      expect(bag.calls).toBe(1);
+      expect(stale.ok).toBe(true);
+      expect(stale.planners.map((p) => p.slug)).toEqual(["kelsea", "lori", "stephanie"]);
+
+      // And it retries in a minute, not in five.
+      bag.calls = 0;
+      await fresh.GET();
+      expect(bag.calls).toBe(0);
+      vi.setSystemTime(Date.now() + 60_001);
+      await fresh.GET();
+      expect(bag.calls).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
