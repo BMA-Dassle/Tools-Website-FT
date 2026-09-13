@@ -101,18 +101,32 @@ export interface HistoryQuery {
   limit?: number;
   accountsCursor?: string | null;
   eventsCursor?: string | null;
+  /** False when the screen has already paged that list to its end. */
+  accounts?: boolean;
+  events?: boolean;
+  /**
+   * False after the first page. `mirrorStatus()` is two unfiltered `count(*)`
+   * over a table that runs to six figures once three centres are backfilled —
+   * it belongs to the screen, not to every keystroke and every "Load more".
+   */
+  status?: boolean;
 }
 
 /** `GET /history?q=` — accounts + events matching, plus the mirror's state. */
 export async function historySearch(input: HistoryQuery): Promise<Omit<HistoryResponse, "ok">> {
   const q = input.q.trim();
+  const wantAccounts = input.accounts !== false;
+  const wantEvents = input.events !== false && q !== "";
+  const wantStatus = input.status !== false;
   const [{ searchAccounts }, reps] = await Promise.all([leads(), repIndex()]);
   const [accounts, events, mirror] = await Promise.all([
-    searchAccounts(q, { limit: input.limit ?? 50, cursor: input.accountsCursor ?? null }),
-    q
+    wantAccounts
+      ? searchAccounts(q, { limit: input.limit ?? 50, cursor: input.accountsCursor ?? null })
+      : { items: [], nextCursor: null },
+    wantEvents
       ? searchMirrorProjects(q, { limit: input.limit ?? 50, cursor: input.eventsCursor ?? null })
       : { items: [], nextCursor: null },
-    mirrorStatus(),
+    wantStatus ? mirrorStatus() : null,
   ]);
   return {
     q,

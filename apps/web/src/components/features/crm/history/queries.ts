@@ -15,6 +15,11 @@ export interface HistoryParams {
   q: string;
   accountsCursor?: string | null;
   eventsCursor?: string | null;
+  /** That list has been paged to its end: ask the server to skip it entirely. */
+  accountsDone?: boolean;
+  eventsDone?: boolean;
+  /** The mirror's counts — first page of a screen only (two table counts). */
+  withStatus?: boolean;
 }
 
 function qs(params: Record<string, string | null | undefined>): string {
@@ -26,7 +31,14 @@ function qs(params: Record<string, string | null | undefined>): string {
 
 export const fetchHistory = (f: CrmFetch, p: HistoryParams) =>
   f<HistoryResponse>(
-    `/history${qs({ q: p.q, accountsCursor: p.accountsCursor, eventsCursor: p.eventsCursor })}`,
+    `/history${qs({
+      q: p.q,
+      accountsCursor: p.accountsCursor,
+      eventsCursor: p.eventsCursor,
+      accounts: p.accountsDone ? "0" : null,
+      events: p.eventsDone ? "0" : null,
+      status: p.withStatus === false ? "0" : null,
+    })}`,
   );
 
 export const fetchAccount = (f: CrmFetch, id: string, cursor?: string | null) =>
@@ -35,7 +47,13 @@ export const fetchAccount = (f: CrmFetch, id: string, cursor?: string | null) =>
 export const fetchLastYear = (f: CrmFetch, clientKey: string | null, cursor?: string | null) =>
   f<LastYearResponse>(`/last-year${qs({ clientKey, cursor })}`);
 
-export const runBackfill = (f: CrmFetch, payload: BackfillJobPayload) =>
+/**
+ * One backfill RUN. The first press sends `{clientKey, from, until}`; every
+ * press after that sends the cursor the previous run returned as
+ * `result.nextPayload`, which is what makes a multi-window span finish (a
+ * fresh span payload always restarts at the first window).
+ */
+export const runBackfill = (f: CrmFetch, payload: BackfillJobPayload | Record<string, unknown>) =>
   f<JobsRunResponse>("/jobs/run", { body: { kind: "bmi-mirror-backfill", payload } });
 
 export const runDelta = (f: CrmFetch, clientKey: string | null) =>

@@ -51,6 +51,14 @@ export default function HistoryScreen({ query }: ScreenProps) {
   const q = urlQuery.q ?? "";
   const term = useDebounced(q.trim(), SEARCH_DEBOUNCE_MS);
 
+  /**
+   * ONE request per page, TWO independent cursors. A list that has run out is
+   * marked `done` in the page param and switched OFF for the next request —
+   * otherwise the server, seeing no cursor for it, would answer with its FIRST
+   * page again and the screen would render those rows a second time (duplicate
+   * keys, a doubled "N shown"). The mirror's counts ride the first page only:
+   * they are two unfiltered counts over the whole mirror.
+   */
   const historyQ = useInfiniteQuery({
     queryKey: historyKeys.search(term),
     queryFn: ({ pageParam }) =>
@@ -58,15 +66,27 @@ export default function HistoryScreen({ query }: ScreenProps) {
         q: term,
         accountsCursor: pageParam.accountsCursor,
         eventsCursor: pageParam.eventsCursor,
+        accountsDone: pageParam.accountsDone,
+        eventsDone: pageParam.eventsDone,
+        withStatus: pageParam.accountsCursor === null && pageParam.eventsCursor === null,
       }),
     initialPageParam: {
       accountsCursor: null as string | null,
       eventsCursor: null as string | null,
+      accountsDone: false,
+      eventsDone: false,
     },
-    getNextPageParam: (last) =>
-      last.accountsNextCursor || last.eventsNextCursor
-        ? { accountsCursor: last.accountsNextCursor, eventsCursor: last.eventsNextCursor }
-        : undefined,
+    getNextPageParam: (last, _pages, lastParam) => {
+      const accountsDone = lastParam.accountsDone || !last.accountsNextCursor;
+      const eventsDone = lastParam.eventsDone || !last.eventsNextCursor;
+      if (accountsDone && eventsDone) return undefined;
+      return {
+        accountsCursor: last.accountsNextCursor,
+        eventsCursor: last.eventsNextCursor,
+        accountsDone,
+        eventsDone,
+      };
+    },
   });
 
   const lastYearQ = useInfiniteQuery({
@@ -80,6 +100,9 @@ export default function HistoryScreen({ query }: ScreenProps) {
   const accounts = pages.flatMap((p) => p.accounts);
   const events = pages.flatMap((p) => p.events);
   const mirror = pages[0]?.mirror ?? null;
+  const lastPage = pages[pages.length - 1] ?? null;
+  const moreAccounts = !!lastPage?.accountsNextCursor;
+  const moreEvents = !!lastPage?.eventsNextCursor;
   const lyPages = lastYearQ.data?.pages ?? [];
   const lastYear = lyPages.flatMap((p) => p.items);
   const window = lyPages[0]?.window ?? null;
@@ -150,7 +173,7 @@ export default function HistoryScreen({ query }: ScreenProps) {
                 </div>
               </Link>
             ))}
-            {historyQ.hasNextPage ? (
+            {moreAccounts ? (
               <div className="pad">
                 <button
                   type="button"
@@ -217,6 +240,18 @@ export default function HistoryScreen({ query }: ScreenProps) {
             {events.map((e) => (
               <EventRow key={e.projectId} event={e} />
             ))}
+            {moreEvents ? (
+              <div className="pad">
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={historyQ.isFetchingNextPage}
+                  onClick={() => void historyQ.fetchNextPage()}
+                >
+                  {historyQ.isFetchingNextPage ? "Loading…" : "Load more"}
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
