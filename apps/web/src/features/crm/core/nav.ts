@@ -103,7 +103,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     label: "Admin",
     items: [
       { id: "rules", label: "Assignment rules", icon: "bolt", director: true, ready: false },
-      { id: "statuses", label: "Statuses & BMI", icon: "settings", director: true, ready: false },
+      { id: "statuses", label: "Statuses & BMI", icon: "settings", director: true, ready: true },
     ],
   },
 ];
