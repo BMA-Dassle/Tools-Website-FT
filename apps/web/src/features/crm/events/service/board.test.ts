@@ -109,6 +109,9 @@ function lead(projectId: string): LeadView {
     },
     repSlug: "kelsea",
     repName: "Kelsea Kosco",
+    // B7 made this a required field on LeadView; an events fixture has no
+    // guest request of its own.
+    requestedRep: null,
   };
 }
 

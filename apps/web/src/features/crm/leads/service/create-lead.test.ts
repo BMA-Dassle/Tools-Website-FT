@@ -635,7 +635,7 @@ describe("createLead", () => {
       expect(f.assigns[0]).toMatchObject({ repId: REPS.kelsea.id, reason: "rule" });
     });
 
-    it("a request the rules did NOT honour waits for the sweep like any balancing pick", async () => {
+    it("a request the rules did NOT honour is assigned at capture to the rules' own pick", async () => {
       const f = fakes({
         suggest: async () => ({
           suggestion: {
@@ -661,7 +661,14 @@ describe("createLead", () => {
         { source: "web" },
         f.deps,
       );
-      expect(f.assigns).toHaveLength(0);
+      // WHO is B7's question and is unchanged: the request was not honoured, so
+      // the rules' own balancing pick (Lori) wins, never Kelsea.
+      //
+      // WHEN was settled by the owner on 2026-09-13 14:50: a balancing pick no
+      // longer waits for the sweep, so this is handed over AT CAPTURE like any
+      // other resolved decision. This assertion used to read `toHaveLength(0)`.
+      expect(f.assigns).toHaveLength(1);
+      expect(f.assigns[0]).toMatchObject({ repId: REPS.lori.id, reason: "rule", ruleId: "6" });
       // Pandora still gets the rules' own pick, exactly as it does today.
       expect(f.mintArgs[0]![1]).toMatchObject({ agent: "Lori Lehman" });
     });

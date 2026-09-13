@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Suspense, lazy, useMemo, type ComponentType, type LazyExoticComponent } from "react";
 import type { LeadView } from "~/features/crm/leads/contracts";
 import { useCrmSheet } from "../lib/use-crm-user";
@@ -11,6 +12,7 @@ import {
   quickActionsFor,
   type QuickActionId,
   type QuickActionSheetProps,
+  type QuickActionTarget,
 } from "./actions";
 
 /**
@@ -18,13 +20,18 @@ import {
  *
  * The rail itself is dumb — every button comes from the slot registry in
  * `./actions.ts`, so C1 / C2 / C3 / B4 swap in the real rail by editing one
- * line there rather than this component. A slot resolves to a device hand-off
- * (`tel:` / `sms:` / `mailto:`), to one of the registry's own sheets, or to
- * null, which renders the button disabled with its reason.
+ * line there rather than this component. A slot with no target renders
+ * disabled with its reason.
  *
- * `QUICK_ACTION_SHEETS` is empty today, so every button behaves exactly as it
- * did before this component learned to open sheets; the four PRs that own the
- * five slots add their key and get the sheet for free.
+ * THREE KINDS OF TARGET, and the differences matter:
+ *
+ *   href   a device hand-off — `tel:` / `mailto:` — which belongs in
+ *          `location.assign`.
+ *   route  (C1) a CRM path, which goes through the router. Sending an in-app
+ *          path through `location.assign` reloads the application — cache
+ *          gone, API token re-minted, SSO gate re-run, the drawer the rep was
+ *          standing in closed.
+ *   sheet  (C2/C3) one of the registry's own sheets, opened over the drawer.
  */
 
 /** One lazy component per registered sheet, created ONCE at module scope. */
@@ -42,11 +49,18 @@ export interface QuickActionsProps {
 }
 
 export function QuickActions({ lead, onDone }: QuickActionsProps) {
+  const router = useRouter();
   const { openSheet, closeSheet } = useCrmSheet();
   const actions = useMemo(() => quickActionsFor(lead), [lead]);
 
-  const go = (href: string) => {
-    if (typeof window !== "undefined") window.location.assign(href);
+  const go = (target: QuickActionTarget) => {
+    if (target.kind === "route") {
+      router.push(target.href);
+      return;
+    }
+    if (target.kind === "href" && typeof window !== "undefined") {
+      window.location.assign(target.href);
+    }
   };
 
   const open = (id: QuickActionId) => {
@@ -81,7 +95,7 @@ export function QuickActions({ lead, onDone }: QuickActionsProps) {
           disabled={!target}
           title={target ? undefined : slot.disabledTitle}
           onClick={
-            target ? () => (target.kind === "href" ? go(target.href) : open(target.id)) : undefined
+            target ? () => (target.kind === "sheet" ? open(target.id) : go(target)) : undefined
           }
         >
           <slot.Icon {...ICON} />

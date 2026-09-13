@@ -53,7 +53,11 @@ describe("the registry line", () => {
     // `notImplemented` handlers answer `{ok:false, error:"not implemented"}` and
     // the runner records them as FAILED — this line must not do that any more.
     expect(HANDLERS["threecx-reconcile"]).toBeDefined();
-    const other = await HANDLERS["share-link-expire"](ctx());
+    // The control: this sub flipped its OWN line and no other. It used to read
+    // `share-link-expire`, which C4's collateral sub has since shipped for
+    // real — a neighbour's stub is not a stable control. `pandora-goals-sync`
+    // is the kind nobody has claimed yet.
+    const other = await HANDLERS["pandora-goals-sync"](ctx());
     expect(other).toEqual({ ok: false, error: NOT_IMPLEMENTED_ERROR });
   });
 });

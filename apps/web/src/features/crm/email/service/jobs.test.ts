@@ -19,7 +19,13 @@ const bag = vi.hoisted(() => ({
   failed: [] as { id: string; error: string }[],
 }));
 
-vi.mock("../../reps", () => ({ listReps: vi.fn(async () => bag.reps) }));
+// `publicRoster` is not this sub's business, but the registry's `threecx-*`
+// line now pulls `crm/calls` -> `calls/service/board.ts`, which binds it at
+// module scope — so a factory that omits it makes importing the registry throw.
+vi.mock("../../reps", () => ({
+  listReps: vi.fn(async () => bag.reps),
+  publicRoster: vi.fn(async () => []),
+}));
 vi.mock("../data/email-links-db", () => ({
   // `./subscriptions` binds these at module scope, so the factory has to carry
   // them or importing `./jobs` throws.

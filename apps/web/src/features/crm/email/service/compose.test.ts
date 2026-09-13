@@ -106,6 +106,9 @@ function lead(over: Partial<LeadView> = {}): LeadView {
     },
     repSlug: "kelsea",
     repName: "Kelsea Kosco",
+    // B7 made this a required field on LeadView; an email fixture has no
+    // guest request of its own.
+    requestedRep: null,
     ...over,
   };
 }
