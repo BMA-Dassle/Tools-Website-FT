@@ -3594,3 +3594,72 @@
     grid-auto-columns: 260px;
   }
 }
+
+/* ── C4: Availability screen (crm-shared.js:488-522) ───────────────────────
+   The prototype wrote the request bar's layout and the legend's swatches as
+   inline styles; both become classes here so the phone rule lives in the media
+   query and the swatches cannot drift from the bars they describe (the four
+   `--s*` expressions below are the SAME ones `.g-block.*` already uses). */
+.crm-root .avail-request {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+}
+.crm-root .avail-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.crm-root .avail-verdict {
+  margin: 0 14px 14px;
+}
+.crm-root .pad-x {
+  padding: 0 14px;
+}
+/* The prototype's alternate times are <a href="#"> that only change state;
+   a button is the honest element, dressed as the link it reads as. */
+.crm-root .linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+.crm-root .linkish:hover {
+  text-decoration: none;
+}
+.crm-root .legend i.lg-league {
+  background: color-mix(in oklab, var(--s2) 65%, var(--card));
+}
+.crm-root .legend i.lg-party {
+  background: color-mix(in oklab, var(--s4) 70%, var(--card));
+}
+.crm-root .legend i.lg-walkin {
+  background: color-mix(in oklab, var(--s1) 55%, var(--card));
+}
+.crm-root .legend i.lg-maint {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--border),
+    var(--border) 3px,
+    var(--card) 3px,
+    var(--card) 7px
+  );
+}
+.crm-root .legend i.lg-window {
+  background: var(--accent-soft);
+}
+@media (max-width: 768px) {
+  .crm-root .avail-request {
+    gap: 8px 10px;
+  }
+  .crm-root .avail-verdict {
+    margin: 0 10px 10px;
+  }
+  .crm-root .pad-x {
+    padding: 0 10px;
+  }
+}
