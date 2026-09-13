@@ -40,6 +40,7 @@ const BODY: WebSubmitBody = {
   preferredContactMethod: "text",
   bestTimeToCall: "Evening",
   packagePrefill: "Blue Starter",
+  requestedPlanner: undefined,
 };
 
 describe("centreForCenterKey", () => {
@@ -120,6 +121,13 @@ describe("webBodyToCreateInput", () => {
     expect(webBodyToCreateInput({ ...BODY, preferredContactMethod: "phone" }, "FT").prefers).toBe(
       "call",
     );
+  });
+
+  it("carries the planner the guest asked for as a SLUG, and null when they did not", () => {
+    expect(webBodyToCreateInput(BODY, "FT").requestedPlannerSlug).toBeNull();
+    expect(
+      webBodyToCreateInput({ ...BODY, requestedPlanner: "kelsea" }, "FT").requestedPlannerSlug,
+    ).toBe("kelsea");
   });
 });
 

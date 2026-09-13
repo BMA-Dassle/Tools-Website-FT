@@ -30,15 +30,17 @@
 
 import { canonicalizePhone } from "@/lib/participant-contact";
 import { recordActivity } from "~/features/crm/activities";
-import type { CentreCode, EventType, LeadSource } from "../../core/types";
+import type { CentreCode, CrmRep, EventType, LeadSource } from "../../core/types";
 import { LEAD_SOURCE_LABEL, type LeadView } from "../contracts";
 import { upsertAccountByName } from "../data/accounts-db";
 import { emailKeyOf, upsertContact } from "../data/contacts-db";
 import { findRecentDuplicateLead, getLead, insertLead } from "../data/leads-db";
 import { assignLead, type AssignResult } from "./assign";
-import { NEEDS_EMAIL_OR_TIME, mintLead, type MintOutcome } from "./mint";
+import { NEEDS_EMAIL_OR_TIME, mintLead, pandoraEventTypeFor, type MintOutcome } from "./mint";
 import { notifyAlreadySent, notifyNewLead, summarizeNotify, type NotifyOutcome } from "./notify";
+import { listReps } from "~/features/crm/reps";
 import { NO_SUGGESTION, isImmediate, suggestFor, type SuggestResult } from "./suggest";
+import { plannerOptions } from "../planners";
 
 export interface CreateLeadInput {
   centre: CentreCode;
@@ -62,6 +64,13 @@ export interface CreateLeadInput {
   /** Overrides `notes` as Pandora's specialRequests (the web form's rich blob). */
   specialRequests?: string | null;
   eventTypeLabel?: string;
+  /**
+   * B7 — the `crm_reps.slug` the guest picked under "Who would you like to
+   * work with?". Resolved against the roster here (never trusted as an id) and
+   * stored on `crm_leads.requested_rep_id`; ignored for a children's party,
+   * which Pandora force-routes to Guest Services whatever `agent` we send.
+   */
+  requestedPlannerSlug?: string | null;
   /** The raw submission, stored verbatim. */
   capturePayload: Record<string, unknown>;
   /** The member of staff who logged it; null for the web form. */
@@ -98,6 +107,7 @@ export interface CreateLeadDeps {
   findDuplicate: typeof findRecentDuplicateLead;
   recordActivity: typeof recordActivity;
   suggest: typeof suggestFor;
+  listReps: typeof listReps;
   mintLead: typeof mintLead;
   notify: typeof notifyNewLead;
   /** The no-op fan-out for a resubmit we have already answered once. */
@@ -115,6 +125,7 @@ export function defaultCreateLeadDeps(): CreateLeadDeps {
     findDuplicate: findRecentDuplicateLead,
     recordActivity,
     suggest: suggestFor,
+    listReps,
     mintLead,
     notify: notifyNewLead,
     notifyAlreadySent,
@@ -124,6 +135,30 @@ export function defaultCreateLeadDeps(): CreateLeadDeps {
 }
 
 export const PROSPECT_SOURCES: readonly LeadSource[] = ["cold", "historical"];
+
+/**
+ * The guest's pick → the roster row, or null. The slug is never trusted as an
+ * id: it must belong to a planner the form would actually have offered for
+ * that centre (`plannerOptions` is the one definition of that), so a stale
+ * bookmark, a planner who has left, a Naples enquiry naming a Fort Myers
+ * planner, and a forged body all resolve to "First available".
+ *
+ * A children's party resolves to null whatever was sent: Pandora force-routes
+ * `"Child Birthday"` to Guest Services regardless of `agent` (brief §1.6), so
+ * storing a request we can never honour would only mislead the planner
+ * reading the deal.
+ */
+export function requestedRepFrom(
+  reps: readonly CrmRep[],
+  slug: string | null | undefined,
+  centre: CentreCode,
+  kidsBirthday: boolean,
+): CrmRep | null {
+  if (!slug || kidsBirthday) return null;
+  const offered = plannerOptions(reps).some((p) => p.slug === slug && p.centres.includes(centre));
+  if (!offered) return null;
+  return reps.find((r) => r.slug === slug) ?? null;
+}
 
 /** The capture line (crm-data.js:67-82 wording). */
 export function captureLine(source: LeadSource, actor: string | null): string {
@@ -207,6 +242,17 @@ export async function createLead(
       : !contact.email || !input.eventTime
         ? NEEDS_EMAIL_OR_TIME
         : null;
+    // B7: the planner the guest asked for, resolved against the live roster.
+    // Only read the roster when they actually picked someone.
+    const requestedRep = input.requestedPlannerSlug
+      ? requestedRepFrom(
+          await deps.listReps(),
+          input.requestedPlannerSlug,
+          input.centre,
+          pandoraEventTypeFor(input.type, input.kids) === "Child Birthday",
+        )
+      : null;
+
     const id = await deps.insertLead({
       contactId: contact.id,
       accountId: account?.id ?? null,
@@ -223,6 +269,7 @@ export async function createLead(
       mintError: blocker && blocker !== "prospect" ? blocker : null,
       capturePayload: input.capturePayload,
       createdBy: input.createdBy,
+      requestedRepId: requestedRep?.id ?? null,
     });
     const fresh = await deps.getLead(id);
     if (!fresh) throw new Error(`crm_leads: inserted ${id} but could not read it back`);

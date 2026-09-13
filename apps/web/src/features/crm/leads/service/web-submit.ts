@@ -125,6 +125,9 @@ export function webBodyToCreateInput(body: WebSubmitBody, centre: CentreCode): C
     bestTimeToCall: body.bestTimeToCall,
     activityInterest: body.activityInterest,
     packageType: body.packagePrefill,
+    // B7: the guest's answer to "Who would you like to work with?" — a slug,
+    // resolved against the roster by `createLead`, never trusted as an id.
+    requestedPlannerSlug: body.requestedPlanner ?? null,
     specialRequests: buildPandoraNotes(body),
     eventTypeLabel: friendlyEventLabel(body.eventType, type),
     capturePayload: body as unknown as Record<string, unknown>,
