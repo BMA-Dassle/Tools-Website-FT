@@ -91,8 +91,16 @@ export type AvailabilityResponse = ApiOk<{
   placement: AvailabilityPlacement | null;
   alternates: AvailabilityAlternate[];
   sections: AvailabilitySection[];
+  /** Occupancy per lane, already CLAMPED to `bounds` — see the route's note. */
   lanes: LaneOccupancy[];
   bounds: AvailabilityBounds;
+  /**
+   * How many of the lanes we believe the centre has it actually reported on
+   * this read. When they disagree the missing lanes are treated as unavailable
+   * and the screen says so, rather than counting the difference as free space.
+   */
+  lanesReported: number;
+  lanesExpected: number;
   /** ISO instant the vendor was read, and whether it came from the 60 s cache. */
   readAt: string;
   cached: boolean;
