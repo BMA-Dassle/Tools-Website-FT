@@ -12,9 +12,19 @@
  *
  * Nothing here touches a BMI id, so the plain driver values are safe; the ones
  * that exist (`crm_leads.bmi_project_id`) are already TEXT and are not selected.
+ *
+ * SCHEMA GUARD (§3.8). Every public function awaits the LEADS sub's
+ * `ensureLeadsSchema()` — `crm_contacts`, `crm_accounts` and `crm_leads` are
+ * that sub's tables, and this is the one reader that can reach them before it
+ * has run: the public MO webhook resolves a guest number without the leads sub
+ * ever being touched. `routeInbound` would catch the "relation does not exist"
+ * and park the message for review, which loses nothing but reads in the log
+ * like a Neon outage. `ensureLeadsSchema` memoises its promise, so this is one
+ * await after the first call of the process.
  */
 
 import { isDbConfigured, sql } from "@ft/db";
+import { ensureLeadsSchema } from "~/features/crm/leads";
 import type { LinkedContact, LinkedLead } from "../types";
 
 export interface GuestLink {
@@ -91,6 +101,7 @@ const LEAD_FOR_CONTACT = `
 
 export async function contactByPhone(phoneE164: string): Promise<LinkedContact | null> {
   if (!isDbConfigured() || !phoneE164) return null;
+  await ensureLeadsSchema();
   const q = sql();
   const rows = (await q.query(
     `SELECT c.id::text AS id, c.first_name, c.last_name, c.phone_e164, c.email,
@@ -107,6 +118,7 @@ export async function contactByPhone(phoneE164: string): Promise<LinkedContact |
 
 export async function leadForContact(contactId: string): Promise<LinkedLead | null> {
   if (!isDbConfigured() || !contactId) return null;
+  await ensureLeadsSchema();
   const q = sql();
   const rows = (await q.query(LEAD_FOR_CONTACT, [contactId])) as LeadRow[];
   return rows[0] ? mapLead(rows[0]) : null;
@@ -114,6 +126,7 @@ export async function leadForContact(contactId: string): Promise<LinkedLead | nu
 
 export async function leadById(leadId: string): Promise<LinkedLead | null> {
   if (!isDbConfigured() || !leadId) return null;
+  await ensureLeadsSchema();
   const q = sql();
   const rows = (await q.query(
     `SELECT l.id::text AS id, l.public_id, l.source, l.is_prospect,
@@ -128,6 +141,7 @@ export async function leadById(leadId: string): Promise<LinkedLead | null> {
 
 export async function contactById(contactId: string): Promise<LinkedContact | null> {
   if (!isDbConfigured() || !contactId) return null;
+  await ensureLeadsSchema();
   const q = sql();
   const rows = (await q.query(
     `SELECT c.id::text AS id, c.first_name, c.last_name, c.phone_e164, c.email,
@@ -152,6 +166,7 @@ export async function resolveGuestLink(phoneE164: string): Promise<GuestLink> {
 export async function contactsByIds(ids: readonly string[]): Promise<Map<string, LinkedContact>> {
   const out = new Map<string, LinkedContact>();
   if (!isDbConfigured() || ids.length === 0) return out;
+  await ensureLeadsSchema();
   const q = sql();
   const rows = (await q.query(
     `SELECT c.id::text AS id, c.first_name, c.last_name, c.phone_e164, c.email,
@@ -171,6 +186,7 @@ export async function contactsByPhones(
 ): Promise<Map<string, LinkedContact>> {
   const out = new Map<string, LinkedContact>();
   if (!isDbConfigured() || phones.length === 0) return out;
+  await ensureLeadsSchema();
   const q = sql();
   const rows = (await q.query(
     `SELECT DISTINCT ON (c.phone_e164)
@@ -190,6 +206,7 @@ export async function contactsByPhones(
 export async function leadsByContactIds(ids: readonly string[]): Promise<Map<string, LinkedLead>> {
   const out = new Map<string, LinkedLead>();
   if (!isDbConfigured() || ids.length === 0) return out;
+  await ensureLeadsSchema();
   const q = sql();
   const rows = (await q.query(
     `SELECT DISTINCT ON (l.contact_id)

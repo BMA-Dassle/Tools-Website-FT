@@ -248,6 +248,24 @@ export async function POST(req: NextRequest) {
   // The capture above always happens; acting is what this adds. Effects
   // are injected so `inbound-service` stays unit-testable against a live
   // carrier's rules rather than only observable in production.
+  // ── Is the CRM branch armed? ───────────────────────────────────────
+  //
+  // `VOX_MO_TOKEN` unset means `authed` above is true for ANY caller. Before
+  // the CRM joined this seam that was survivable: an unauthenticated POST could
+  // only write the suppression ledger, i.e. take consent AWAY. The CRM branch
+  // inverts the risk — `routeInbound` writes `crm_sms_messages (direction='in')`
+  // and `hasInboundFrom` makes exactly that row the R8 consent basis that
+  // unlocks texting a `cold` / prospect contact. Anyone who found this URL
+  // could MANUFACTURE consent for an arbitrary number, and flip
+  // `crm_sms_threads.stopped_at` through `noteConsentOnRepDid`.
+  //
+  // So the CRM writes happen only when the endpoint actually authenticates the
+  // caller. Until the owner sets `VOX_MO_TOKEN` (an ownerItem, and a hard
+  // prerequisite for provisioning the first rep DID) an MO to a rep's DID is
+  // parked in the review queue exactly as it is today — captured, never lost,
+  // and never trusted.
+  const crmInboundArmed = expected !== "";
+
   let outcome = "not_parsed";
   if (parsed.ok && handlerEnabled()) {
     try {
@@ -263,17 +281,25 @@ export async function POST(req: NextRequest) {
         // a rep's DID (thread + `crm_sms_messages` + activity, idempotent on
         // the Vox id) and otherwise parks it exactly where it goes today.
         // ONE inbound URL, one consent ledger (R8).
-        enqueueReview: async (item) => {
-          const routed = await routeInbound(parsed.payload, item, enqueueForReview);
-          return { added: routed.added };
-        },
+        //
+        // ONLY WHEN THIS ENDPOINT IS ACTUALLY AUTHENTICATED — see
+        // `crmInboundArmed`.
+        enqueueReview: crmInboundArmed
+          ? async (item) => {
+              const routed = await routeInbound(parsed.payload, item, enqueueForReview);
+              return { added: routed.added };
+            }
+          : enqueueForReview,
       });
       outcome = result.outcome;
       // A STOP or START on a REP's DID also belongs in that rep's thread: a
       // composer that refuses to send should be able to say why. The consent
       // ledger above is still the only thing that decides; this is what the
       // screen shows, and it no-ops for the A2P number.
-      if (result.outcome.startsWith("opted_out") || result.outcome.startsWith("opted_in")) {
+      if (
+        crmInboundArmed &&
+        (result.outcome.startsWith("opted_out") || result.outcome.startsWith("opted_in"))
+      ) {
         await noteConsentOnRepDid(parsed.payload, result.outcome.startsWith("opted_out"));
       }
       console.log(
@@ -399,7 +425,10 @@ export async function GET(req: NextRequest) {
       mode: "listen-only",
       // Whether the POST path is secured. False means the endpoint is
       // accepting unauthenticated inbound — fine during bring-up, but it
-      // should not stay that way unnoticed.
+      // should not stay that way unnoticed. It is ALSO the switch that arms
+      // the CRM branch: while this is false an MO to a rep's DID is parked for
+      // review and writes no `crm_sms_messages` row, because an anonymous
+      // caller must not be able to manufacture an R8 consent basis.
       postTokenConfigured: (process.env.VOX_MO_TOKEN || "") !== "",
       hitsToday: hits ? parseInt(hits, 10) : 0,
       rejectedToday: rejected ? parseInt(rejected, 10) : 0,
