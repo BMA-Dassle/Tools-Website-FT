@@ -1,8 +1,12 @@
 import { writeAudit } from "~/features/crm/core/data/audit-db";
 import { CrmHttpError, withCrmRoute } from "~/features/crm/core/http";
-import { archiveTemplate, listTemplates, upsertTemplate } from "~/features/crm/collateral";
+import { isDirector } from "~/features/crm/core/identity";
 import { listRoster } from "~/features/crm/reps";
 import {
+  archiveTemplate,
+  conversationScopeFor,
+  listTemplates,
+  upsertTemplate,
   TemplatesPostSchema,
   TemplatesQuerySchema,
   UnknownConversationError,
@@ -46,6 +50,7 @@ export const GET = withCrmRoute(TemplatesQuerySchema, async ({ input, user }) =>
     const detail = await loadConversation({
       key: input.key,
       rep: user.rep,
+      scope: conversationScopeFor(user.rep, isDirector(user)),
       reps: await listRoster(),
       smsEnabled: crmSmsEnabled(),
       limit: 1,
