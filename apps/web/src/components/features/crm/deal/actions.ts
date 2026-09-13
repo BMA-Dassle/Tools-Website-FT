@@ -41,7 +41,7 @@ import { contactHrefs } from "../leads/model";
  * a reply is matched by. The sheet itself is registered in
  * `QUICK_ACTION_SHEETS` and lazily loaded, so a PR ships its rail by adding
  * ONE key here and ONE `resolve` line, and two PRs building in parallel do not
- * collide. The map is empty until the first of them lands.
+ * collide. B4 is the first to land two; the other three keys are still free.
  */
 
 export const QUICK_ACTION_IDS = ["call", "text", "email", "note", "snooze"] as const;
@@ -91,10 +91,13 @@ export interface QuickActionSlot {
 const href = (value: string | null): QuickActionTarget | null =>
   value ? { kind: "href", href: value } : null;
 
-/** Nothing is wired for this slot yet — the button renders disabled. */
-const notWiredYet = (): null => null;
-
-/** This slot opens its own sheet; the lead never leaves the CRM. */
+/**
+ * This slot opens its own sheet; the lead never leaves the CRM.
+ *
+ * (A slot with nothing wired yet returns null from `resolve` and renders
+ * disabled with its `disabledTitle` — C1/C2/C3 replace `href(...)` with their
+ * own `ownSheet(...)` when their composer lands.)
+ */
 const ownSheet = (id: QuickActionId) => (): QuickActionTarget => ({ kind: "sheet", id });
 
 export const QUICK_ACTIONS: Record<QuickActionId, QuickActionSlot> = {
