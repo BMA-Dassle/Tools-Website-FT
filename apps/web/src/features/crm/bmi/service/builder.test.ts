@@ -15,7 +15,8 @@ import {
   seedExistingProject,
   setPandoraLocalSynced,
 } from "@/test/msw/handlers/office-builder";
-import type { QuoteLine, QuoteLinePatch } from "../contracts";
+import type { QuoteLine } from "../contracts";
+import type { QuoteLinePatch } from "../data/quote-lines-db";
 import type { BuilderLeadRow } from "../data/builder-lead-db";
 import type { CrmUser } from "~/features/crm/core/types";
 
