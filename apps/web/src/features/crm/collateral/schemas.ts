@@ -11,7 +11,7 @@
 import { z } from "zod";
 import type { CentreCode } from "../core/types";
 import { COLLATERAL_TYPES } from "./contracts";
-import { MAX_SHARE_DAYS } from "./service/share";
+import { MAX_SHARE_DAYS, SHARE_TOKEN_RE } from "./service/share";
 
 /**
  * Spelled out rather than built from `CENTRE_CODES`, so zod infers the literal
@@ -149,6 +149,14 @@ export const SharePostSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("revoke"),
     token: TokenField,
-    shareToken: z.string().min(8).max(64),
+    /**
+     * THE SAME SHAPE THE PUBLIC ROUTE ACCEPTS (`SHARE_TOKEN_RE`), not a looser
+     * hand-written bound. A `min(8)` here would have been a second definition
+     * of "what a share token looks like", and a length rule that disagrees with
+     * the minter is how a code that can never match ships unnoticed (memory:
+     * the Groupon 7-character voucher that could never dispense a card). Every
+     * minted token is 22 base64url characters.
+     */
+    shareToken: z.string().regex(SHARE_TOKEN_RE, "not a share token"),
   }),
 ]);

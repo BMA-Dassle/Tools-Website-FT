@@ -262,7 +262,9 @@ export const SHARE_DELIVERY_REASON = "arrives with texting and email";
 
 export const COLLATERAL_TEST_IDS = {
   screen: "crm-collateral-screen",
+  search: "crm-collateral-search",
   grid: "crm-collateral-grid",
+  loadMore: "crm-collateral-load-more",
   card: (id: string) => "crm-collateral-card-" + id,
   uploadSheet: "crm-collateral-upload",
   shareSheet: "crm-collateral-share",

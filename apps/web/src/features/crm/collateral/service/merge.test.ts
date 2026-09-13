@@ -3,8 +3,10 @@ import { TEMPLATE_SEED } from "../../core/seed";
 import {
   MERGE_FIELDS,
   MERGE_FIELD_KEYS,
+  PREVIEW_GAP_FIELDS,
   gsm7Verdict,
   mergeFieldsIn,
+  previewValues,
   renderSegments,
   renderTemplate,
   sampleValues,
@@ -114,6 +116,36 @@ describe("renderTemplate", () => {
     expect(out.missing).toEqual([]);
     expect(out.unknown).toEqual([]);
     expect(out.text).not.toContain("{{");
+  });
+});
+
+/**
+ * THE EDITOR'S PREVIEW HAS TO BE ABLE TO HIGHLIGHT SOMETHING. Previewing
+ * against `sampleValues()` — all twelve present — makes `missing` false for
+ * every known token, so the `<mark>` never paints and the caption under the
+ * preview promises a behaviour a director can never see. `previewValues()`
+ * is the default the editor uses: a lead shaped like the prototype's own
+ * (Lee Health, L-1042), which has no hold, no event with us last year and no
+ * quote sent yet.
+ */
+describe("previewValues", () => {
+  it("leaves the three optional fields empty by default, so a preview can highlight", () => {
+    const values = previewValues();
+    for (const key of PREVIEW_GAP_FIELDS) expect(values[key]).toBeNull();
+    expect(values["guest.first"]).toBe("Dana");
+  });
+
+  it("makes exactly those fields missing in a rendered body", () => {
+    const body = MERGE_FIELD_KEYS.map((k) => `{{${k}}}`).join(" ");
+    const out = renderTemplate(body, previewValues());
+    expect(out.missing.sort()).toEqual([...PREVIEW_GAP_FIELDS].sort());
+    expect(out.unknown).toEqual([]);
+    expect(out.text).toContain("{{hold.until}}");
+  });
+
+  it("fills everything when the director asks for the complete lead", () => {
+    const body = MERGE_FIELD_KEYS.map((k) => `{{${k}}}`).join(" ");
+    expect(renderTemplate(body, previewValues("complete")).missing).toEqual([]);
   });
 });
 
