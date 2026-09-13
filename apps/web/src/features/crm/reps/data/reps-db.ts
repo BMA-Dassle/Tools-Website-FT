@@ -151,6 +151,8 @@ export interface RepSeed {
   email: string | null;
   bmiUserId: string | null;
   bmiUsername: string | null;
+  /** 7shifts user id (`seven_shifts_user_id INTEGER`) — a plain integer, bound as a number. */
+  sevenShiftsUserId: number | null;
   teamsChatId: string | null;
   phoneE164: string | null;
   centres: CentreCode[];
@@ -160,12 +162,13 @@ export interface RepSeed {
 /**
  * Upsert the roster seed by slug. A slug that does not exist yet is INSERTED in
  * full. A slug that already exists is HEALED, never overwritten: only
- * `bmi_user_id` / `bmi_username` are touched, and only where the row still
- * holds NULL and the seed now knows the value (Jacob's Office id arrived after
- * production had been seeded). Every other column — and any non-NULL value an
- * admin set by hand — is left alone. The `WHERE` on the conflict arm makes a
- * run with nothing to heal a true no-op (no `updated_at` bump, nothing
- * RETURNED), so the count is rows the seed WROTE: inserted or healed.
+ * `bmi_user_id` / `bmi_username` / `seven_shifts_user_id` are touched, and only
+ * where the row still holds NULL and the seed now knows the value (Jacob's
+ * Office id and the planners' 7shifts ids both arrived after production had
+ * been seeded). Every other column — and any non-NULL value an admin set by
+ * hand — is left alone. The `WHERE` on the conflict arm makes a run with
+ * nothing to heal a true no-op (no `updated_at` bump, nothing RETURNED), so
+ * the count is rows the seed WROTE: inserted or healed.
  */
 export async function seedReps(rows: readonly RepSeed[]): Promise<number> {
   if (!isDbConfigured()) return 0;
@@ -175,16 +178,20 @@ export async function seedReps(rows: readonly RepSeed[]): Promise<number> {
   for (const r of rows) {
     const out = (await q`
       INSERT INTO crm_reps (slug, display_name, first_name, initials, role, email, bmi_user_id,
-                            bmi_username, teams_chat_id, phone_e164, centres, sort_order)
+                            bmi_username, seven_shifts_user_id, teams_chat_id, phone_e164,
+                            centres, sort_order)
       VALUES (${r.slug}, ${r.displayName}, ${r.firstName}, ${r.initials}, ${r.role},
               ${r.email ? r.email.toLowerCase() : null}, ${r.bmiUserId}, ${r.bmiUsername},
-              ${r.teamsChatId}, ${r.phoneE164}, ${r.centres}::text[], ${r.sortOrder})
+              ${r.sevenShiftsUserId}, ${r.teamsChatId}, ${r.phoneE164}, ${r.centres}::text[],
+              ${r.sortOrder})
       ON CONFLICT (slug) DO UPDATE SET
         bmi_user_id = COALESCE(crm_reps.bmi_user_id, EXCLUDED.bmi_user_id),
         bmi_username = COALESCE(crm_reps.bmi_username, EXCLUDED.bmi_username),
+        seven_shifts_user_id = COALESCE(crm_reps.seven_shifts_user_id, EXCLUDED.seven_shifts_user_id),
         updated_at = NOW()
       WHERE (crm_reps.bmi_user_id IS NULL AND EXCLUDED.bmi_user_id IS NOT NULL)
          OR (crm_reps.bmi_username IS NULL AND EXCLUDED.bmi_username IS NOT NULL)
+         OR (crm_reps.seven_shifts_user_id IS NULL AND EXCLUDED.seven_shifts_user_id IS NOT NULL)
       RETURNING id
     `) as { id: string }[];
     written += out.length;

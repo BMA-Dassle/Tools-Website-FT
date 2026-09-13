@@ -1,11 +1,11 @@
 /**
  * The idempotent seed (brief §3.8 "Seeds"). Every insert is `ON CONFLICT DO
  * NOTHING` or `WHERE NOT EXISTS` — bar the reps row, whose conflict arm only
- * HEALS a NULL `bmi_user_id` / `bmi_username` from the seed (`seedReps`) — so
- * running it twice writes nothing the second time and a director's later
- * edits are never overwritten. It runs lazily from `ensureCrmSchema()` when
- * `crm_reps` is empty and on demand via `POST /api/admin/crm/jobs/run
- * {kind:"seed"}`.
+ * HEALS a NULL `bmi_user_id` / `bmi_username` / `seven_shifts_user_id` from the
+ * seed (`seedReps`) — so running it twice writes nothing the second time and a
+ * director's later edits are never overwritten. It runs lazily from
+ * `ensureCrmSchema()` when `crm_reps` is empty and on demand via
+ * `POST /api/admin/crm/jobs/run {kind:"seed"}`.
  *
  * SOURCES, all committed code — nothing typed from memory:
  *   reps         crm-data.js:17-23 (slugs, names, initials, centres, roles)
@@ -15,6 +15,12 @@
  *                Guest Services 30080112, Jacob 7251049, Eric 75262).
  *                `bmi_username` is the exact Office display name — the
  *                substring Pandora's `agent` matches and the KPI fallback key.
+ *                + 7shifts user ids, probed live by the B2 rules PR on
+ *                2026-09-13 and matched by name (Kelsea 10832991, Lori 6568770
+ *                — 7shifts lists her as "Lori Coates-Lehman" — Stephanie
+ *                8204948). Guest Services has no 7shifts user; mkt / jacob /
+ *                eric need none. Production was seeded before these were known,
+ *                so `seedReps` heals the three live rows.
  *   logins       one row per mailbox the SSO may present, lowercased.
  *   statuses     crm-data.js:44-55; `on_board` false for the five statuses the
  *                board folds into Booked / Closed (direction-b.html:67).
@@ -54,6 +60,7 @@ export const REP_SEED: readonly RepSeed[] = [
     email: PLANNERS.kelsea.email.toLowerCase(),
     bmiUserId: "28267036",
     bmiUsername: "Kelsea Kosco",
+    sevenShiftsUserId: 10832991,
     teamsChatId: PLANNERS.kelsea.teamsChatId,
     phoneE164: PLANNERS.kelsea.phone,
     centres: ["HPFM", "FT"],
@@ -68,6 +75,7 @@ export const REP_SEED: readonly RepSeed[] = [
     email: PLANNERS.lori.email.toLowerCase(),
     bmiUserId: "465247",
     bmiUsername: "Lori Lehman",
+    sevenShiftsUserId: 6568770, // 7shifts lists her as "Lori Coates-Lehman"
     teamsChatId: PLANNERS.lori.teamsChatId,
     phoneE164: PLANNERS.lori.phone,
     centres: ["HPFM"],
@@ -82,6 +90,7 @@ export const REP_SEED: readonly RepSeed[] = [
     email: PLANNERS.stephanie.email.toLowerCase(),
     bmiUserId: "465242",
     bmiUsername: "Stephanie Wegman",
+    sevenShiftsUserId: 8204948,
     teamsChatId: PLANNERS.stephanie.teamsChatId,
     phoneE164: PLANNERS.stephanie.phone,
     centres: ["HPN"],
@@ -96,6 +105,7 @@ export const REP_SEED: readonly RepSeed[] = [
     email: "guestservices@headpinz.com",
     bmiUserId: "30080112",
     bmiUsername: "Guest Services",
+    sevenShiftsUserId: null,
     teamsChatId: GUEST_SERVICES_CHAT_ID,
     phoneE164: null,
     centres: ALL_CENTRES,
@@ -110,6 +120,7 @@ export const REP_SEED: readonly RepSeed[] = [
     email: null,
     bmiUserId: null,
     bmiUsername: null,
+    sevenShiftsUserId: null,
     teamsChatId: null,
     phoneE164: null,
     centres: ALL_CENTRES,
@@ -124,6 +135,7 @@ export const REP_SEED: readonly RepSeed[] = [
     email: "jacob@headpinz.com",
     bmiUserId: "7251049",
     bmiUsername: "Jacob Elliott",
+    sevenShiftsUserId: null,
     teamsChatId: null,
     phoneE164: null,
     centres: ALL_CENTRES,
@@ -138,6 +150,7 @@ export const REP_SEED: readonly RepSeed[] = [
     email: "eric@headpinz.com",
     bmiUserId: "75262",
     bmiUsername: "Eric Osborn",
+    sevenShiftsUserId: null,
     teamsChatId: null,
     phoneE164: null,
     centres: ALL_CENTRES,
@@ -340,7 +353,7 @@ export const TEMPLATE_SEED: readonly TemplateSeed[] = [
 ];
 
 export interface SeedCounts {
-  /** Rep rows inserted OR healed — `seedReps` fills a NULL Office id on an existing row. */
+  /** Rep rows inserted OR healed — `seedReps` fills a NULL Office / 7shifts id on an existing row. */
   reps: number;
   logins: number;
   statuses: number;

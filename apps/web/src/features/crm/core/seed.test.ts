@@ -5,8 +5,8 @@ import { PLANNERS } from "@/lib/sales-lead-config";
 /**
  * The seed's CONTENT (pinned against its committed sources) and its
  * IDEMPOTENCY (every insert is ON CONFLICT DO NOTHING / WHERE NOT EXISTS — bar
- * the reps row, whose conflict arm only HEALS a NULL Office id — so a second
- * run writes nothing).
+ * the reps row, whose conflict arm only HEALS a NULL Office id / 7shifts id —
+ * so a second run writes nothing).
  */
 
 const db = await vi.hoisted(async () =>
@@ -70,6 +70,23 @@ describe("seed content", () => {
       bmiUserId: "7251049",
       bmiUsername: "Jacob Elliott",
     });
+  });
+
+  it("7shifts user ids: the three planners only, as INTEGERS (probed live 2026-09-13; Lori is 'Lori Coates-Lehman' there)", () => {
+    const byId = Object.fromEntries(REP_SEED.map((r) => [r.slug, r.sevenShiftsUserId]));
+    expect(byId).toEqual({
+      kelsea: 10832991,
+      lori: 6568770,
+      stephanie: 8204948,
+      gs: null, // Guest Services has no 7shifts user
+      mkt: null,
+      jacob: null,
+      eric: null,
+    });
+    // The column is INTEGER — the seed carries numbers, never digit strings.
+    for (const r of REP_SEED) {
+      if (r.sevenShiftsUserId !== null) expect(Number.isInteger(r.sevenShiftsUserId)).toBe(true);
+    }
   });
 
   it("emails are lowercase headpinz.com addresses; every login slug has a rep row", () => {
@@ -207,10 +224,11 @@ describe("runSeed idempotency (SQL boundary)", () => {
   it("the reps upsert HEALS a NULL Office id from the seed and never overwrites a value an admin set", async () => {
     // Production before 2026-09-13: `jacob` exists with NULL bmi_user_id /
     // bmi_username. The recording stub cannot evaluate COALESCE, so the contract
-    // is pinned at the SQL text: the conflict arm sets ONLY the two Office
-    // columns (+ updated_at), each as COALESCE(existing, seed) so a hand-set
-    // value wins, and fires only where there is a NULL to fill — a run with
-    // nothing to heal RETURNS nothing and counts zero.
+    // is pinned at the SQL text: the conflict arm sets ONLY the healable
+    // columns (two Office + the 7shifts id, + updated_at), each as
+    // COALESCE(existing, seed) so a hand-set value wins, and fires only where
+    // there is a NULL to fill — a run with nothing to heal RETURNS nothing and
+    // counts zero.
     db.respond = (stmt) =>
       /^INSERT INTO crm_reps /.test(stmt.text) && stmt.params[0] === "jacob" ? [{ id: "6" }] : [];
     const counts = await runSeed();
@@ -227,16 +245,54 @@ describe("runSeed idempotency (SQL boundary)", () => {
         "bmi_username = COALESCE(crm_reps.bmi_username, EXCLUDED.bmi_username)",
       );
       expect(arm).toContain(
-        "WHERE (crm_reps.bmi_user_id IS NULL AND EXCLUDED.bmi_user_id IS NOT NULL) OR (crm_reps.bmi_username IS NULL AND EXCLUDED.bmi_username IS NOT NULL)",
+        "seven_shifts_user_id = COALESCE(crm_reps.seven_shifts_user_id, EXCLUDED.seven_shifts_user_id)",
+      );
+      expect(arm).toContain(
+        "WHERE (crm_reps.bmi_user_id IS NULL AND EXCLUDED.bmi_user_id IS NOT NULL) OR (crm_reps.bmi_username IS NULL AND EXCLUDED.bmi_username IS NOT NULL) OR (crm_reps.seven_shifts_user_id IS NULL AND EXCLUDED.seven_shifts_user_id IS NOT NULL) RETURNING id",
       );
       // The SET list names nothing else: display name, email, role, centres, phone… stay as set.
       const setList = arm.slice("ON CONFLICT (slug) DO UPDATE SET".length, arm.indexOf(" WHERE "));
-      expect(setList.match(/\w+ =/g)).toEqual(["bmi_user_id =", "bmi_username =", "updated_at ="]);
+      expect(setList.match(/\w+ =/g)).toEqual([
+        "bmi_user_id =",
+        "bmi_username =",
+        "seven_shifts_user_id =",
+        "updated_at =",
+      ]);
     }
 
     const jacob = reps.find((s) => s.params[0] === "jacob");
     expect(jacob?.params).toEqual(expect.arrayContaining(["7251049", "Jacob Elliott"]));
     // The Office id is bound as TEXT — never a number.
     expect(jacob?.params.includes(7251049)).toBe(false);
+  });
+
+  it("the same arm HEALS a NULL 7shifts id for the three planners, bound as an INTEGER", async () => {
+    // Production before 2026-09-13: every rep row had seven_shifts_user_id
+    // NULL; the B2 rules PR then matched kelsea / lori / stephanie in 7shifts.
+    // The first live run heals exactly those three rows; the second heals none.
+    const healed = new Set(["kelsea", "lori", "stephanie"]);
+    db.respond = (stmt) =>
+      /^INSERT INTO crm_reps /.test(stmt.text) && healed.has(stmt.params[0] as string)
+        ? [{ id: "1" }]
+        : [];
+    expect((await runSeed()).reps).toBe(3);
+
+    const reps = db.matching(/^INSERT INTO crm_reps /);
+    expect(reps).toHaveLength(7);
+    // seven_shifts_user_id sits right after bmi_username in the column list…
+    for (const s of reps) {
+      expect(s.text).toContain("bmi_user_id, bmi_username, seven_shifts_user_id, teams_chat_id");
+    }
+    // …and is bound as a NUMBER (the column is INTEGER), never a digit string.
+    const idOf = (slug: string) => reps.find((s) => s.params[0] === slug)?.params[8];
+    expect(idOf("kelsea")).toBe(10832991);
+    expect(idOf("lori")).toBe(6568770);
+    expect(idOf("stephanie")).toBe(8204948);
+    for (const slug of ["gs", "mkt", "jacob", "eric"]) expect(idOf(slug)).toBeNull();
+    for (const s of reps) {
+      expect(
+        s.params.some((p) => typeof p === "string" && /^(10832991|6568770|8204948)$/.test(p)),
+      ).toBe(false);
+    }
   });
 });
