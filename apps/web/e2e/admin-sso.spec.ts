@@ -84,17 +84,15 @@ const DEEP_SAMPLE = ["reservations", "checkin", "sales", "videos", "e-tickets"] 
 
 /**
  * `/admin/daily-events` is registered as an SSO tool but is a REDIRECT, not a
- * board: both of its routes forward to `daily-events-v2`, and they do it
- * through `adminToolUrl()`, which returns an ABSOLUTE url on the staff origin
- * (`https://admin.fasttraxent.com/…` unless `ADMIN_PUBLIC_URL` says otherwise).
+ * board: both of its routes forward to the v2 board. The target is the
+ * SAME-ORIGIN `/admin/daily-events-v2` (`app/admin/_tools/daily-events/
+ * AdminToolPage.tsx` — deliberately not `adminToolUrl()`, whose absolute
+ * `admin.fasttraxent.com` origin would throw away the brand-host session).
  *
- * So the sweep must not `goto` it: a browser would follow the 307 straight off
- * the harness and onto the real production admin host, where it would meet a
- * real Microsoft sign-in and the measurement would be of somebody else's
- * deployment. It is fetched WITHOUT following instead, and what gets counted is
- * the redirect's own bytes — the Location header included, since that is the
- * place a redirect shim would leak a credential if it built its target the way
- * the v1 route used to.
+ * It is still fetched WITHOUT following rather than `goto`: what gets counted
+ * is the redirect's own bytes — the Location header included, since that is
+ * the place a redirect shim would leak a credential if it built its target the
+ * way the v1 route used to.
  */
 const SSO_REDIRECT_TOOLS = new Set(["daily-events"]);
 
@@ -209,7 +207,7 @@ test.describe.serial("the token is not in a signed-in board's bytes", () => {
         );
         expect(res.status()).toBeLessThan(400);
         const location = res.headers()["location"] ?? "";
-        expect(new URL(location, E2E.webOrigin).pathname).toBe("/daily-events-v2");
+        expect(new URL(location, E2E.webOrigin).pathname).toBe("/admin/daily-events-v2");
 
         const bytes = `${location}\n${await res.text()}`;
         const leaked = countOf(bytes, TOKEN);
@@ -422,10 +420,21 @@ test.describe("the token-kept surfaces render with NO session at all", () => {
  * which turns the bookmark into a sign-in exactly once.
  *
  * Four things have to be true at the same time, and each is one assertion here.
+ *
+ * The lane bounces NAVIGATIONS only (`isPageLikeGet`: `sec-fetch-mode:
+ * navigate`, else an `accept` carrying `text/html`) — a POST or an XHR keeps
+ * being served, so a form in flight is never turned into a sign-in page. The
+ * requests below therefore carry a browser's navigation headers; a bare
+ * `request.get` is an XHR to the lane and would (correctly) render.
  */
+const AS_NAVIGATION = { accept: "text/html", "sec-fetch-mode": "navigate" };
+
 test.describe("the redirect lane", () => {
   test("a valid tokened URL for an SSO tool 307s to the clean URL", async ({ request }) => {
-    const res = await request.get(`/admin/${TOKEN}/reservations`, { maxRedirects: 0 });
+    const res = await request.get(`/admin/${TOKEN}/reservations`, {
+      headers: AS_NAVIGATION,
+      maxRedirects: 0,
+    });
     expect(res.status()).toBe(307);
     const loc = new URL(res.headers()["location"], E2E.webOrigin);
     expect(loc.pathname).toBe("/admin/reservations");
@@ -439,7 +448,7 @@ test.describe("the redirect lane", () => {
     // in BOTH route trees precisely so a saved link behaves the same either way.
     const res = await request.get(
       `/admin/${TOKEN}/daily-events/12345?location=ft&date=2026-08-31`,
-      { maxRedirects: 0 },
+      { headers: AS_NAVIGATION, maxRedirects: 0 },
     );
     expect(res.status()).toBe(307);
     const loc = new URL(res.headers()["location"], E2E.webOrigin);
