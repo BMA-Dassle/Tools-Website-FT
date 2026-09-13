@@ -250,6 +250,21 @@ export type ContractPaymentsResponse = ApiOk<{
 /** GET /contracts/[shortId]?history=1 */
 export type ContractHistoryResponse = ApiOk<{ entries: ContractHistoryEntry[] }>;
 
+/**
+ * GET /contracts/[shortId]?notes=1 — the LIVE BMI public notes behind "what
+ * the guest sees". Its own read, like the Square timeline: one Office round
+ * trip must not decide whether the Contract tab opens.
+ */
+export type ContractPublicNotesResponse = ApiOk<{
+  /** What BMI holds right now; null when Office could not be reached. */
+  live: string | null;
+  /** What the guest's contract page renders today (`group_function_quotes.notes`). */
+  stored: string | null;
+  /** The two disagree — the guest is still seeing `stored`. */
+  drifted: boolean;
+  error: string | null;
+}>;
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------

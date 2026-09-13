@@ -60,10 +60,13 @@ export {
   contractDetail,
   contractHistory,
   contractPayments,
+  contractPublicNotes,
   guestUrlFor,
   isCancelPending,
+  publicNotesFromProject,
   toLineItems,
   type PaymentsResult,
+  type PublicNotesResult,
 } from "./service/detail";
 
 export {

@@ -61,6 +61,8 @@ export const ContractDetailQuerySchema = z.object({
   /** Live Square read; its own request so the tab can load without it. */
   payments: Flag.optional(),
   history: Flag.optional(),
+  /** Live BMI public notes for the guest preview; its own request, same reason. */
+  notes: Flag.optional(),
 });
 
 export type ContractDetailQuery = z.infer<typeof ContractDetailQuerySchema>;

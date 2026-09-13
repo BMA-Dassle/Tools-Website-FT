@@ -4,6 +4,7 @@ import type {
   ContractDetailResponse,
   ContractHistoryResponse,
   ContractPaymentsResponse,
+  ContractPublicNotesResponse,
   ContractsListResponse,
 } from "~/features/crm/contracts/contracts";
 import type { CrmFetch } from "../lib/crm-fetch";
@@ -58,6 +59,10 @@ export const fetchContractPayments = (f: CrmFetch, shortId: string) =>
 
 export const fetchContractHistory = (f: CrmFetch, shortId: string) =>
   f<ContractHistoryResponse>(`${base(shortId)}?history=1`);
+
+/** The LIVE BMI public notes for the guest preview — one Office round trip. */
+export const fetchContractNotes = (f: CrmFetch, shortId: string) =>
+  f<ContractPublicNotesResponse>(`${base(shortId)}?notes=1`);
 
 export const postApprove = (f: CrmFetch, shortId: string, memo: string | null) =>
   f<ContractActionResponse>(`${base(shortId)}/approve`, { body: { memo } });

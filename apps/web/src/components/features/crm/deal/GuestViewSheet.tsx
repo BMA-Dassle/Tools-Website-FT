@@ -1,10 +1,15 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import type { ContractDetail } from "~/features/crm/contracts/contracts";
 import { CONTRACT_TEST_IDS } from "~/features/crm/contracts/contracts";
+import { contractsKeys } from "~/features/crm/contracts/queries";
 import { fDate } from "~/features/crm/core/dates";
 import { money, moneyExact } from "~/features/crm/core/format";
+import { notesText } from "../contracts/model";
+import { fetchContractNotes } from "../contracts/queries";
+import { useCrmFetch } from "../lib/use-crm-user";
 import { Kv } from "../primitives/Kv";
 
 /**
@@ -29,8 +34,20 @@ export interface GuestViewSheetProps {
 
 export function GuestViewSheet({ contract }: GuestViewSheetProps) {
   const { row } = contract;
+  const crmFetch = useCrmFetch();
   const steps = ["Review", "Event Info", "Policies", "Agree & Sign"];
   if (!row.postPaid) steps.push("Deposit");
+
+  // The notes are read LIVE from BMI, not taken from the quote row: a planner
+  // who edits the public note in Office sees it here immediately, and the
+  // preview can say plainly when the guest's page has not caught up yet.
+  const notes = useQuery({
+    queryKey: contractsKeys.notes(row.shortId ?? ""),
+    queryFn: () => fetchContractNotes(crmFetch, row.shortId as string),
+    enabled: Boolean(row.shortId),
+    staleTime: 30_000,
+  });
+  const notesView = notesText(contract.notes, notes.data);
 
   return (
     <div className="guest-preview" data-testid={CONTRACT_TEST_IDS.guestView}>
@@ -80,11 +97,12 @@ export function GuestViewSheet({ contract }: GuestViewSheetProps) {
         <div className="eyebrow">
           Notes from {row.rep?.firstName ?? row.plannerName ?? "your planner"}
         </div>
-        <div style={{ whiteSpace: "pre-wrap" }}>
-          {contract.notes?.trim() || "No notes on this event yet."}
-        </div>
-        <div className="xs muted" style={{ marginTop: 6 }}>
-          Live from BMI public notes · grammar lightly cleaned by AI before the guest sees it
+        <div style={{ whiteSpace: "pre-wrap" }}>{notesView.body}</div>
+        <div
+          className={notesView.warn ? "xs" : "xs muted"}
+          style={{ marginTop: 6, ...(notesView.warn ? { color: "var(--warn-ink)" } : null) }}
+        >
+          {notesView.caption}
         </div>
       </div>
 

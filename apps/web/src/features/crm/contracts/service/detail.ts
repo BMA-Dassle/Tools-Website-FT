@@ -24,6 +24,7 @@
 
 import { getJobByIdempotencyKey } from "~/features/crm/jobs";
 import type { ContractHistoryEntry, SquareTimelineNode } from "~/features/daily-events/types";
+import { CENTRE_LIST } from "../../core/centres";
 import type {
   ContractAuditView,
   ContractDetail,
@@ -35,6 +36,7 @@ import {
   RULES,
   diffVersionsAgainstLive,
   extractContractSnapshot,
+  fetchProjectRaw,
   getAuditLog,
   getContractHistory,
   getContractVersions,
@@ -48,6 +50,20 @@ import { rowContext } from "./list";
 import { toContractRow } from "./rows";
 
 export const CONTRACT_AUDIT_ENTITY = "contract";
+
+/**
+ * `center_code` → the Office tenant; Fort Myers is the fallback, as elsewhere.
+ * FT and HPFM deliberately share `headpinzftmyers` — they are one Office
+ * tenant with two centres, which is why the map is by centerCode and not by
+ * centre code.
+ *
+ * Lives HERE, not in `actions.ts`, only because `actions.ts` already imports
+ * this module (`cancelVerifyJobKey`) — one definition, and no import cycle.
+ * `actions.ts` re-exports it under its original name.
+ */
+export function clientKeyForCenterCode(centerCode: string): string {
+  return CENTRE_LIST.find((c) => c.centerCode === centerCode)?.clientKey ?? "headpinzftmyers";
+}
 
 function iso(v: unknown): string {
   if (v instanceof Date) return v.toISOString();
@@ -169,4 +185,78 @@ export async function contractHistory(shortId: string): Promise<ContractHistoryE
   const quote = await getGfQuoteByShortId(shortId);
   if (!quote) return null;
   return getContractHistory(quote.bmi_reservation_id).catch(() => []);
+}
+
+// ---------------------------------------------------------------------------
+// Public notes — the live ones, which is the whole point of the preview
+// ---------------------------------------------------------------------------
+
+/**
+ * BMI keeps the guest-visible text as the PUBLIC entry in the project's log
+ * list (`logs[].public` — older payloads spell it `isPublic`), in `memo`. The
+ * same place `updateProjectPublicNotes` writes, read back.
+ *
+ * PURE, so the shape can be pinned without an Office call.
+ */
+export function publicNotesFromProject(project: unknown): string | null {
+  if (!project || typeof project !== "object") return null;
+  const logs = (project as { logs?: unknown }).logs;
+  if (!Array.isArray(logs)) return null;
+  for (const entry of logs) {
+    if (!entry || typeof entry !== "object") continue;
+    const log = entry as { public?: unknown; isPublic?: unknown; memo?: unknown };
+    const isPublic = log.public ?? log.isPublic;
+    if (isPublic !== true) continue;
+    return typeof log.memo === "string" ? log.memo : null;
+  }
+  return null;
+}
+
+export interface PublicNotesResult {
+  /** What BMI holds right now, or null when Office could not be read. */
+  live: string | null;
+  /** What the guest's contract page is rendering today (`group_function_quotes.notes`). */
+  stored: string | null;
+  /**
+   * The two disagree, so the guest is still being shown `stored` until
+   * `group-quote-dispatch` picks the edit up (it runs every two minutes, AI
+   * grammar-cleans the text and writes it back to BMI).
+   */
+  drifted: boolean;
+  error: string | null;
+}
+
+/** Normalise for COMPARISON only — never for display. */
+function norm(v: string | null): string {
+  return (v ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+/**
+ * The live public notes for the guest preview.
+ *
+ * Its own request, like `contractPayments`: one Office round trip must not
+ * decide whether the Contract tab opens. When Office cannot be reached the
+ * preview falls back to the stored text and SAYS it is the stored text —
+ * showing a stale note under a "live from BMI" caption is the failure this
+ * exists to prevent.
+ */
+export async function contractPublicNotes(shortId: string): Promise<PublicNotesResult | null> {
+  const quote = await getGfQuoteByShortId(shortId);
+  if (!quote) return null;
+  const clientKey = clientKeyForCenterCode(quote.center_code);
+  try {
+    const project = await fetchProjectRaw(clientKey, quote.bmi_reservation_id);
+    const live = publicNotesFromProject(project);
+    return { live, stored: quote.notes, drifted: norm(live) !== norm(quote.notes), error: null };
+  } catch (err) {
+    return {
+      live: null,
+      stored: quote.notes,
+      drifted: false,
+      error: err instanceof Error ? err.message : "Office read failed",
+    };
+  }
 }

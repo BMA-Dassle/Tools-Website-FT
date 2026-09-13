@@ -6,6 +6,7 @@ import Link from "next/link";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import { CONTRACT_TEST_IDS } from "~/features/crm/contracts/contracts";
 import { contractsKeys } from "~/features/crm/contracts/queries";
+import { fStamp } from "~/features/crm/core/dates";
 import { money, moneyExact } from "~/features/crm/core/format";
 import { LEAD_TEST_IDS } from "~/features/crm/leads/contracts";
 import { fetchContract, fetchContractPayments } from "../contracts/queries";
@@ -171,8 +172,9 @@ export default function PaymentsTab({ detail }: DealTabProps) {
 
         {row?.status === "balance_link_sent" ? (
           <Banner tone="warn">
-            The card on file did not go through. A payment link has been sent
-            {row.balanceLinkSentAt ? "" : ""}; it reconciles automatically when the guest pays.
+            The card on file did not go through. A payment link was sent
+            {row.balanceLinkSentAt ? ` ${fStamp(row.balanceLinkSentAt)}` : ""}; it reconciles
+            automatically when the guest pays.
           </Banner>
         ) : null}
       </div>
