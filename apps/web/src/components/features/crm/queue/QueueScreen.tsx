@@ -31,7 +31,7 @@ import { useStatusIndex } from "../deal/use-deal";
 import { BoardColumn } from "../leads/BoardColumn";
 import { LeadCard, centreShort } from "../leads/LeadCard";
 import { NewLeadSheet } from "../leads/NewLeadSheet";
-import { assignToastText, leadTitle, relativeAge } from "../leads/model";
+import { leadTitle, relativeAge } from "../leads/model";
 import { fetchQueue, postAssign } from "../leads/queries";
 import { AssignSheet } from "./AssignSheet";
 
@@ -228,14 +228,7 @@ export default function QueueScreen({ query }: ScreenProps) {
               </BoardColumn>
 
               {reps.map((col) => (
-                <RepColumn
-                  key={col.rep.id}
-                  col={col}
-                  months={months}
-                  now={now}
-                  onOpen={openDeal}
-                  onAssignDone={() => void qc.invalidateQueries({ queryKey: leadsKeys.all })}
-                />
+                <RepColumn key={col.rep.id} col={col} months={months} now={now} onOpen={openDeal} />
               ))}
             </div>
           </div>
@@ -262,15 +255,12 @@ function RepColumn({
   months,
   now,
   onOpen,
-  onAssignDone,
 }: {
   col: QueueRepColumn;
   months: string[];
   now: Date;
   onOpen: (publicId: string) => void;
-  onAssignDone: () => void;
 }) {
-  void onAssignDone;
   return (
     <BoardColumn
       testId={LEAD_TEST_IDS.queueRep(col.rep.slug)}
@@ -348,5 +338,3 @@ function RepColumn({
     </BoardColumn>
   );
 }
-
-export { assignToastText };
