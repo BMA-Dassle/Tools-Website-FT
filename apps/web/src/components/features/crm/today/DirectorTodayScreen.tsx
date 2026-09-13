@@ -12,8 +12,14 @@ import { LeadCard } from "../leads/LeadCard";
  * `directorToday()` (direction-b.html): the tiles — Unassigned (a link to the
  * queue with the sweep countdown), Overdue across team, Contracts out — and
  * one lane per selling rep with their next five due items as cards with the
- * hover rails. "Booked vs LY" is the KPI PR's tile and is not imitated.
+ * hover rails.
+ *
+ * "Booked vs LY" needs the KPI PR's numbers. It ships as an empty, labelled
+ * tile rather than being dropped, so a director can tell "not built yet" from
+ * "nothing to show" — the same honest degradation as the queue's
+ * "No auto-pick yet".
  */
+const BOOKED_VS_LY_PENDING = "Arrives with the KPI PR";
 export interface DirectorTodayScreenProps {
   view: DirectorMyDay;
   now: Date;
@@ -45,6 +51,11 @@ export function DirectorTodayScreen({ view, now, statuses, onOpen }: DirectorTod
         </Link>
         <Tile label="Overdue across team" value={view.tiles.overdueTeam} />
         <Tile label="Contracts out" value={view.tiles.contractsOut} />
+        <div className="tile" data-testid={LEAD_TEST_IDS.directorBookedVsLy}>
+          <span className="label">Booked vs LY</span>
+          <span className="value muted">—</span>
+          <span className="xs muted">{BOOKED_VS_LY_PENDING}</span>
+        </div>
       </div>
       <div className="swim">
         {view.lanes.map((lane) => (
@@ -59,7 +70,7 @@ export function DirectorTodayScreen({ view, now, statuses, onOpen }: DirectorTod
               {lane.rep.displayName}
               <span className="muted small">· {lane.overdue} overdue</span>
             </div>
-            <div className="board" style={{ gridAutoColumns: 260 }}>
+            <div className="board lane-board">
               {lane.due.length === 0 ? (
                 <div className="empty">Clear</div>
               ) : (
