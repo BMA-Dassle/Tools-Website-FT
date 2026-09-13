@@ -1,5 +1,27 @@
 # Open Tasks
 
+## Sales CRM build (2026-09-12) — integration branch `feat/crm`, worktree `.worktrees/crm`
+
+Group-events Sales CRM at `/admin/crm` (ADR 0002; `/crm` redirects). Brief + charter live in
+the build scratchpad; `docs/crm/README.md` is the distilled reference. **Nothing merges to
+`main` until the owner says so.** Each PR = one worktree from the current `feat/crm`, rebased,
+`--ff-only` merged in the `crm` worktree, preview smoked with the `2395551234` test phone.
+
+- [ ] **PR1 `feat/crm-foundation`** — registry + pages + identity + `withCrmRoute` + the 30
+      `crm_*` tables + seed + jobs runner/cron + statuses screen (real) + shell/primitives +
+      msw + e2e `crm-signin.spec.ts` + ADR 0002 + `docs/crm/README.md`. Server half done
+      (this branch); UI half on `feat/crm-foundation-ui`; integrate stage runs build + e2e.
+- [ ] Wave B (parallel after PR1): B1 BMI mirror (History & accounts, KPI substrate) ·
+      B2 rules engine + 7shifts shifts + assign sweep · B3 leads (create/assign/mint, v1
+      `/api/sales-lead/submit` becomes a thin caller) · B4 pipeline board + status
+      transitions · B5 contracts (approve/deny via service calls, balance charge extracted) ·
+      B6 events board over `listDailyEvents`.
+- [ ] Wave C (after their B deps): C1 SMS threads via `voxSend` + the existing inbound seam ·
+      C2 Graph mail (draft + ImmutableId, subscriptions, webhook) · C3 3CX calls · C4 lane
+      availability (QAMF grid) · C5 quote builder (`putProjectFields`, `officeMutatePost`) ·
+      C6 collateral + share links · C7 KPI / accountability / goals (Pandora goals sync).
+- [ ] Preview smoke log (URL + build SHA + pass/fail per §6.3 line) goes here per PR.
+
 ## Pit station: "PA busy" frozen-cache fix + cue sync (2026-09-10) — branches `fix/pit-pa-busy-frozen-cache`, `feat/pit-cue-sync`
 
 Incident: every pit control struck through as "PA busy · mega" for ~50 min; Pandora's cache of
