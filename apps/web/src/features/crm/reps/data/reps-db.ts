@@ -157,12 +157,21 @@ export interface RepSeed {
   sortOrder: number;
 }
 
-/** Insert the reps that do not exist yet (by slug). Returns how many were inserted. */
+/**
+ * Upsert the roster seed by slug. A slug that does not exist yet is INSERTED in
+ * full. A slug that already exists is HEALED, never overwritten: only
+ * `bmi_user_id` / `bmi_username` are touched, and only where the row still
+ * holds NULL and the seed now knows the value (Jacob's Office id arrived after
+ * production had been seeded). Every other column — and any non-NULL value an
+ * admin set by hand — is left alone. The `WHERE` on the conflict arm makes a
+ * run with nothing to heal a true no-op (no `updated_at` bump, nothing
+ * RETURNED), so the count is rows the seed WROTE: inserted or healed.
+ */
 export async function seedReps(rows: readonly RepSeed[]): Promise<number> {
   if (!isDbConfigured()) return 0;
   await ensureRepsSchema();
   const q = sql();
-  let inserted = 0;
+  let written = 0;
   for (const r of rows) {
     const out = (await q`
       INSERT INTO crm_reps (slug, display_name, first_name, initials, role, email, bmi_user_id,
@@ -170,12 +179,17 @@ export async function seedReps(rows: readonly RepSeed[]): Promise<number> {
       VALUES (${r.slug}, ${r.displayName}, ${r.firstName}, ${r.initials}, ${r.role},
               ${r.email ? r.email.toLowerCase() : null}, ${r.bmiUserId}, ${r.bmiUsername},
               ${r.teamsChatId}, ${r.phoneE164}, ${r.centres}::text[], ${r.sortOrder})
-      ON CONFLICT (slug) DO NOTHING
+      ON CONFLICT (slug) DO UPDATE SET
+        bmi_user_id = COALESCE(crm_reps.bmi_user_id, EXCLUDED.bmi_user_id),
+        bmi_username = COALESCE(crm_reps.bmi_username, EXCLUDED.bmi_username),
+        updated_at = NOW()
+      WHERE (crm_reps.bmi_user_id IS NULL AND EXCLUDED.bmi_user_id IS NOT NULL)
+         OR (crm_reps.bmi_username IS NULL AND EXCLUDED.bmi_username IS NOT NULL)
       RETURNING id
     `) as { id: string }[];
-    inserted += out.length;
+    written += out.length;
   }
-  return inserted;
+  return written;
 }
 
 /** Insert login → rep rows that do not exist yet; a slug with no rep row is skipped. */

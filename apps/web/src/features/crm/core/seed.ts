@@ -1,18 +1,20 @@
 /**
  * The idempotent seed (brief §3.8 "Seeds"). Every insert is `ON CONFLICT DO
- * NOTHING` or `WHERE NOT EXISTS`, so running it twice inserts nothing the
- * second time and a director's later edits are never overwritten. It runs
- * lazily from `ensureCrmSchema()` when `crm_reps` is empty and on demand via
- * `POST /api/admin/crm/jobs/run {kind:"seed"}`.
+ * NOTHING` or `WHERE NOT EXISTS` — bar the reps row, whose conflict arm only
+ * HEALS a NULL `bmi_user_id` / `bmi_username` from the seed (`seedReps`) — so
+ * running it twice writes nothing the second time and a director's later
+ * edits are never overwritten. It runs lazily from `ensureCrmSchema()` when
+ * `crm_reps` is empty and on demand via `POST /api/admin/crm/jobs/run
+ * {kind:"seed"}`.
  *
  * SOURCES, all committed code — nothing typed from memory:
  *   reps         crm-data.js:17-23 (slugs, names, initials, centres, roles)
  *                + lib/sales-lead-config.ts PLANNERS (E.164 phones, Teams chat
  *                ids, mailboxes) + daily-events/constants.ts USER_NAMES (Office
  *                user ids: Kelsea 28267036, Lori 465247, Stephanie 465242,
- *                Guest Services 30080112, Eric 75262). `bmi_username` is the
- *                exact Office display name — the substring Pandora's `agent`
- *                matches and the KPI fallback key.
+ *                Guest Services 30080112, Jacob 7251049, Eric 75262).
+ *                `bmi_username` is the exact Office display name — the
+ *                substring Pandora's `agent` matches and the KPI fallback key.
  *   logins       one row per mailbox the SSO may present, lowercased.
  *   statuses     crm-data.js:44-55; `on_board` false for the five statuses the
  *                board folds into Booked / Closed (direction-b.html:67).
@@ -21,9 +23,10 @@
  *   settings     core/settings.ts SETTINGS_SEED.
  *
  * SEVEN rep rows, not six: Eric gets his own director row (`slug='eric'`,
- * charter "Decisions already made"). Jacob's `bmi_user_id` is left NULL per
- * §3.8 — USER_NAMES carries "7251049": "Jacob Elliott", a candidate the
- * director confirms on the roster screen rather than the seed asserting it.
+ * charter "Decisions already made"). Jacob's Office id is 7251049 (USER_NAMES
+ * "7251049": "Jacob Elliott") — unknown when production was first seeded, so
+ * the live row carried NULL until the owner confirmed it on 2026-09-13; the
+ * reps upsert heals that row rather than needing a hand edit (`seedReps`).
  * Marketing Director (`mkt`, a hold row) has no mailbox pending D13.
  *
  * The prototype's DIDs `(239) 555-01xx` are placeholders and are NOT seeded:
@@ -119,8 +122,8 @@ export const REP_SEED: readonly RepSeed[] = [
     initials: "J",
     role: "director",
     email: "jacob@headpinz.com",
-    bmiUserId: null,
-    bmiUsername: null,
+    bmiUserId: "7251049",
+    bmiUsername: "Jacob Elliott",
     teamsChatId: null,
     phoneE164: null,
     centres: ALL_CENTRES,
@@ -337,6 +340,7 @@ export const TEMPLATE_SEED: readonly TemplateSeed[] = [
 ];
 
 export interface SeedCounts {
+  /** Rep rows inserted OR healed — `seedReps` fills a NULL Office id on an existing row. */
   reps: number;
   logins: number;
   statuses: number;
@@ -345,7 +349,7 @@ export interface SeedCounts {
   settings: number;
 }
 
-/** Insert whatever is missing; return how many rows each step added. */
+/** Insert whatever is missing (heal what `seedReps` may); return how many rows each step wrote. */
 export async function runSeed(): Promise<SeedCounts> {
   await ensureRepsSchema();
   const reps = await seedReps(REP_SEED);

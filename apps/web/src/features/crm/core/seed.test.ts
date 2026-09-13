@@ -4,8 +4,9 @@ import { PLANNERS } from "@/lib/sales-lead-config";
 
 /**
  * The seed's CONTENT (pinned against its committed sources) and its
- * IDEMPOTENCY (every insert is ON CONFLICT DO NOTHING / WHERE NOT EXISTS, so a
- * second run adds nothing).
+ * IDEMPOTENCY (every insert is ON CONFLICT DO NOTHING / WHERE NOT EXISTS — bar
+ * the reps row, whose conflict arm only HEALS a NULL Office id — so a second
+ * run writes nothing).
  */
 
 const db = await vi.hoisted(async () =>
@@ -63,8 +64,12 @@ describe("seed content", () => {
     expect(REP_SEED.find((r) => r.slug === "stephanie")?.bmiUserId).toBe("465242");
     expect(REP_SEED.find((r) => r.slug === "gs")?.bmiUserId).toBe("30080112");
     expect(REP_SEED.find((r) => r.slug === "eric")?.bmiUserId).toBe("75262");
-    // Per brief §3.8: Jacob's Office id is NOT asserted by the seed.
-    expect(REP_SEED.find((r) => r.slug === "jacob")?.bmiUserId).toBeNull();
+    // Jacob's Office id arrived after production was seeded (owner-confirmed
+    // 2026-09-13): the seed asserts it now and `seedReps` heals the live row.
+    expect(REP_SEED.find((r) => r.slug === "jacob")).toMatchObject({
+      bmiUserId: "7251049",
+      bmiUsername: "Jacob Elliott",
+    });
   });
 
   it("emails are lowercase headpinz.com addresses; every login slug has a rep row", () => {
@@ -161,7 +166,7 @@ describe("seed content", () => {
 describe("runSeed idempotency (SQL boundary)", () => {
   beforeEach(() => db.reset());
 
-  it("every insert is ON CONFLICT DO NOTHING or WHERE NOT EXISTS; counts are the RETURNING rows", async () => {
+  it("every insert is ON CONFLICT DO NOTHING or WHERE NOT EXISTS (reps: a heal-only DO UPDATE); counts are the RETURNING rows", async () => {
     db.respond = (stmt) => (/RETURNING/.test(stmt.text) ? [{ id: "1" }] : []);
     const counts = await runSeed();
     expect(counts).toEqual({
@@ -175,7 +180,10 @@ describe("runSeed idempotency (SQL boundary)", () => {
 
     const inserts = db.matching(/^INSERT INTO crm_/);
     expect(inserts.length).toBe(7 + 6 + 10 + 7 + 6 + 3);
+    const reps = db.matching(/^INSERT INTO crm_reps /);
+    expect(reps).toHaveLength(7);
     for (const s of inserts) {
+      if (reps.includes(s)) continue;
       expect(s.text, s.text).toMatch(/ON CONFLICT \([a-z_]+\) DO NOTHING|WHERE NOT EXISTS/);
     }
     // Logins resolve the rep by slug in SQL — never a hard-coded id.
@@ -184,7 +192,7 @@ describe("runSeed idempotency (SQL boundary)", () => {
     for (const l of logins) expect(l.text).toContain("FROM crm_reps WHERE slug =");
   });
 
-  it("a second run with everything present inserts nothing", async () => {
+  it("a second run with everything present (and nothing to heal) writes nothing", async () => {
     db.respond = () => [];
     expect(await runSeed()).toEqual({
       reps: 0,
@@ -194,5 +202,41 @@ describe("runSeed idempotency (SQL boundary)", () => {
       templates: 0,
       settings: 0,
     });
+  });
+
+  it("the reps upsert HEALS a NULL Office id from the seed and never overwrites a value an admin set", async () => {
+    // Production before 2026-09-13: `jacob` exists with NULL bmi_user_id /
+    // bmi_username. The recording stub cannot evaluate COALESCE, so the contract
+    // is pinned at the SQL text: the conflict arm sets ONLY the two Office
+    // columns (+ updated_at), each as COALESCE(existing, seed) so a hand-set
+    // value wins, and fires only where there is a NULL to fill — a run with
+    // nothing to heal RETURNS nothing and counts zero.
+    db.respond = (stmt) =>
+      /^INSERT INTO crm_reps /.test(stmt.text) && stmt.params[0] === "jacob" ? [{ id: "6" }] : [];
+    const counts = await runSeed();
+    expect(counts.reps).toBe(1);
+
+    const reps = db.matching(/^INSERT INTO crm_reps /);
+    expect(reps).toHaveLength(7);
+    for (const s of reps) {
+      const at = s.text.indexOf("ON CONFLICT (slug) DO UPDATE SET");
+      expect(at, s.text).toBeGreaterThan(0);
+      const arm = s.text.slice(at);
+      expect(arm).toContain("bmi_user_id = COALESCE(crm_reps.bmi_user_id, EXCLUDED.bmi_user_id)");
+      expect(arm).toContain(
+        "bmi_username = COALESCE(crm_reps.bmi_username, EXCLUDED.bmi_username)",
+      );
+      expect(arm).toContain(
+        "WHERE (crm_reps.bmi_user_id IS NULL AND EXCLUDED.bmi_user_id IS NOT NULL) OR (crm_reps.bmi_username IS NULL AND EXCLUDED.bmi_username IS NOT NULL)",
+      );
+      // The SET list names nothing else: display name, email, role, centres, phone… stay as set.
+      const setList = arm.slice("ON CONFLICT (slug) DO UPDATE SET".length, arm.indexOf(" WHERE "));
+      expect(setList.match(/\w+ =/g)).toEqual(["bmi_user_id =", "bmi_username =", "updated_at ="]);
+    }
+
+    const jacob = reps.find((s) => s.params[0] === "jacob");
+    expect(jacob?.params).toEqual(expect.arrayContaining(["7251049", "Jacob Elliott"]));
+    // The Office id is bound as TEXT — never a number.
+    expect(jacob?.params.includes(7251049)).toBe(false);
   });
 });
