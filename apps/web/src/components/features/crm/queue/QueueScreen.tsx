@@ -14,6 +14,7 @@ import {
   type QueueLead,
   type QueueRepColumn,
 } from "~/features/crm/leads/contracts";
+import { requestedPlannerLabel } from "~/features/crm/leads/planners";
 import { QUEUE_POLL_MS, leadsKeys } from "~/features/crm/leads/queries";
 import { responseBadge } from "~/features/crm/leads/response-badge";
 import { errorMessage } from "../lib/crm-fetch";
@@ -199,6 +200,12 @@ export default function QueueScreen({ query }: ScreenProps) {
                         >
                           waiting {formatMinutes(item.ageMinutes)}
                         </Timer>
+                        {/* B7 — what the guest asked for, honoured or not. */}
+                        {item.lead.requestedRep ? (
+                          <span className="xs" style={{ flexBasis: "100%" }}>
+                            <b>{requestedPlannerLabel(item.lead.requestedRep.firstName)}</b>
+                          </span>
+                        ) : null}
                         <span className="xs" style={{ flexBasis: "100%" }}>
                           {item.suggestion ? (
                             <>

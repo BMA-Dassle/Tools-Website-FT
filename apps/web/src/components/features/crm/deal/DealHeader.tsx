@@ -21,6 +21,7 @@ import {
   NEEDS_EMAIL_OR_TIME,
   type LeadView,
 } from "~/features/crm/leads/contracts";
+import { requestedPlannerLabel } from "~/features/crm/leads/planners";
 import { responseBadge } from "~/features/crm/leads/response-badge";
 import { Avatar } from "../primitives/Avatar";
 import { Chip } from "../primitives/Chip";
@@ -146,6 +147,19 @@ export function DealHeader({
             {lead.type === "birthday" && lead.kids ? " (kids)" : ""}
           </span>
           <Pill>{LEAD_SOURCE_LABEL[lead.source]}</Pill>
+          {/* B7 — carried whether or not the rules honoured it, so the planner
+              reading the deal knows who the guest expected to hear from. */}
+          {lead.requestedRep ? (
+            <Pill
+              title={
+                lead.repSlug === lead.requestedRep.slug
+                  ? "The guest asked for this planner on the web form."
+                  : "The guest asked for this planner on the web form; a routing rule sent it elsewhere."
+              }
+            >
+              {requestedPlannerLabel(lead.requestedRep.firstName)}
+            </Pill>
+          ) : null}
         </div>
         <div className="hstack" style={{ marginTop: 10 }}>
           {status ? (
