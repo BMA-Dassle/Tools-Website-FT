@@ -84,14 +84,17 @@ describe("schema", () => {
     await insertOutboundLink(OUT);
 
     const alters = db.matching(/ALTER TABLE crm_email_links/);
+    // ONE statement, not ten: the ensure runs on every cold start.
+    expect(alters).toHaveLength(1);
+    const alter = alters[0].text;
     // An outbound row has no Graph id yet, and a SendGrid-sent row never will.
-    expect(alters.some((s) => /ALTER COLUMN graph_message_id DROP NOT NULL/.test(s.text))).toBe(
-      true,
-    );
-    // Every added column is idempotent: the ensure runs on every cold start.
-    const adds = alters.filter((s) => /ADD COLUMN/.test(s.text));
+    expect(alter).toMatch(/ALTER COLUMN graph_message_id DROP NOT NULL/);
+    // Every added column is idempotent — a bare `ADD COLUMN` would throw the
+    // second time the process starts and take the whole schema down with it.
+    const adds = alter.match(/ADD COLUMN/g) ?? [];
+    const guarded = alter.match(/ADD COLUMN IF NOT EXISTS/g) ?? [];
     expect(adds.length).toBeGreaterThan(0);
-    expect(adds.every((s) => /ADD COLUMN IF NOT EXISTS/.test(s.text))).toBe(true);
+    expect(guarded.length).toBe(adds.length);
 
     const create = db.matching(/CREATE TABLE IF NOT EXISTS crm_email_links/)[0];
     expect(create.text).toMatch(/UNIQUE \(mailbox, graph_message_id\)/);
