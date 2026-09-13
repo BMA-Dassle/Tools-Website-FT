@@ -49,6 +49,29 @@ PR1 routes: `GET /me`, `GET|POST /settings`, `GET|POST /statuses`,
 `POST /statuses/map`, `GET /statuses/office-states?centre=`, `GET /jobs`,
 `POST /jobs/run` (`noop`, `seed`; every other kind fails "not implemented").
 
+C3 routes: `GET /calls`, `GET /calls/badges`, `POST /calls/dial`,
+`POST /calls/[id]/disposition`, `POST /calls/[id]/link`.
+
+### The public `/api/crm/**` exceptions
+
+Exactly three routes live outside the admin gate, each because the caller is a
+machine that holds no session, each authenticated by its own secret, and each
+saying so in its file header (brief R3):
+
+| Route                    | Caller                       | Secret                                                | PR  |
+| ------------------------ | ---------------------------- | ----------------------------------------------------- | --- |
+| `/api/crm/3cx/lookup`    | the PBX's CRM template       | `CRM_3CX_SECRET` — `x-crm-3cx-secret` header or `?k=` | C3  |
+| `/api/crm/3cx/journal`   | the PBX's CRM template       | the same                                              | C3  |
+| `/api/crm/graph-webhook` | Microsoft Graph              | `clientState`                                         | C2  |
+| `/api/crm/share/[token]` | a guest opening a share link | the token itself                                      | C6  |
+
+All of them **FAIL CLOSED**: an unset secret means 401, never open. That is the
+deliberate opposite of `VOX_MO_TOKEN`, which fails OPEN when unset
+(`app/api/sms-webhook/vox/inbound/route.ts`) and so publishes its endpoint by
+accident. `CRM_3CX_SECRET` is unset today, so the two 3CX routes answer 401 and
+the Calls screen says "3CX journaling is not connected yet"; the reconcile job
+fills the board from the call log in the meantime. See [3cx.md](3cx.md).
+
 ## Data (30 `crm_*` tables, `core/schema.ts` `ensureCrmSchema()`)
 
 Conventions: `id BIGSERIAL`; **every BMI / Pandora / Square / Graph / 3CX / Vox id
@@ -138,7 +161,8 @@ implementer of any later change must know about that body:
 | `VOX_API_KEY`, `VOX_MO_TOKEN`, `SMS_A2P_DID`                                                           | SMS (existing) — rep DIDs live in `crm_reps.vox_did` ONLY                       | C1                                                                                                              |
 | `CRM_GRAPH_TENANT_ID`, `CRM_GRAPH_CLIENT_ID`, `CRM_GRAPH_CLIENT_SECRET`, `CRM_GRAPH_WEBHOOK_URL`       | Graph mail (NEW names; never reuse `GRAPH_TENANT_ID`, which is the Teams bot's) | C2                                                                                                              |
 | `SEVEN_SHIFTS_API_TOKEN` (or `_ACCESS_TOKEN`), `SEVEN_SHIFTS_COMPANY_ID`                               | shifts mirror                                                                   | B2                                                                                                              |
-| `THREECX_CLIENT_ID`, `THREECX_CLIENT_SECRET`                                                           | 3CX call control                                                                | C3                                                                                                              |
+| `THREECX_CLIENT_ID`, `THREECX_CLIENT_SECRET`                                                           | 3CX call control + the call log                                                 | C3 — already set; probed 2026-09-13, the API user holds Call Control and Reports ([3cx.md](3cx.md))             |
+| `CRM_3CX_SECRET`                                                                                       | the two PUBLIC `/api/crm/3cx/*` routes                                          | C3 — **unset today, so both answer 401**; FAILS CLOSED, unlike `VOX_MO_TOKEN`                                   |
 | `CRM_BMI_WRITES`, `CRM_BMI_WRITES_OFF_CENTRES`, `CRM_SMS`, `CRM_EMAIL`, `CRM_CALLS`, `CRM_AUTO_ASSIGN` | kill switches                                                                   | unset = ON                                                                                                      |
 
 ## SMS consent basis (placeholder — C1 fills the enforcement table)
