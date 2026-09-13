@@ -67,9 +67,9 @@ describe("the nav is the prototype's (direction-b.html:51-57,121)", () => {
     expect(isDirectorOnlyScreen("pipeline")).toBe(false);
   });
 
-  it("ships every item with ready: false — PR1 builds no screen bodies", () => {
+  it("ships only statuses with ready: true — the one screen PR1 builds a body for", () => {
     for (const i of [...NAV_GROUPS.flatMap((g) => g.items), ...PHONE_TABS, ...MORE_ITEMS]) {
-      expect(i.ready, i.id).toBe(false);
+      expect(i.ready, i.id).toBe(i.id === "statuses");
     }
   });
 });

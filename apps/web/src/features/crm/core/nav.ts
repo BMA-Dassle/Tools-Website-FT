@@ -6,8 +6,9 @@
  * (PR1 ships no providers, so every badge renders empty).
  *
  * `ready` is the ONLY field a feature PR edits, and only on its own line: PR1
- * sets `ready: false` everywhere because PR1 ships no screen bodies — the shell
- * renders `NotBuiltYet` for each. The prototype's `leads` route is `pipeline`
+ * sets `ready: true` for `statuses` alone (the one screen it builds a body for)
+ * and `ready: false` everywhere else — the shell renders `NotBuiltYet` for
+ * those. The prototype's `leads` route is `pipeline`
  * here (the URL scheme in §3.1); `goals` is reached from KPI and the phone
  * "More" list, not from the sidebar, exactly as in the prototype.
  */
@@ -134,7 +135,7 @@ export const MORE_ITEMS: readonly NavItem[] = [
     label: "Statuses & BMI (admin)",
     icon: "settings",
     director: true,
-    ready: false,
+    ready: true,
   },
 ];
 
@@ -165,30 +166,36 @@ export const SCREEN_META: Record<ScreenId, ScreenMeta> = {
   },
   contracts: {
     title: "Contracts",
-    description: "Every group-function quote, with what needs attention first.",
+    description:
+      "Group-event contracts by event date · defaults to what needs a human · closed ones are archived",
   },
-  events: { title: "Events", description: "The booked-event board per centre, by day or week." },
+  events: {
+    title: "Events",
+    description:
+      "Group events by day · BMI truth plus contract and payment state · the old Daily Events board",
+  },
   conversations: {
     title: "Conversations",
-    description: "Texts on your number · email from your Outlook.",
+    description: "Texts on your number · email from your Outlook",
   },
   calls: {
     title: "Calls",
-    description: "Your 3CX extension: click to call, journaled calls and dispositions.",
+    description: "Your 3CX extension, matched to leads automatically",
   },
   history: {
     title: "History & accounts",
-    description: "Every event across centres and years.",
+    description: "Every event across centres and years, from the BMI mirror",
   },
   account: { title: "Account", description: "One business or household across every year." },
-  cold: { title: "Cold lists", description: "Imported prospect lists and the dialing queue." },
+  cold: { title: "Cold lists", description: "Import a CSV, map the columns, dial down the list" },
   collateral: {
     title: "Collateral & templates",
-    description: "Flyers, pricing PDFs and the message templates reps send.",
+    description:
+      "Flyers, pricing and menus to share in one tap · quote templates for Build in BMI · message templates with merge fields",
   },
   accountability: {
     title: "Accountability",
-    description: "Calls, texts, emails and reach-outs against weekly targets.",
+    description: "Counts every logged call, text, email and last-year reach-out for the week",
   },
   kpi: {
     title: "KPI dashboard",
@@ -201,10 +208,10 @@ export const SCREEN_META: Record<ScreenId, ScreenMeta> = {
   },
   rules: {
     title: "Assignment rules",
-    description: "The rules the queue runs top to bottom, and who is on shift.",
+    description: "Evaluated top to bottom for every new lead · the hourly sweep uses the same list",
   },
   statuses: {
-    title: "Statuses & BMI",
+    title: "Statuses",
     description:
       "Our pipeline on top of BMI. Each of our statuses writes one BMI state per centre.",
   },
