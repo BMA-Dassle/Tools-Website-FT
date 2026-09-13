@@ -1,5 +1,9 @@
 import { CENTRES, OFFICE_CLIENT_KEYS, centresForClientKey } from "~/features/crm/core/centres";
-import type { HistoryAccount, MirrorEvent } from "~/features/crm/core/contracts";
+import type {
+  BackfillRunSummary,
+  HistoryAccount,
+  MirrorEvent,
+} from "~/features/crm/core/contracts";
 import { fDateY, shiftYmd, todayEasternYmd } from "~/features/crm/core/dates";
 import { money, plural } from "~/features/crm/core/format";
 import type { CentreCode, OfficeClientKey } from "~/features/crm/core/types";
@@ -109,6 +113,27 @@ export function backfillDefaults(now: Date = new Date()): { from: string; until:
 
 export function isYmd(v: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`));
+}
+
+/**
+ * `POST /jobs/run` types its `result` as `unknown` (one endpoint, every job
+ * kind), so the backfill's shape is read back here — defensively, because a
+ * handler that refused the payload answers with `{ok:false, error}` and the
+ * card must show that rather than loop on a cursor it does not have.
+ */
+export function backfillSummary(result: unknown): BackfillRunSummary | null {
+  if (!result || typeof result !== "object") return null;
+  const r = result as Partial<BackfillRunSummary>;
+  if (typeof r.runId !== "string" || typeof r.clientKey !== "string") return null;
+  return r as BackfillRunSummary;
+}
+
+/** One line of progress per completed run, for the card's log. */
+export function backfillProgressLine(s: BackfillRunSummary): string {
+  const rows = `${s.inserted} new · ${s.updated} updated`;
+  const online = s.onlineBookings ? ` · ${s.onlineBookings} online` : "";
+  const failed = s.failed.length ? ` · ${s.failed.length} failed` : "";
+  return `${s.window.from} → ${s.window.until}: ${s.detailsThisRun} of ${s.groupEvents} group events · ${rows}${online}${failed}`;
 }
 
 /** `+12395551234` → `(239) 555-1234`; anything else verbatim. */

@@ -97,6 +97,14 @@ export interface BackfillRunResult {
   /** The key of the job enqueued next, or null when the span is complete. */
   next: string | null;
   nextCreated: boolean | null;
+  /**
+   * The CURSOR that job carries, or null when the span is complete. A caller
+   * that cannot wait for the cron (the History screen's mirror card on a
+   * preview, where crons never fire) posts this straight back as the next
+   * run's payload and walks the whole span itself; without it, a fresh
+   * `{clientKey, from, until}` would restart at the FIRST window every time.
+   */
+  nextPayload: Record<string, unknown> | null;
   elapsedMs: number;
 }
 
@@ -280,12 +288,14 @@ export async function runBackfillStep(
   const plan = planAfterRun(cursor, processed, ids.length);
   let next: string | null = null;
   let nextCreated: boolean | null = null;
+  let nextPayload: Record<string, unknown> | null = null;
   if (plan.kind !== "finished") {
     next = backfillJobKey(plan.cursor);
+    nextPayload = cursorToPayload(plan.cursor);
     const { created } = await deps.enqueue({
       kind: BACKFILL_KIND,
       idempotencyKey: next,
-      payload: cursorToPayload(plan.cursor),
+      payload: nextPayload,
       createdBy: "bmi-mirror-backfill",
     });
     nextCreated = created;
@@ -317,6 +327,7 @@ export async function runBackfillStep(
     runId,
     next,
     nextCreated,
+    nextPayload,
     elapsedMs: deps.now().getTime() - started,
   };
 }
