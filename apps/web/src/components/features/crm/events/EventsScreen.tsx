@@ -1,0 +1,195 @@
+"use client";
+
+import { IconArrowLeft, IconArrowRight, IconCalendarPlus } from "@tabler/icons-react";
+import { useQuery } from "@tanstack/react-query";
+import { createPortal } from "react-dom";
+import { CENTRE_CODES, CENTRES } from "~/features/crm/core/centres";
+import type { ScreenProps } from "~/features/crm/core/screens";
+import type { CentreCode } from "~/features/crm/core/types";
+import {
+  EVENTS_COPY,
+  EVENT_TEST_IDS,
+  type EventRowView,
+  type EventsView,
+} from "~/features/crm/events/contracts";
+import { EVENTS_POLL_MS, eventsKeys } from "~/features/crm/events/queries";
+import { dayRange, stepDate } from "~/features/crm/events/projection";
+import { todayEasternYmd } from "~/features/crm/core/dates";
+import { errorMessage } from "../lib/crm-fetch";
+import { useUrlQuery } from "../lib/use-url-query";
+import { useCrmFetch, useCrmSheet, useTopbarSlot } from "../lib/use-crm-user";
+import { Chip } from "../primitives/Chip";
+import { ICON } from "../primitives/icon-props";
+import { Seg } from "../primitives/Seg";
+import { EmptyState, ErrorState, LoadingState } from "../primitives/States";
+import { DealDrawer } from "../deal/DealDrawer";
+import { CreateLeadFromEventSheet } from "./CreateLeadFromEventSheet";
+import { DayBand } from "./DayBand";
+import { fetchEventsBoard } from "./queries";
+import { rangeLabel } from "./model";
+
+/**
+ * `/admin/crm/events[?centre=&view=day|week&date=&cancelled=1]` — the
+ * prototype's `events` screen (crm-events.js:244-254): the Day / Week and
+ * centre segmented controls in the topbar, a Prev / Next / Today strip with
+ * the pill legend, then one card per day.
+ *
+ * Rows open the SAME deal drawer the pipeline and the queue open, on the Event
+ * tab (`?deal=<publicId>&tab=event`) — filters live in the URL, so a link is a
+ * saved view.
+ */
+
+const VIEW_OPTIONS: { value: EventsView; label: string }[] = [
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+];
+
+const CENTRE_OPTIONS = CENTRE_CODES.map((code) => ({
+  value: code,
+  label: CENTRES[code].short,
+}));
+
+function isCentre(value: string | undefined): value is CentreCode {
+  return !!value && (CENTRE_CODES as readonly string[]).includes(value);
+}
+
+export default function EventsScreen({ query }: ScreenProps) {
+  const crmFetch = useCrmFetch();
+  const slot = useTopbarSlot();
+  const { openSheet, closeSheet } = useCrmSheet();
+  const [urlQuery, setUrlQuery] = useUrlQuery(query);
+
+  const centre: CentreCode = isCentre(urlQuery.centre) ? urlQuery.centre : "HPFM";
+  const view: EventsView = urlQuery.view === "day" ? "day" : "week";
+  const includeCancelled = urlQuery.cancelled === "1";
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(urlQuery.date ?? "")
+    ? (urlQuery.date as string)
+    : todayEasternYmd();
+
+  const q = useQuery({
+    queryKey: eventsKeys.board(centre, view, date, includeCancelled),
+    queryFn: () => fetchEventsBoard(crmFetch, { centre, view, date, includeCancelled }),
+    refetchInterval: EVENTS_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+
+  const today = q.data?.today ?? todayEasternYmd();
+  const openDeal = (publicId: string) => setUrlQuery({ deal: publicId, tab: "event" });
+
+  const createLead = (row: EventRowView) =>
+    openSheet({
+      title: `Create lead from ${row.number || "this event"}`,
+      icon: <IconCalendarPlus {...ICON} />,
+      wide: true,
+      testId: EVENT_TEST_IDS.createLeadSheet,
+      body: (
+        <CreateLeadFromEventSheet
+          row={row}
+          onCancel={closeSheet}
+          onDone={(publicId) => {
+            closeSheet();
+            openDeal(publicId);
+          }}
+        />
+      ),
+    });
+
+  const days = q.data?.days ?? [];
+  const nothing = days.length > 0 && days.every((d) => d.events.length === 0 && !d.error);
+
+  return (
+    <>
+      {slot
+        ? createPortal(
+            <>
+              <Seg
+                options={VIEW_OPTIONS}
+                value={view}
+                label="Day or week"
+                onChange={(v) => setUrlQuery({ view: v === "week" ? null : v })}
+              />
+              <Seg
+                options={CENTRE_OPTIONS}
+                value={centre}
+                label="Centre"
+                onChange={(v) => setUrlQuery({ centre: v === "HPFM" ? null : v })}
+              />
+            </>,
+            slot,
+          )
+        : null}
+
+      <div className="hstack between">
+        <div className="hstack">
+          <button
+            type="button"
+            className="btn btn-sm"
+            aria-label={view === "week" ? "Previous week" : "Previous day"}
+            onClick={() => setUrlQuery({ date: stepDate(date, view, -1) })}
+          >
+            <IconArrowLeft {...ICON} />
+          </button>
+          <b>{rangeLabel(dayRange(date, view))}</b>
+          <button
+            type="button"
+            className="btn btn-sm"
+            aria-label={view === "week" ? "Next week" : "Next day"}
+            onClick={() => setUrlQuery({ date: stepDate(date, view, 1) })}
+          >
+            <IconArrowRight {...ICON} />
+          </button>
+          <button type="button" className="btn btn-sm" onClick={() => setUrlQuery({ date: null })}>
+            Today
+          </button>
+        </div>
+        <div className="hstack xs muted">
+          <Chip kind="won">PAID</Chip>
+          <Chip kind="won">DEPOSIT</Chip>
+          <Chip kind="warn">UNSIGNED</Chip>
+          <Chip bmi>BMI state</Chip>
+          <label className="hstack xs muted" style={{ gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={includeCancelled}
+              onChange={(e) => setUrlQuery({ cancelled: e.target.checked ? "1" : null })}
+            />
+            show cancelled
+          </label>
+        </div>
+      </div>
+
+      {q.isPending ? <LoadingState label="Reading BMI for these days…" /> : null}
+      {q.isError ? (
+        <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />
+      ) : null}
+
+      {q.data ? (
+        <div className="stack" style={{ gap: 10 }} data-testid={EVENT_TEST_IDS.board}>
+          {nothing ? (
+            <EmptyState>No group events at {CENTRES[centre].short} in this window.</EmptyState>
+          ) : null}
+          {days.map((band) => (
+            <DayBand
+              key={band.date}
+              band={band}
+              todayYmd={today}
+              onOpenDeal={openDeal}
+              onCreateLead={createLead}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      <div className="xs muted">{EVENTS_COPY.boardFoot}</div>
+
+      {urlQuery.deal ? (
+        <DealDrawer
+          publicId={urlQuery.deal}
+          onClose={() => setUrlQuery({ deal: null, tab: null })}
+          query={urlQuery}
+          setQuery={setUrlQuery}
+        />
+      ) : null}
+    </>
+  );
+}
