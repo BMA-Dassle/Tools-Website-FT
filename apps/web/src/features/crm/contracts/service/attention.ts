@@ -57,10 +57,31 @@ export function pastUnpaidDayof(row: AttentionInput, now: Date): boolean {
   return Boolean(row.dayofOrderId) && !row.settledOrderId && daysOut(row.eventDate, now) < 0;
 }
 
+/**
+ * A past event with nothing outstanding is FINISHED, whatever its status says.
+ *
+ * Owner, 2026-09-13, looking at the live list: "like doesn't need attention
+ * basically". Fourteen past events were being flagged and twelve of them were
+ * settled at a zero balance — the event ran, the money is in, and only the
+ * status was never advanced to completed. Worse, the reasons compounded: one
+ * row read "unsigned 107 d · event in -105 d, unsigned · event passed, not
+ * closed", three alarms for a job that finished in June.
+ *
+ * Guarding each branch separately would have left the first two of those three
+ * still shouting, so the rule is stated once, here, and it is the money that
+ * decides. An open day-of Square order still counts as outstanding, so a past
+ * event with one keeps its place in the list even at a zero balance.
+ */
+export function pastAndSettled(row: AttentionInput, now: Date): boolean {
+  return daysOut(row.eventDate, now) < 0 && row.balanceCents <= 0 && !pastUnpaidDayof(row, now);
+}
+
 export function attentionReasons(row: AttentionInput, now: Date): AttentionReason[] {
   const out: AttentionReason[] = [];
   const days = daysOut(row.eventDate, now);
   const openDayof = pastUnpaidDayof(row, now);
+
+  if (pastAndSettled(row, now)) return out;
 
   if (row.status === "pending_approval") {
     out.push({
@@ -80,8 +101,14 @@ export function attentionReasons(row: AttentionInput, now: Date): AttentionReaso
     out.push({ t: "balance not yet charged", k: "crit" });
   }
   if (openDayof) out.push({ t: "day-of order still open", k: "crit" });
+  // Reached only when the event is past AND money is still outstanding, because
+  // `pastAndSettled` returned early otherwise. The amount is named so the row
+  // says what is actually wrong with it.
   if (days < 0 && !CLOSED_FOR_ATTENTION.includes(row.status) && !openDayof) {
-    out.push({ t: "event passed, not closed", k: "crit" });
+    out.push({
+      t: `event passed, $${Math.round(row.balanceCents / 100).toLocaleString("en-US")} still owed`,
+      k: "crit",
+    });
   }
   return out;
 }
@@ -104,6 +131,25 @@ type AttentionKindOrNull = "warn" | "crit" | null;
  * Branch for branch with `attentionReasons` above, in the same order.
  */
 export const ATTENTION_SQL = `(
+  -- A PAST EVENT WITH NOTHING OUTSTANDING IS FINISHED, whatever its status says.
+  -- Mirrors pastAndSettled(): stated ONCE, as a gate over every branch below,
+  -- rather than guarded branch by branch. Owner, 2026-09-13, on the live list:
+  -- "like doesn't need attention basically" — 14 past events were flagged and
+  -- 12 were settled at a zero balance, their status simply never advanced to
+  -- 'completed' after the event ran. The reasons also compounded: one row read
+  -- unsigned 107 d, then event in -105 d unsigned, then event passed not
+  -- closed. Three alarms for a job that finished in June. Guarding only the
+  -- last branch would have left the first two still shouting.
+  -- An open day-of Square order counts as outstanding, so such a row keeps its
+  -- place even at a zero balance.
+  -- (No currency symbols in this comment: the branch-parity test scans this
+  -- string for placeholders and a dollar amount reads as one.)
+  NOT (
+        event_date < $1::date
+    AND balance_cents <= 0
+    AND NOT (square_dayof_order_id IS NOT NULL AND square_settled_order_id IS NULL)
+  )
+  AND (
      status = 'pending_approval'
   OR (status = 'contract_sent' AND contract_sent_at IS NOT NULL AND contract_sent_at < $2::timestamptz)
   OR (status = 'contract_sent' AND event_date <= ($1::date + 7))
@@ -111,7 +157,10 @@ export const ATTENTION_SQL = `(
   OR status = 'balance_link_sent'
   OR (status = 'deposit_paid' AND event_date <= ($1::date + 3) AND balance_cents > 0)
   OR (square_dayof_order_id IS NOT NULL AND square_settled_order_id IS NULL AND event_date < $1::date)
+  -- Reached only when the gate above let the row through, i.e. the event is
+  -- past AND something is still outstanding.
   OR (event_date < $1::date AND status NOT IN ('completed','cancelled','denied'))
+  )
 )`;
 
 /** The day-of half of the prototype's count expression, on its own. */

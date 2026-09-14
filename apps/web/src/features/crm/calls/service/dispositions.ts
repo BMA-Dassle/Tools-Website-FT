@@ -64,12 +64,28 @@ export interface DispositionDeps {
   activity: typeof recordActivity;
 }
 
+/**
+ * THE THREE LEADS ENTRIES ARE RESOLVED AT CALL TIME, NOT AT MODULE SCOPE.
+ *
+ * `~/features/crm/leads` and this sub are in an import cycle, so when the
+ * leads barrel is the entry point — which is exactly what the BMI mirror's
+ * `leadsLinker` does, `await import("~/features/crm/leads")` — this module is
+ * evaluated while that barrel is still initialising and its bindings are not
+ * there yet. Reading one here threw `Cannot read properties of undefined
+ * (reading 'recordFirstTouch')` and failed the mirror on every group event it
+ * tried to link: 2,890 of 2,928 Fort Myers rows and 71 of 88 Naples rows
+ * landed, and the rest were lost to a module-load order.
+ *
+ * A thunk defers the read until the call, by which point the graph is whole.
+ * Same reasoning as `bmi/service/deps.ts`, which resolves the linker with a
+ * dynamic import for this cycle rather than importing leads statically.
+ */
 export const defaultDispositionDeps: DispositionDeps = {
   read: getCall,
   write: setCallDisposition,
-  lead: getLead,
-  patchLead: updateLeadFields,
-  firstTouch: recordFirstTouch,
+  lead: (...args: Parameters<typeof getLead>) => getLead(...args),
+  patchLead: (...args: Parameters<typeof updateLeadFields>) => updateLeadFields(...args),
+  firstTouch: (...args: Parameters<typeof recordFirstTouch>) => recordFirstTouch(...args),
   activity: recordActivity,
 };
 

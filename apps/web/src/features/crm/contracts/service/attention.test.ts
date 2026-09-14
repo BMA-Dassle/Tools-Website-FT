@@ -98,10 +98,54 @@ describe("attentionReasons — the prototype's eight branches, verbatim copy", (
     expect(attentionReasons(r, NOW)).toEqual([{ t: "day-of order still open", k: "crit" }]);
   });
 
-  it("a past event that is not closed and has no open order says so", () => {
-    expect(attentionReasons(row({ status: "deposit_paid", eventDate: "2026-09-08" }), NOW)).toEqual(
-      [{ t: "event passed, not closed", k: "crit" }],
+  it("a past event that is still OWED money says so, and names the amount", () => {
+    const reasons = attentionReasons(
+      row({ status: "deposit_paid", eventDate: "2026-09-08", balanceCents: 144_700 }),
+      NOW,
     );
+    // The deposit_paid branch fires too (past is within "3 days out"), which is
+    // correct — what matters is that the past-event reason survives and states
+    // the figure, so a planner sees the money without opening the row.
+    expect(reasons).toContainEqual({ t: "event passed, $1,447 still owed", k: "crit" });
+  });
+
+  it("a past event that is SETTLED is quiet — EVERY reason, not just the last one", () => {
+    // The owner's 2026-09-13 list: 14 past events flagged, 12 at a zero balance
+    // whose status simply never moved to completed after the event ran. Their
+    // reasons COMPOUNDED — one row read "unsigned 107 d · event in -105 d,
+    // unsigned · event passed, not closed" — so silencing only the last branch
+    // would have left two alarms on a job that finished in June.
+    for (const status of ["deposit_paid", "contract_sent", "pending"] as const) {
+      expect(
+        attentionReasons(
+          row({
+            status,
+            eventDate: "2026-06-12",
+            balanceCents: 0,
+            // Sent long enough ago to trip the "unsigned N d" branch as well.
+            sentAt: "2026-02-25T12:00:00.000Z",
+          }),
+          NOW,
+        ),
+        status,
+      ).toEqual([]);
+    }
+  });
+
+  it("a settled past event with an OPEN day-of order still surfaces", () => {
+    // The day-of branch is independent of the balance, so closing this hole
+    // must not close that one.
+    const reasons = attentionReasons(
+      row({
+        status: "deposit_paid",
+        eventDate: "2026-09-08",
+        balanceCents: 0,
+        dayofOrderId: "ord_1",
+        settledOrderId: null,
+      }),
+      NOW,
+    );
+    expect(reasons).toEqual([{ t: "day-of order still open", k: "crit" }]);
   });
 
   it("a completed past event is quiet — and a settled day-of order is too", () => {
