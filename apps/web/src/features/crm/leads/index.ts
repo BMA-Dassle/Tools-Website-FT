@@ -42,6 +42,7 @@ export {
   listLeads,
   updateLeadFields,
   listUnassignedLeads,
+  listOverdueGuestIntros,
   listDueLeads,
   listAssignedAwaitingTouch,
   listLeadsByProjectIds,
@@ -87,6 +88,7 @@ export {
 } from "./service/create-lead";
 export {
   assignLead,
+  introduceIfHeld,
   syncResponsible,
   normalizeReason,
   nextActionForAssignment,
@@ -123,6 +125,12 @@ export {
   notifyAlreadySent,
   unassignedCardSkipReason,
   summarizeNotify,
+  summarizeGuestIntro,
+  sendGuestIntro,
+  plannerForOwner,
+  resolveGuestServicesPlanner,
+  prefersToContactMethod,
+  HELD_FOR_PLANNER,
   centerConfigFor,
   defaultNotifyDeps,
   salesCardKey,
@@ -135,7 +143,18 @@ export {
   type NotifyDeps,
   type NotifyInput,
   type NotifyOutcome,
+  type GuestIntroInput,
+  type GuestIntroOutcome,
 } from "./service/notify";
+export {
+  runGuestIntroBackstop,
+  defaultBackstopDeps,
+  guestIntroBackstopKey,
+  GUEST_INTRO_BACKSTOP_MINUTES,
+  BACKSTOP_ACTOR,
+  type BackstopDeps,
+  type BackstopResult,
+} from "./service/guest-intro-backstop";
 export {
   suggestFor,
   toEngineLead,

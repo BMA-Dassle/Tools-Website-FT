@@ -347,6 +347,9 @@ export async function createLead(
         reason: "rule",
         ruleId: suggestion.suggestion.ruleId,
         trace: suggestion.trace,
+        // Step 7 does the guest's welcome, with the form's own contact
+        // preference and the planner's card beside it.
+        introduceGuest: false,
       });
       lead = assignment.lead;
     } catch (err) {

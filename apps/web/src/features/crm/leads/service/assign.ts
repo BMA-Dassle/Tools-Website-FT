@@ -52,6 +52,13 @@ import type {
 import { insertAssignment, markAssignmentResponsibleSynced } from "../data/assignments-db";
 import { getLead, updateLeadFields } from "../data/leads-db";
 import { MINT_JOB_KIND } from "./mint";
+import {
+  centerConfigFor,
+  plannerForOwner,
+  sendGuestIntro,
+  summarizeGuestIntro,
+  type GuestIntroOutcome,
+} from "./notify";
 
 export const FIRST_TOUCH_LABEL = "New lead — first touch due";
 
@@ -79,6 +86,18 @@ export interface AssignLeadInput {
   ruleId?: string | null;
   trace?: RuleTraceRowView[] | null;
   note?: string | null;
+  /**
+   * Send the guest's held welcome if this hand-off gives the lead its first
+   * owner. Default true — a lead that reaches a planner should have its guest
+   * told, and forgetting to ask for that is the failure mode worth defaulting
+   * against.
+   *
+   * `createLead` passes FALSE: it assigns and then notifies in the same breath,
+   * and `notifyNewLead` is the one that has the form's contact preference, the
+   * Redis card state and the planner's Teams card. Two rails introducing the
+   * same guest in the same second is the bug this flag exists to prevent.
+   */
+  introduceGuest?: boolean;
 }
 
 export interface AssignResult {
@@ -96,6 +115,8 @@ export interface AssignDeps {
   recordActivity: typeof recordActivity;
   putProjectFields: typeof putProjectFields;
   getSettingValue: typeof getSettingValue;
+  /** The guest's welcome — sent here only when the lead was held at capture. */
+  sendGuestIntro: typeof sendGuestIntro;
   jobs: Pick<JobStore, "enqueue">;
   now: () => Date;
 }
@@ -110,6 +131,7 @@ export function defaultAssignDeps(): AssignDeps {
     recordActivity,
     putProjectFields,
     getSettingValue,
+    sendGuestIntro,
     jobs: neonJobStore,
     now: () => new Date(),
   };
@@ -229,6 +251,15 @@ export async function assignLead(
     ? await syncResponsible(after, owner, assignment, input.actor, deps)
     : { status: "skipped" as const };
 
+  // 5. the guest's introduction, if it was waiting on this.
+  //    A lead nobody owned held its welcome text and email rather than sending
+  //    a generic one (owner, 2026-09-13) — this is where the wait ends, with
+  //    the real planner's name and direct number. `sendGuestIntro` is
+  //    once-only on `guest_intro_at`, so a reassign does not introduce a
+  //    second planner to the same guest.
+  if (owner && input.introduceGuest !== false)
+    await introduceIfHeld(after, owner, input.actor, deps);
+
   const refreshed = (await deps.getLead(lead.id)) ?? after;
   return {
     lead: refreshed,
@@ -238,6 +269,61 @@ export async function assignLead(
     },
     bmi,
   };
+}
+
+/**
+ * Send the welcome a held lead has been sitting on, now that it has an owner.
+ *
+ * Every gate here is a reason the guest was never owed an automated message in
+ * the first place, so each one is a silent no-op rather than a failure:
+ * a staff-logged lead never gets one, a lead with no Office project has no
+ * enquiry number to quote, a second assignment finds `guestIntroAt` already
+ * stamped, and an owner with no planner record (a bucket we have no copy for)
+ * has no name to introduce. Never fatal — a hand-off completes whatever the
+ * guest's channels do, exactly as capture does.
+ */
+export async function introduceIfHeld(
+  lead: LeadView,
+  owner: CrmRep,
+  actor: string,
+  deps: AssignDeps = defaultAssignDeps(),
+): Promise<GuestIntroOutcome | null> {
+  if (lead.guestIntroAt || lead.source !== "web" || lead.isProspect) return null;
+  const { projectId, projectNumber } = lead.bmi;
+  if (!projectId || !projectNumber) return null;
+  const center = centerConfigFor(lead.centre);
+  const planner = plannerForOwner(owner.slug, center);
+  if (!planner) return null;
+
+  try {
+    const intro = await deps.sendGuestIntro({
+      lead,
+      planner,
+      center,
+      projectId,
+      projectNumber,
+    });
+    await deps.recordActivity({
+      leadId: lead.id,
+      contactId: lead.contactId,
+      repId: owner.id,
+      actorEmail: actor,
+      kind: "system",
+      occurredAt: deps.now(),
+      body: `Held welcome sent now that ${owner.firstName} owns it · ${summarizeGuestIntro(intro)}`,
+      meta: intro as unknown as Record<string, unknown>,
+    });
+    return intro;
+  } catch (err) {
+    // The hand-off itself stands; the planner can see the guest was never
+    // written to and reach out by hand.
+    console.error("[crm] held welcome failed after assignment", {
+      lead_id: lead.id,
+      actor_email: actor,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }
 
 /**

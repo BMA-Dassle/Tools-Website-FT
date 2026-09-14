@@ -37,7 +37,13 @@ import {
   type SalesLeadLead,
   type SalesLeadState,
 } from "@/lib/sales-lead-card";
-import { CENTERS, resolvePlanner, type CenterConfig, type Planner } from "@/lib/sales-lead-config";
+import {
+  CENTERS,
+  PLANNERS,
+  resolvePlanner,
+  type CenterConfig,
+  type Planner,
+} from "@/lib/sales-lead-config";
 import {
   buildSalesLeadEmailHtml,
   buildSalesLeadEmailSubject,
@@ -49,6 +55,7 @@ import { sendEmail } from "@/lib/sendgrid";
 import { voxSend } from "@/lib/sms-retry";
 import { sendAdaptiveCardToChannel } from "@/lib/teams-bot";
 import type { CentreCode, LeadSource } from "../../core/types";
+import { updateLeadFields } from "../data/leads-db";
 import { EVENT_TYPE_LABEL, type LeadView } from "../contracts";
 import type { MintOutcome } from "./mint";
 
@@ -59,6 +66,30 @@ import type { MintOutcome } from "./mint";
  */
 export const UNASSIGNED_CHAT_ENV = "CRM_UNASSIGNED_TEAMS_CHAT_ID";
 export const UNASSIGNED_CHAT_ENV_FALLBACK = "CRM_JACOB_TEAMS_CHAT_ID";
+
+/**
+ * "Sales Leads - Assignment Pending", read off the tenant on 2026-09-13:
+ * Jacob, Eric and the HeadPinz bot. A chat id is an ADDRESS, not a secret, and
+ * the first lead this branch held went nowhere because the variable was never
+ * pasted into Vercel (`unassignedCard {"skipped":true,"reason":
+ * "CRM_UNASSIGNED_TEAMS_CHAT_ID not set"}`). A default that is simply correct
+ * beats a deployment step somebody has to remember; the env var still wins
+ * when it is set, so moving the chat needs no deploy.
+ */
+export const UNASSIGNED_CHAT_ID_DEFAULT = "19:0c8d8c8667274428a5a81c33a66eff72@thread.v2";
+
+/**
+ * Who the Assignment Pending card @-mentions. AAD object ids (not `29:`
+ * prefixed) — Eric's is the `userObjectId` his own Graph token reports, and
+ * Jacob's is the other half of their 1:1 chat id
+ * (`19:<eric>_<jacob>@unq.gbl.spaces`), whose only two members are the two of
+ * them. A mention renders only if the card also carries `<at>Name</at>`, which
+ * `mentionBanner` adds.
+ */
+export const UNASSIGNED_MENTIONS: ReadonlyArray<{ id: string; name: string }> = [
+  { id: "4e38b98c-2aad-4a06-bfce-6abff64dbab4", name: "Jacob Elliott" },
+  { id: "307bd04b-4379-4e0c-bd0d-d3ec4ec81b5b", name: "Eric Osborn" },
+];
 const STATE_TTL_SECONDS = 60 * 60 * 24 * 90; // 90 days, as today
 
 /** `sales-lead-config.ts` CENTERS is keyed by the form's centerKey; the CRM knows centres. */
@@ -115,6 +146,8 @@ export interface NotifyDeps {
   redisSet: (key: string, value: string, ttlSeconds: number) => Promise<unknown>;
   redisGet: (key: string) => Promise<string | null>;
   appendPrivateNote: typeof appendPrivateNote;
+  /** Stamps `crm_leads.guest_intro_at` — the once-only gate on the welcome. */
+  stampGuestIntro: (leadId: string, at: Date) => Promise<unknown>;
   unassignedChatId: () => string | undefined;
   now: () => Date;
 }
@@ -127,16 +160,69 @@ export function defaultNotifyDeps(): NotifyDeps {
     redisSet: (key, value, ttl) => redis.set(key, value, "EX", ttl),
     redisGet: (key) => redis.get(key),
     appendPrivateNote,
+    stampGuestIntro: (leadId, at) => updateLeadFields(leadId, { guestIntroAt: at }),
     unassignedChatId: () =>
       process.env[UNASSIGNED_CHAT_ENV]?.trim() ||
       process.env[UNASSIGNED_CHAT_ENV_FALLBACK]?.trim() ||
-      undefined,
+      UNASSIGNED_CHAT_ID_DEFAULT,
     now: () => new Date(),
   };
 }
 
 /** The Redis key the Teams buttons read; written only once a project exists. */
 export const salesCardKey = (projectId: string) => `salescard:${projectId}`;
+
+/**
+ * The welcome that names nobody: Guest Services, with the centre's own phone.
+ * `resolvePlanner("")` matches no individual and falls through to it, which is
+ * the single definition — this wrapper just gives it a name that says what it
+ * is for rather than looking like a bug at the call site.
+ */
+export function resolveGuestServicesPlanner(center: CenterConfig): Planner {
+  return resolvePlanner("", center);
+}
+
+/**
+ * The planner a lead's OWNER is, or null when nobody owns it.
+ *
+ * This is the fix for a lead that was held and told the guest otherwise. On
+ * 2026-09-13 a 500-guest FastTrax enquiry (L-228) was correctly parked for the
+ * Marketing Director by rule R1 — our board showed it unassigned and
+ * `assigned_rep_id` was null — while the success screen and the guest's text
+ * both said "Kelsea", because the planner was read off Pandora's
+ * `assignedAgent.name`. Pandora runs its OWN round robin and stamps a
+ * `responsible` on the project whatever our rules decide, so reading it here
+ * meant the guest was told the answer of an engine we do not control.
+ *
+ * The roster slugs that are real people map to `PLANNERS`; `gs` is the Guest
+ * Services bucket, which is a legitimate owner but not an individual. Anything
+ * else — the Marketing hold bucket, a director, or nobody at all — has no
+ * planner to name, and the guest gets the generic copy that says our team will
+ * be in touch. Saying less is the only honest option while a human decides.
+ */
+export function plannerForOwner(
+  repSlug: string | null | undefined,
+  center: CenterConfig,
+): Planner | null {
+  if (!repSlug) return null;
+  const named = PLANNERS[repSlug];
+  if (named) return named;
+  // `resolvePlanner("")` is the one definition of the Guest Services planner,
+  // whose phone is per-centre.
+  if (repSlug === "gs") return resolveGuestServicesPlanner(center);
+  return null;
+}
+
+/**
+ * Does Pandora's `assignedAgent.name` name the same person we picked? Office
+ * writes "Kelsea Kosco" where the planner is "Kelsea", so this is a first-name
+ * containment check, not equality — it exists only to keep the disagreement
+ * log quiet when the two engines happen to agree.
+ */
+function sameHuman(pandoraName: string, ours: Planner | null): boolean {
+  if (!ours) return false;
+  return pandoraName.toLowerCase().includes(ours.key.toLowerCase());
+}
 
 /** Why the Assignment Pending card would be skipped, or null when it must be sent. */
 export function unassignedCardSkipReason(
@@ -255,40 +341,58 @@ async function run(input: NotifyInput, deps: NotifyDeps): Promise<NotifyOutcome>
   const center = centerConfigFor(lead.centre);
   const now = deps.now();
   const minted = mint.status === "minted";
-  // Pandora picked the responsible; the planner (and everything addressed to
-  // or from them) exists only once the project does.
-  const planner = minted ? resolvePlanner(mint.assignedAgent?.name ?? "", center) : null;
+  // OUR assignment decides who the guest is told about — never Pandora's
+  // `assignedAgent`. See `plannerForOwner`.
+  const planner = plannerForOwner(lead.repSlug, center);
   const projectID = minted ? mint.projectId : lead.publicId;
   const projectNumber = minted ? mint.projectNumber : lead.publicId;
-  const cardPlanner = planner ?? resolvePlanner("", center);
+  // Somebody has to be on the card and in the guest copy; when nobody owns the
+  // lead that is Guest Services, which names no individual.
+  const guestServices = resolveGuestServicesPlanner(center);
+  const cardPlanner = planner ?? guestServices;
+
+  // Two engines still pick a rep for the same lead, and only one of them is
+  // ours. Log the disagreement so it is visible until Pandora stops minting.
+  const pandoraPick = mint.status === "minted" ? (mint.assignedAgent?.name ?? null) : null;
+  if (pandoraPick && !sameHuman(pandoraPick, planner))
+    console.warn("[crm] Pandora assigned somebody else", {
+      lead_id: lead.id,
+      project_id: projectID,
+      pandora: pandoraPick,
+      ours: planner?.displayName ?? "nobody — held or unresolved",
+    });
   const state = stateFor(input, cardPlanner, center, projectID, projectNumber, now);
   const stateKey = salesCardKey(projectID);
 
   if (minted) await deps.redisSet(stateKey, JSON.stringify(state), STATE_TTL_SECONDS);
 
-  const pref = input.preferredContactMethod;
-  const guestChannels = input.source === "web" && minted && planner;
-  const shouldSms = !!guestChannels && (pref === "text" || pref === undefined);
-  const shouldEmail =
-    !!guestChannels && (pref === "email" || pref === "phone" || pref === undefined);
-  const skipGuest = !minted
-    ? SKIP("no BMI project yet")
+  // The guest's welcome text and email introduce a planner BY NAME and carry
+  // that planner's direct number. A lead nobody owns yet therefore HOLDS them
+  // rather than sending a generic "someone will be in touch" that a real
+  // introduction contradicts an hour later (owner, 2026-09-13): the guest gets
+  // ONE message, from the person who will actually run their event.
+  // `assignLead` sends it the moment a planner picks the lead up, and
+  // `sweepHeldGuestIntros` is the backstop so a forgotten lead cannot turn
+  // into silence.
+  const introP: Promise<GuestIntroOutcome> = !minted
+    ? Promise.resolve(bothGuest(SKIP("no BMI project yet")))
     : input.source !== "web"
-      ? SKIP(`staff-logged ${input.source} lead — no automated guest message`)
-      : SKIP(`skipped — customer prefers ${pref}`);
-
-  const copyCtx: SalesLeadCopyContext | null = planner
-    ? {
-        firstName: lead.guest.first,
-        projectNumber,
-        plannerName: planner.displayName,
-        plannerPhone: planner.phone,
-        plannerEmail: planner.email,
-        preferredDate: lead.eventDate,
-        centerName: center.displayName,
-        isIndividualPlanner: planner.isIndividual,
-      }
-    : null;
+      ? Promise.resolve(
+          bothGuest(SKIP(`staff-logged ${input.source} lead — no automated guest message`)),
+        )
+      : !planner
+        ? Promise.resolve(bothGuest(SKIP(HELD_FOR_PLANNER)))
+        : sendGuestIntro(
+            {
+              lead,
+              planner,
+              center,
+              projectId: projectID,
+              projectNumber,
+              preferredContactMethod: input.preferredContactMethod,
+            },
+            deps,
+          );
 
   // Nobody owns this lead → the Assignment Pending chat. `createLead` has
   // already applied the rules by the time it calls us, so `assigned` is the
@@ -303,30 +407,35 @@ async function run(input: NotifyInput, deps: NotifyDeps): Promise<NotifyOutcome>
       reason: unassignedSkip,
     });
 
-  const [smsR, emailR, plannerR, unassignedR] = await Promise.allSettled([
-    shouldSms && copyCtx && planner
-      ? sendGuestSms(lead, copyCtx, planner, deps)
-      : Promise.resolve(skipGuest),
-    shouldEmail && copyCtx && planner
-      ? sendGuestEmail(lead, copyCtx, planner, deps)
-      : Promise.resolve(skipGuest),
-    minted && planner
-      ? postCard(planner.teamsChatId, state, deps)
-      : Promise.resolve(SKIP("no BMI project yet")),
+  const [introR, plannerR, unassignedR] = await Promise.allSettled([
+    introP,
+    !planner
+      ? Promise.resolve(SKIP("nobody owns this lead — the Assignment Pending card is the one"))
+      : minted
+        ? postCard(planner.teamsChatId, state, deps)
+        : Promise.resolve(SKIP("no BMI project yet")),
     unassignedSkip
       ? Promise.resolve(SKIP(unassignedSkip))
-      : postCard(unassignedChatId!, state, deps, { readOnly: !minted }),
+      : postCard(unassignedChatId!, state, deps, {
+          readOnly: !minted,
+          // Nobody owns it — say so to the two people who can fix that.
+          mentions: UNASSIGNED_MENTIONS,
+        }),
   ]);
-  const sms = settled(smsR);
-  const email = settled(emailR);
+  const intro: GuestIntroOutcome =
+    introR.status === "fulfilled"
+      ? introR.value
+      : bothGuest({
+          ok: false,
+          error: introR.reason instanceof Error ? introR.reason.message : String(introR.reason),
+        });
+  const { sms, email } = intro;
   const plannerCard = settled(plannerR);
   const unassignedCard = settled(unassignedR);
 
   if (minted) {
     const actor = cardPlanner.displayName;
     await Promise.allSettled([
-      auditLine(deps, projectID, "sms", sms, actor, lead.guest.phone),
-      auditLine(deps, projectID, "email", email, actor, lead.guest.email),
       auditLine(deps, projectID, "teams", plannerCard, actor, `${actor}'s chat`),
     ]);
     if (plannerCard.ok && plannerCard.activityId) {
@@ -346,6 +455,97 @@ async function run(input: NotifyInput, deps: NotifyDeps): Promise<NotifyOutcome>
     sms,
     email,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The guest's introduction — held until somebody owns the lead
+// ---------------------------------------------------------------------------
+
+/** The reason both guest channels carry while a lead is waiting for an owner. */
+export const HELD_FOR_PLANNER = "held — the guest hears from their planner, not before";
+
+export interface GuestIntroOutcome {
+  sms: ChannelOutcome;
+  email: ChannelOutcome;
+}
+
+const bothGuest = (c: ChannelOutcome): GuestIntroOutcome => ({ sms: c, email: c });
+
+export interface GuestIntroInput {
+  lead: LeadView;
+  /** The OWNER. There is no such thing as an introduction from nobody. */
+  planner: Planner;
+  center: CenterConfig;
+  projectId: string;
+  projectNumber: string;
+  /** The form's answer; falls back to the contact's stored preference. */
+  preferredContactMethod?: "phone" | "text" | "email";
+}
+
+/** `crm_contacts.prefers` in the form's vocabulary — "call" is "phone". */
+export function prefersToContactMethod(
+  prefers: LeadView["guest"]["prefers"],
+): "phone" | "text" | "email" | undefined {
+  if (prefers === "call") return "phone";
+  if (prefers === "text" || prefers === "email") return prefers;
+  return undefined;
+}
+
+/**
+ * The guest's welcome text and email, naming their planner.
+ *
+ * Called at capture when the rules assigned immediately, and again from
+ * `assignLead` for a lead that was held — which is the whole reason it is its
+ * own function rather than a branch inside `run`. It stamps `guest_intro_at`
+ * on the way out, so a released-then-reassigned lead never introduces a second
+ * planner to the same guest.
+ */
+export async function sendGuestIntro(
+  input: GuestIntroInput,
+  deps: NotifyDeps = defaultNotifyDeps(),
+): Promise<GuestIntroOutcome> {
+  const { lead, planner, center, projectId, projectNumber } = input;
+  if (lead.guestIntroAt) return bothGuest(SKIP("the guest has already been introduced"));
+
+  const pref = input.preferredContactMethod ?? prefersToContactMethod(lead.guest.prefers);
+  const ctx: SalesLeadCopyContext = {
+    firstName: lead.guest.first,
+    projectNumber,
+    plannerName: planner.displayName,
+    plannerPhone: planner.phone,
+    plannerEmail: planner.email,
+    preferredDate: lead.eventDate,
+    centerName: center.displayName,
+    isIndividualPlanner: planner.isIndividual,
+  };
+  const skip = SKIP(`skipped — customer prefers ${pref}`);
+  const [smsR, emailR] = await Promise.allSettled([
+    pref === "text" || pref === undefined
+      ? sendGuestSms(lead, ctx, planner, deps)
+      : Promise.resolve(skip),
+    pref === "email" || pref === "phone" || pref === undefined
+      ? sendGuestEmail(lead, ctx, planner, deps)
+      : Promise.resolve(skip),
+  ]);
+  const sms = settled(smsR);
+  const email = settled(emailR);
+
+  // Stamped whatever the channels answered. A send that failed is a send that
+  // happened as far as "do not introduce a second planner" is concerned, and
+  // the failure is on the timeline for a human to act on; retrying it days
+  // later, from a different name, is the outcome to avoid.
+  await deps.stampGuestIntro(lead.id, deps.now()).catch((err: unknown) =>
+    console.error("[crm] guest intro sent but not stamped", {
+      lead_id: lead.id,
+      error: err instanceof Error ? err.message : String(err),
+    }),
+  );
+
+  await Promise.allSettled([
+    auditLine(deps, projectId, "sms", sms, planner.displayName, lead.guest.phone),
+    auditLine(deps, projectId, "email", email, planner.displayName, lead.guest.email),
+  ]);
+  return { sms, email };
 }
 
 async function sendGuestSms(
@@ -398,16 +598,49 @@ export function withoutCardActions(card: Record<string, unknown>): Record<string
   return { ...rest, body: body.filter((b) => b?.type !== "ActionSet") };
 }
 
+/**
+ * Put the @-mentions at the top of the card.
+ *
+ * Teams renders a mention only where the literal `<at>Name</at>` appears, so
+ * the entities on the activity are half the job — this is the other half. A
+ * lead nobody owns is the one thing in this system that needs a person to
+ * look at it now, which is the whole reason it is allowed to ping two people.
+ */
+export function mentionBanner(
+  card: Record<string, unknown>,
+  mentions: ReadonlyArray<{ name: string }>,
+): Record<string, unknown> {
+  if (!mentions.length) return card;
+  const body = Array.isArray(card.body) ? (card.body as unknown[]) : [];
+  const at = mentions.map((m) => `<at>${m.name}</at>`).join(" ");
+  return {
+    ...card,
+    body: [
+      {
+        type: "TextBlock",
+        text: `${at} — this lead has nobody on it`,
+        wrap: true,
+        weight: "Bolder",
+        color: "Attention",
+      },
+      ...body,
+    ],
+  };
+}
+
 async function postCard(
   chatId: string,
   state: SalesLeadState,
   deps: NotifyDeps,
-  opts: { readOnly?: boolean } = {},
+  opts: { readOnly?: boolean; mentions?: ReadonlyArray<{ id: string; name: string }> } = {},
 ): Promise<ChannelOutcome> {
   try {
-    const card = buildSalesLeadCardForState(state);
-    const resp = await deps.sendCard(chatId, opts.readOnly ? withoutCardActions(card) : card, {
+    let card = buildSalesLeadCardForState(state);
+    if (opts.readOnly) card = withoutCardActions(card);
+    if (opts.mentions?.length) card = mentionBanner(card, opts.mentions);
+    const resp = await deps.sendCard(chatId, card, {
       summaryText: buildSalesLeadSummary(state),
+      ...(opts.mentions?.length ? { mentions: [...opts.mentions] } : {}),
     });
     return { ok: true, activityId: resp.id };
   } catch (err) {
@@ -430,6 +663,17 @@ async function auditLine(
       ? `sent ok${toPart}`
       : `FAILED${toPart}${outcome.status ? ` (${outcome.status})` : ""}: ${outcome.error || "unknown"}`;
   await deps.appendPrivateNote({ projectId, channel, message, actor });
+}
+
+/** One line for the timeline when the welcome goes out on its own. */
+export function summarizeGuestIntro(o: GuestIntroOutcome): string {
+  const part = (label: string, c: ChannelOutcome) =>
+    c.skipped
+      ? `${label} skipped (${c.reason})`
+      : c.ok
+        ? `${label} sent`
+        : `${label} FAILED (${c.error ?? "?"})`;
+  return [part("Guest text", o.sms), part("guest email", o.email)].join(" · ");
 }
 
 /** One line for the timeline: which channels went where. */

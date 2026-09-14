@@ -92,6 +92,12 @@ export function ensureLeadsSchema(): Promise<void> {
     // the queue, the deal header and the rule trace all read it, so it does not
     // live buried in `capture_payload` (owner, 2026-09-13 14:05).
     await q`ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS requested_rep_id BIGINT REFERENCES crm_reps(id)`;
+    // When the guest was told who is running their event. A lead nobody owns
+    // yet HOLDS its welcome text and email rather than sending a generic one
+    // (owner, 2026-09-13), so this is the stamp that stops the held message
+    // going out twice once a planner finally picks it up. Redis would have
+    // done the job until it was evicted and a guest got two introductions.
+    await q`ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS guest_intro_at TIMESTAMPTZ`;
   })();
   return schemaReady;
 }
@@ -119,6 +125,7 @@ export interface LeadRowRaw {
   assigned_at: string | null;
   held_for_rep_id: string | null;
   first_touch_at: string | null;
+  guest_intro_at: string | null;
   next_action_kind: string | null;
   next_action_due: string | null;
   next_action_label: string | null;
@@ -183,6 +190,7 @@ export function mapLeadRow(r: LeadRowRaw): LeadView {
     assignedAt: r.assigned_at ?? null,
     heldForRep: r.held_for_rep_id ? String(r.held_for_rep_id) : null,
     firstTouchAt: r.first_touch_at ?? null,
+    guestIntroAt: r.guest_intro_at ?? null,
     nextAction,
     valueCents: Number(r.value_cents) || 0,
     lostReason: r.lost_reason ?? null,
@@ -236,6 +244,7 @@ export const LEAD_SELECT = `
   l.guests, l.event_type, l.source, l.is_prospect, l.kids, l.status_id,
   l.assigned_rep_id::text AS assigned_rep_id, ${ISO("l.assigned_at")} AS assigned_at,
   l.held_for_rep_id::text AS held_for_rep_id, ${ISO("l.first_touch_at")} AS first_touch_at,
+  ${ISO("l.guest_intro_at")} AS guest_intro_at,
   l.next_action_kind, ${ISO("l.next_action_due")} AS next_action_due, l.next_action_label,
   l.value_cents::text AS value_cents, l.lost_reason, l.notes,
   l.bmi_project_id, l.bmi_project_number, l.bmi_state_id, l.bmi_state_name, l.bmi_person_id,
@@ -342,6 +351,7 @@ export const LEAD_PATCHABLE = {
   assignedAt: "assigned_at",
   heldForRepId: "held_for_rep_id",
   firstTouchAt: "first_touch_at",
+  guestIntroAt: "guest_intro_at",
   nextActionKind: "next_action_kind",
   nextActionDue: "next_action_due",
   nextActionLabel: "next_action_label",
@@ -505,6 +515,34 @@ export async function listLeads(filter: LeadListFilter = {}): Promise<LeadListPa
   const last = page[page.length - 1];
   const nextCursor = rows.length > limit && last ? encodeCursor(last.createdAt, last.id) : null;
   return { leads: page, nextCursor };
+}
+
+/**
+ * Leads whose guest welcome is STILL held past its deadline: web, minted,
+ * live, and with nobody on them.
+ *
+ * `held_for_rep_id` is deliberately NOT excluded — a ≥100-guest enquiry parked
+ * for the Marketing Director is exactly the lead this finds. Held is the point;
+ * held and forgotten is the problem.
+ */
+export async function listOverdueGuestIntros(olderThan: Date, limit = 50): Promise<LeadView[]> {
+  if (!isDbConfigured()) return [];
+  await ensureLeadsSchema();
+  const q = sql();
+  const rows = (await q.query(
+    `SELECT ${LEAD_SELECT} ${LEAD_FROM}
+      WHERE l.guest_intro_at IS NULL
+        AND l.assigned_rep_id IS NULL
+        AND l.archived_at IS NULL
+        AND l.is_prospect IS FALSE
+        AND l.source = 'web'
+        AND l.mint_status = 'minted'
+        AND l.created_at < $1::timestamptz
+      ORDER BY l.created_at ASC, l.id ASC
+      LIMIT $2`,
+    [olderThan.toISOString(), Math.min(Math.max(limit, 1), LEAD_LIST_MAX)],
+  )) as LeadRowRaw[];
+  return rows.map(mapLeadRow);
 }
 
 /** Unassigned, live, open — oldest first (the queue's order). */

@@ -46,6 +46,13 @@ describe("enqueueScheduled", () => {
         idempotencyKey: "threecx-reconcile:2026-09-12T23:30",
         created: true,
       },
+      // The deadline on a welcome held for a planner who never arrived - an ET
+      // hour like the sweep, because it is about somebody's working day.
+      {
+        kind: "guest-intro-backstop",
+        idempotencyKey: "guest-intro-backstop:2026-09-12T19",
+        created: true,
+      },
     ]);
     expect(s.inserts.every((i) => i.createdBy === "cron")).toBe(true);
   });
@@ -54,10 +61,10 @@ describe("enqueueScheduled", () => {
     const s = store();
     await enqueueScheduled(new Date("2026-09-12T23:30:00Z"), s);
     const second = await enqueueScheduled(new Date("2026-09-12T23:32:00Z"), s);
-    expect(second.map((r) => r.created)).toEqual([false, false, false]);
-    expect(s.rows.size).toBe(3);
+    expect(second.map((r) => r.created)).toEqual([false, false, false, false]);
+    expect(s.rows.size).toBe(4);
     // The INSERT is still attempted — the unique index is what de-duplicates.
-    expect(s.inserts).toHaveLength(6);
+    expect(s.inserts).toHaveLength(8);
   });
 
   it("the next ET hour is a new sweep bucket; the mirror stays on the same ET day", async () => {
@@ -74,6 +81,11 @@ describe("enqueueScheduled", () => {
       {
         kind: "threecx-reconcile",
         idempotencyKey: "threecx-reconcile:2026-09-13T00:10",
+        created: true,
+      },
+      {
+        kind: "guest-intro-backstop",
+        idempotencyKey: "guest-intro-backstop:2026-09-12T20",
         created: true,
       },
     ]);

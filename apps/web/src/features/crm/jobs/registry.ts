@@ -96,6 +96,12 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
         throw err;
       }
     }),
+  // The deadline on a welcome held for a planner who never arrived. Lazily
+  // imported like the other leads-sub handlers — the leads barrel is eager.
+  "guest-intro-backstop": async () => {
+    const m = await import("~/features/crm/leads");
+    return { ok: true, result: await m.runGuestIntroBackstop() };
+  },
 };
 
 /** Kinds a director may run from the Statuses screen — everything registered. */

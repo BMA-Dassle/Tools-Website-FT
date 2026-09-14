@@ -76,6 +76,7 @@ function lead(projectId: string): LeadView {
     assignedAt: null,
     heldForRep: null,
     firstTouchAt: null,
+    guestIntroAt: null,
     nextAction: null,
     valueCents: 189000,
     lostReason: null,

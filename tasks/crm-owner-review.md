@@ -99,6 +99,32 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 
 ## Open — presentation
 
+- [ ] **The board still scrolls sideways from the BOTTOM.** Owner, twice now:
+      "still had trouble scroll left and right on board I hate scrolling all
+      the way to the bottom first. Can we use arrows or is there better way
+      with the template?" The lane rail owns the horizontal scrollbar, so the
+      only grab handle is at the very bottom of a long board. Options, in the
+      order worth trying:
+      1. **Arrow affordances** — a left/right chevron pinned to the rail's
+         vertical centre that scrolls one lane per press, shown only when there
+         is more board in that direction.
+      2. **Wheel-to-pan** on the rail so a trackpad or a shift-wheel moves it
+         without touching a scrollbar at all.
+      3. **A sticky lane-name strip** at the TOP of the rail that scrolls with
+         the board and can be dragged, so the handle is where the eye already is.
+      dnd-kit is already a dependency and does not fight any of these; check
+      what the Direction B prototype does before inventing a fourth option.
+
+- [ ] **Install it as a PWA, and say so.** Owner: "We need to be able to add
+      this as a PWA app and strongly recommend it. Design a logo for it too."
+      Needs: a manifest scoped to `/admin/crm`, maskable icons at every size,
+      an iOS `apple-touch-icon` (iOS ignores the manifest icons), a service
+      worker that is a shell cache only — never a data cache, because a stale
+      lead board is worse than a slow one — and an install prompt that is
+      insistent rather than polite: reps live on their phones and the browser
+      chrome costs a third of the screen. **And a logo** — not the HeadPinz
+      mark, something that reads at 48px on a home screen beside it.
+
 - [ ] **Collapse consecutive lanes into ranges** ("Lanes 1-24") on the Event
       tab's Schedule table, instead of one row per lane. Owner: "Take a look at
       how we do this stuff in reservation admin."

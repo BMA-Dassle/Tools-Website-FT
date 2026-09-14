@@ -47,6 +47,7 @@ const RAW = {
   assigned_at: null,
   held_for_rep_id: null,
   first_touch_at: null,
+  guest_intro_at: null,
   next_action_kind: null,
   next_action_due: null,
   next_action_label: null,

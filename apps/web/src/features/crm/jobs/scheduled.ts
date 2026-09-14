@@ -18,6 +18,7 @@
  */
 
 import { reconcileIdempotencyKey } from "~/features/crm/calls";
+import { guestIntroBackstopKey } from "~/features/crm/leads/service/guest-intro-backstop";
 import { mirrorIdempotencyKey, sweepIdempotencyKey } from "~/features/crm/rules";
 import { neonJobStore, type JobStore } from "./data/jobs-db";
 import type { JobKind } from "../core/types";
@@ -49,6 +50,9 @@ export const SCHEDULED_KINDS: readonly ScheduledKind[] = [
   { kind: "sevenshifts-mirror", key: mirrorIdempotencyKey },
   // C3: one row per 5-minute bucket, so the 2-minute cron cannot stack reconciles.
   { kind: "threecx-reconcile", key: reconcileIdempotencyKey },
+  // One row per ET hour: the deadline on a welcome held for a planner who
+  // never arrived.
+  { kind: "guest-intro-backstop", key: guestIntroBackstopKey },
 ];
 
 export interface ScheduledEnqueue {

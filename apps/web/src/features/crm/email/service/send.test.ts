@@ -184,6 +184,7 @@ function lead(over: Partial<LeadView> = {}): LeadView {
     assignedAt: null,
     heldForRep: null,
     firstTouchAt: null,
+    guestIntroAt: null,
     nextAction: null,
     valueCents: 0,
     lostReason: null,

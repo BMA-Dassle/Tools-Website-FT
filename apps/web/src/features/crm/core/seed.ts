@@ -63,7 +63,7 @@ export const REP_SEED: readonly RepSeed[] = [
     sevenShiftsUserId: 10832991,
     teamsChatId: PLANNERS.kelsea.teamsChatId,
     phoneE164: PLANNERS.kelsea.phone,
-    centres: ["HPFM", "FT"],
+    centres: ALL_CENTRES,
     sortOrder: 10,
   },
   {
@@ -78,7 +78,7 @@ export const REP_SEED: readonly RepSeed[] = [
     sevenShiftsUserId: 6568770, // 7shifts lists her as "Lori Coates-Lehman"
     teamsChatId: PLANNERS.lori.teamsChatId,
     phoneE164: PLANNERS.lori.phone,
-    centres: ["HPFM"],
+    centres: ALL_CENTRES,
     sortOrder: 20,
   },
   {
@@ -93,7 +93,7 @@ export const REP_SEED: readonly RepSeed[] = [
     sevenShiftsUserId: 8204948,
     teamsChatId: PLANNERS.stephanie.teamsChatId,
     phoneE164: PLANNERS.stephanie.phone,
-    centres: ["HPN"],
+    centres: ALL_CENTRES,
     sortOrder: 30,
   },
   {

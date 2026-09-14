@@ -264,6 +264,12 @@ export interface CrmLead {
   assignedAt: string | null;
   heldForRep: string | null;
   firstTouchAt: string | null;
+  /**
+   * When the guest was told who is running their event. A lead nobody owns yet
+   * HOLDS that welcome text and email until a planner picks it up, so this is
+   * null on a held lead and the stamp that stops it being sent twice.
+   */
+  guestIntroAt: string | null;
   nextAction: NextAction | null;
   valueCents: number;
   lostReason: string | null;
@@ -490,6 +496,10 @@ export const JOB_KINDS = [
   // pending_approval fixture the approve smoke needs.
   "contract-cancel-verify",
   "seed-test-quote",
+  // A held welcome that nobody has picked up. Holding the guest's text and
+  // email until a planner owns the lead is right; holding them for ever is
+  // silence, so this is the deadline that ends the wait.
+  "guest-intro-backstop",
 ] as const;
 
 export type JobKind = (typeof JOB_KINDS)[number];

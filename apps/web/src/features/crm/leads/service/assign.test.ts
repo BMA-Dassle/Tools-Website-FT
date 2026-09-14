@@ -32,6 +32,8 @@ const state = vi.hoisted(() => ({
   enqueued: [] as EnqueueInput[],
   setting: undefined as unknown,
   lead: null as unknown,
+  /** Every guest welcome this run tried to send — nothing leaves the process. */
+  intros: [] as Array<{ planner: { displayName: string }; projectNumber: string }>,
 }));
 
 vi.mock("https", () => ({
@@ -151,6 +153,23 @@ vi.mock("~/features/crm/activities", () => ({
  */
 const NO_OFFICE_REP = { ...REPS.gs, id: "7", slug: "gs2", bmiUserId: null, bmiUsername: null };
 
+/**
+ * The guest's welcome is stubbed: a hand-off that gives a held lead its first
+ * owner really does text and email the guest, and a unit test must never put
+ * that on a wire. What it asserts instead is that the call was made, with the
+ * planner we assigned.
+ */
+vi.mock("./notify", async (orig) => {
+  const actual = await orig<typeof import("./notify")>();
+  return {
+    ...actual,
+    sendGuestIntro: async (input: { planner: { displayName: string }; projectNumber: string }) => {
+      state.intros.push(input);
+      return { sms: { ok: true }, email: { ok: true } };
+    },
+  };
+});
+
 vi.mock("~/features/crm/reps", () => ({
   listReps: async () => [...ALL_REPS, NO_OFFICE_REP],
 }));
@@ -225,6 +244,7 @@ beforeEach(() => {
   state.synced = [];
   state.activities = [];
   state.enqueued = [];
+  state.intros = [];
   state.redis.clear();
   state.setting = undefined;
   state.lead = minted();
@@ -298,7 +318,10 @@ describe("assignLead", () => {
     expect(String(body.id)).not.toBe(PROJECT_ID);
     expect(body).not.toHaveProperty("bills");
     expect(state.synced).toEqual(["1"]);
-    expect(state.activities.map((a) => a.kind)).toEqual(["assign", "bmi"]);
+    // "assign", the verified Office write, and the guest's held welcome.
+    expect(state.activities.map((a) => a.kind)).toEqual(["assign", "bmi", "system"]);
+    expect(state.intros).toHaveLength(1);
+    expect(state.intros[0]!.planner.displayName).toBe("Kelsea");
     expect(state.enqueued).toHaveLength(0);
   });
 
@@ -336,7 +359,10 @@ describe("assignLead", () => {
       payload: { leadId: "1061", task: "responsible", assignmentId: "1", repId: "1" },
       createdBy: "eric@headpinz.com",
     });
-    expect(state.activities.map((a) => a.kind)).toEqual(["assign", "system"]);
+    // "assign", the Office failure, and the guest's welcome — which goes out
+    // whatever Office thinks, because the guest is not waiting on Office.
+    expect(state.activities.map((a) => a.kind)).toEqual(["assign", "system", "system"]);
+    expect(state.intros).toHaveLength(1);
     expect(String(state.activities[1]!.body)).toContain("queued for retry");
     // The assignment itself stood: the lead is Kelsea's in Neon whatever Office
     // said. NOTHING is rolled back — Neon is the source of truth and the
