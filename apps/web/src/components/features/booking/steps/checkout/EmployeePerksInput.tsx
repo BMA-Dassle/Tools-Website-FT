@@ -5,6 +5,7 @@ import { clarityEvent } from "~/lib/clarity";
 import type { PartyMember } from "~/features/booking/state/types";
 import type { SessionEmployee } from "~/features/discount-codes/programs/employee";
 import { employeeApi } from "~/features/discount-codes/programs/employee-client";
+import { PeekSecretInput } from "~/components/ui/PeekSecretInput";
 
 /**
  * WEB checkout — "Team member?" beside the promo field (owner 2026-09-13).
@@ -206,13 +207,12 @@ export function EmployeePerksInput({
             a code.
           </p>
           <div className="flex gap-2">
-            <input
-              type="password"
+            <PeekSecretInput
               inputMode="tel"
               value={value}
-              onChange={(e) => {
+              onValueChange={(next) => {
                 setError(null);
-                setValue(e.target.value);
+                setValue(next);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {

@@ -8,6 +8,7 @@ import { clarityEvent } from "~/lib/clarity";
 import type { PartyMember } from "~/features/booking/state/types";
 import type { SessionEmployee } from "~/features/discount-codes/programs/employee";
 import { employeeApi } from "~/features/discount-codes/programs/employee-client";
+import { PeekSecretInput } from "~/components/ui/PeekSecretInput";
 
 /**
  * KIOSK — Team member verification (employee perks), a MODE of the code-entry
@@ -218,14 +219,13 @@ export function KioskTeamMemberEntry({
       <p className="mt-[10px] text-[26px] leading-[1.35] text-white/60">{t("team.sub")}</p>
       {/* type=password: the employee ID is a time-clock credential and the
           kiosk screen is public — never echo it (owner 2026-09-13). */}
-      <input
-        ref={inputRef}
-        type="password"
+      <PeekSecretInput
+        inputRef={inputRef}
         inputMode="tel"
         value={value}
-        onChange={(e) => {
+        onValueChange={(next) => {
           setError(null);
-          setValue(e.target.value);
+          setValue(next);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") void start();
