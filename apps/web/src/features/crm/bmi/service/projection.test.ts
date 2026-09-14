@@ -184,7 +184,7 @@ describe("households and edge hosts", () => {
     fixtureText("office-person-63000000009561440.json.txt"),
   );
 
-  it("no company → household keyed by last name + phone digits, named 'The … family'", () => {
+  it("no company → household keyed by last name + phone digits, named after the PERSON", () => {
     const { row, account, contact } = projectDetail(online, ana, {
       clientKey: "headpinzftmyers",
       source: "backfill",
@@ -194,7 +194,11 @@ describe("households and edge hosts", () => {
     expect(contact?.email).toBeNull();
     expect(account).toEqual({
       kind: "household",
-      name: "The Rodriguez family",
+      // The person's own name, not an invented relationship. Nothing in BMI
+      // says these people are a family, and the owner objected to the CRM
+      // saying so: "how do you know its family?". `kind` still records that it
+      // is a household rather than a business.
+      name: "Ana Rodriguez",
       nameKey: "household:rodriguez:12395558830",
     });
     expect(row.kindId).toBe("-10");

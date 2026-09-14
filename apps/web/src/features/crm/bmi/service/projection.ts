@@ -389,9 +389,23 @@ export function accountKeyFor(
   // No phone, email or person id → nothing safe to key on; a surname alone
   // would merge every Smith into one household.
   if (!discriminator) return null;
-  const name = contact.lastName
-    ? `The ${contact.lastName.trim()} family`
-    : contact.firstName || "Household";
+  // CALL THEM BY THEIR NAME, not by a relationship we invented.
+  //
+  // This used to read "The Leslie family". Owner: "I don't like your labels of
+  // 'family' how do you know its family? Maybe by name or company name". They
+  // are right — nothing in BMI says these people are a family. Edward Leslie
+  // booking a hundred guests is a group organiser, and calling him a family
+  // makes the CRM look like it is guessing, because it was.
+  //
+  // The person's own name is the honest label and it is what a planner would
+  // say out loud. `kind` still records that this is a household rather than a
+  // business, so anything that needs the distinction keeps it; only the words
+  // on screen change.
+  const full = [contact.firstName, contact.lastName]
+    .map((v) => (v ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
+  const name = full || contact.lastName?.trim() || contact.firstName?.trim() || "Unnamed host";
   return { kind: "household", name, nameKey: `household:${last}:${discriminator ?? ""}` };
 }
 
