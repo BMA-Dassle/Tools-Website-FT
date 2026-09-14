@@ -68,6 +68,56 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
   projects for one enquiry — today that becomes two unlinked leads and the
   pipeline double-counts. Owner: "if not don't do it now."
 
+
+---
+
+## ARCHITECTURE DECISION (owner, 2026-09-13 night)
+
+**The BMI project is the SPINE. The lead and the contract are OVERLAYS on it.**
+Screens read the project and left-join the rest.
+
+Owner: "I'm really concerned about the direction we took... our CRM is based on
+leads which might have a BMI" — then, decisively, "Build it. Don't write rows to
+block gaps we need to do this right before we start using it."
+
+### Why, measured on production
+
+| source | rows |
+|---|---|
+| BMI group events mirrored | 5,106 |
+| contracts (`group_function_quotes`) | 559 |
+| leads (`crm_leads`) | 185 |
+
+- **4,615** BMI group events have no contract, so a contract-first screen can
+  never show them.
+- **Every one of the 185 leads has a BMI project id, and every one of those
+  projects is mirrored. Zero exceptions.** The owner confirms historically a
+  lead ALWAYS created a BMI event regardless.
+- So the project is a true SUPERSET. Keying reads on it loses nothing and gains
+  4,615.
+
+### Why it matters
+
+Every gap found tonight has this one cause: contracts missing from the pipeline,
+events that would not open, a lead that arrived at 7:49 pm and was invisible.
+Three symptoms, one shape. Daily Events already reads BMI-first and merges our
+data on, and has never had this class of bug — there is a comment in its service
+about an event where staff rang a real till check and nothing on our side
+noticed, because the event had no quote row. Same failure, found July 2026.
+
+### What does NOT change
+
+Capture stays lead-first. A web enquiry becomes a `crm_leads` row FIRST and
+mints its BMI project second, because our database must own guest data before an
+external call can fail (hard rule, born from losing Pizza Bowl toppings).
+
+### Standing rule from this decision
+
+**Do not write rows to make a screen look populated.** If a project has no lead,
+the screen shows it with no lead. The 179 rows adopted earlier tonight were
+exactly that kind of patch; they carry real assignment data so they are not
+being deleted yet, but the new read must not depend on them.
+
 ---
 
 ## Done tonight
