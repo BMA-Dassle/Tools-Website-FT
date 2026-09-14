@@ -148,7 +148,8 @@ export async function startEmployeeVerification(input: {
 
   const key = `emp:${staff.userId}`;
   const reserve = await reserveSend(key, input.limiterKey);
-  if (reserve.blocked) return { ok: false, reason: "rate-limited", retryAfterSec: reserve.retryAfterSec };
+  if (reserve.blocked)
+    return { ok: false, reason: "rate-limited", retryAfterSec: reserve.retryAfterSec };
 
   const code = generateCode();
   await storeOtp(key, code);
@@ -177,7 +178,7 @@ export type VerifyResult =
 function personFromLicenseMatch(m: LicenseMatch): MatchablePerson {
   const parts = m.fullName.trim().split(/\s+/);
   const lastName = parts.length > 1 ? parts[parts.length - 1] : "";
-  const firstName = parts.length > 1 ? parts.slice(0, -1).join(" ") : parts[0] ?? "";
+  const firstName = parts.length > 1 ? parts.slice(0, -1).join(" ") : (parts[0] ?? "");
   return { id: m.personId, firstName, lastName, phone: m.phone || null, bmiPersonId: m.personId };
 }
 
@@ -202,7 +203,10 @@ async function preLinkFromBmi(
       location,
     });
   } catch (err) {
-    console.warn("[employee-perks] BMI pre-link search unavailable:", err instanceof Error ? err.message : err);
+    console.warn(
+      "[employee-perks] BMI pre-link search unavailable:",
+      err instanceof Error ? err.message : err,
+    );
     return null;
   }
   const verdict = matchEmployeeToParty(staff, matches.map(personFromLicenseMatch));
@@ -240,7 +244,8 @@ export async function verifyEmployeeCode(input: {
   }
 
   const rec = await getStaffRecord(userId);
-  if (!rec.ok) return { ok: false, reason: rec.reason === "unavailable" ? "unavailable" : "unverified" };
+  if (!rec.ok)
+    return { ok: false, reason: rec.reason === "unavailable" ? "unavailable" : "unverified" };
   const staff = rec.staff;
 
   // Who on the booking is this person? Only lookup-sourced (BMI) members count.
@@ -281,31 +286,69 @@ export type RecognizeResult =
 
 /**
  * A party member that a BMI LOOKUP produced (licence scan, phone OTP sign-in,
- * login code, web returning-racer lookup) whose BMI person already carries a
- * live link. Re-checks that 7shifts still lists the user active AND that the
- * record still passes the name rule — a renamed BMI record drops the link.
+ * login code, web returning-racer lookup). Two ways in, no code either way:
+ *
+ *   a. The BMI person already carries a live link → re-check the user is still
+ *      active AND the record still passes the name rule (a renamed BMI record
+ *      drops the link) → token.
+ *   b. NO link yet, but the BMI record's LAST NAME AND PHONE both equal an
+ *      active 7shifts record → link it now (`auto:phone`) → token. Owner
+ *      2026-09-13, after the first preview: "if we know the account is in BMI
+ *      and it matches name and number, why would we reverify — we already
+ *      required one to pull up the known account." The sign-in that produced
+ *      the BMI person is the proof; the phone match is what ties it to 7shifts.
+ *      The lenient first-name leg is NOT enough here — that is what the texted
+ *      code is for (a BMI record whose phone differs from 7shifts).
+ *
  * The caller asserts the sign-in was PROVEN; a typed name must never call this.
  */
 export async function recognizeEmployee(input: {
   member: MatchablePerson;
   source?: string;
+  location?: string;
 }): Promise<RecognizeResult> {
   if (!employeePerksEnabled()) return { ok: false, reason: "disabled" };
   const personId = input.member.bmiPersonId;
   if (!personId) return { ok: false, reason: "not-linked" };
+
+  let userId: number;
+  let staff: StaffRecord;
   const link = await getEmployeeLinkForPerson(personId).catch(() => null);
-  if (!link) return { ok: false, reason: "not-linked" };
-  const rec = await getStaffRecord(link.userId);
-  if (!rec.ok) return { ok: false, reason: rec.reason === "unavailable" ? "unavailable" : "inactive" };
-  const verdict = matchEmployeeToParty(rec.staff, [input.member]);
-  if (!verdict.ok) return { ok: false, reason: "mismatch" };
-  void touchEmployeeLink(link.userId, personId).catch(() => undefined);
+  if (link) {
+    const rec = await getStaffRecord(link.userId);
+    if (!rec.ok) {
+      return { ok: false, reason: rec.reason === "unavailable" ? "unavailable" : "inactive" };
+    }
+    const verdict = matchEmployeeToParty(rec.staff, [input.member]);
+    if (!verdict.ok) return { ok: false, reason: "mismatch" };
+    userId = link.userId;
+    staff = rec.staff;
+    void touchEmployeeLink(userId, personId).catch(() => undefined);
+  } else {
+    // (b) auto-link: the BMI record's phone must resolve to ONE active 7shifts
+    // user AND the last name must match. Phone-only or name-only never links.
+    if (!input.member.phone) return { ok: false, reason: "not-linked" };
+    const res = await resolveEmployee({ phone: input.member.phone });
+    if (!res.ok) {
+      return { ok: false, reason: res.reason === "unavailable" ? "unavailable" : "not-linked" };
+    }
+    const verdict = matchEmployeeToParty(res.staff, [input.member]);
+    if (!verdict.ok || verdict.matchedBy !== "phone") return { ok: false, reason: "mismatch" };
+    userId = res.staff.userId;
+    staff = res.staff;
+    await upsertEmployeeLink({
+      userId,
+      bmiPersonId: personId,
+      clientKey: clientKeyForLookup(input.location),
+      matchedBy: "auto:phone",
+    }).catch((err) => console.error("[employee-perks] auto-link write failed:", err));
+  }
 
   const weekKey = payWeekKey();
-  const usedThisWeek = await countFreeRacesUsed(link.userId, weekKey).catch(() => 0);
+  const usedThisWeek = await countFreeRacesUsed(userId, weekKey).catch(() => 0);
   const token = mintEmployeeToken({
-    userId: link.userId,
-    firstName: rec.staff.firstName,
+    userId,
+    firstName: staff.firstName,
     memberId: input.member.id,
     bmiPersonId: personId,
   });
@@ -313,8 +356,8 @@ export async function recognizeEmployee(input: {
   return {
     ok: true,
     employee: {
-      userId: link.userId,
-      firstName: rec.staff.firstName,
+      userId,
+      firstName: staff.firstName,
       memberId: input.member.id,
       token,
       usedThisWeek,
@@ -328,7 +371,11 @@ export async function recognizeEmployee(input: {
 /** The minimal session shape the reconcile touches (BookingSession satisfies it). */
 export interface EmployeeSessionLike {
   employee?: SessionEmployee | null;
-  party: Array<{ id: string; bmiPersonId?: string; employeePerks?: { userId: number; firstName: string } }>;
+  party: Array<{
+    id: string;
+    bmiPersonId?: string;
+    employeePerks?: { userId: number; firstName: string };
+  }>;
 }
 
 export interface VerifiedEmployee {
@@ -353,7 +400,9 @@ export async function applyEmployeeToSession<S extends EmployeeSessionLike>(
   session: S,
 ): Promise<{ session: S; employee: VerifiedEmployee | null; dropped: string | null }> {
   const claimed = session.employee;
-  const clean = (dropped: string | null): { session: S; employee: null; dropped: string | null } => ({
+  const clean = (
+    dropped: string | null,
+  ): { session: S; employee: null; dropped: string | null } => ({
     session: { ...session, employee: null, party: stampEmployeeOnParty(session.party, null) },
     employee: null,
     dropped,

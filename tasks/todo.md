@@ -119,6 +119,13 @@ cards double tokens: buy 100 → 100 regular + 100 bonus. Verified through 7shif
   new code — on the kiosk that is the licence/phone sign-in, on web the returning-racer lookup.
   Ex-employees fall off when 7shifts deactivates them (index rebuild ≤10 min). A stale link
   (no active user) is ignored, never deleted.
+- NO CODE WHEN THE SIGN-IN ALREADY PROVED IT (owner 2026-09-13, after the first preview: "if we know
+  the account is in BMI and it matches name and number why would we reverify"). A lookup-sourced
+  BMI person (licence scan, phone OTP, login code, web returning-racer lookup) whose LAST NAME AND
+  PHONE both match an active 7shifts record is linked automatically by `recognizeEmployee` —
+  matchedBy `auto:phone`, the phone being the proof — and gets the token with no text. The code
+  step remains for a BMI record whose phone differs from 7shifts (first-name leg alone never
+  auto-links). Kiosk asks via the sheet; web applies the chip directly (Remove undoes it).
 - UNIVERSAL CREDENTIAL (owner 2026-09-13: "cleanest way to verify that's universal"): the signed
   employee token IS the proof everywhere. One mint path (code → token), one server check
   `verifyEmployeeToken` that every rail calls — racing 50% + free races, gel/laser 50%, Game Zone

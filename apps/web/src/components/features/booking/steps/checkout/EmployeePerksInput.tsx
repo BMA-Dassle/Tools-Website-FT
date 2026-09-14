@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { clarityEvent } from "~/lib/clarity";
 import type { PartyMember } from "~/features/booking/state/types";
 import type { SessionEmployee } from "~/features/discount-codes/programs/employee";
@@ -33,6 +33,35 @@ export function EmployeePerksInput({
   const [tail, setTail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Code-free RECOGNITION (owner 2026-09-13: "we already required one to pull up
+  // the known account"). A party member the returning-racer lookup produced,
+  // whose BMI last name + phone match an active 7shifts record (or who is
+  // already linked), gets the perks with no code — the server decides; each BMI
+  // person is asked about once per checkout.
+  const asked = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (employee) return;
+    const candidate = party.find((m) => !!m.bmiPersonId && !asked.current.has(m.bmiPersonId));
+    if (!candidate?.bmiPersonId) return;
+    asked.current.add(candidate.bmiPersonId);
+    let cancelled = false;
+    void employeeApi
+      .recognize({
+        id: candidate.id,
+        firstName: candidate.firstName,
+        lastName: candidate.lastName ?? null,
+        phone: candidate.phone ?? null,
+        bmiPersonId: candidate.bmiPersonId,
+      })
+      .then((res) => {
+        if (cancelled || !res.ok) return;
+        clarityEvent("employee:recognized");
+        onVerified(res.employee);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [party, employee, onVerified]);
 
   if (employee) {
     const linked = !!employee.memberId;

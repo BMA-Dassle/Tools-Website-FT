@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
   if (action === "recognize") {
     const [member] = partyFrom([body.member]);
     if (!member) return NextResponse.json({ ok: false, reason: "not-linked" });
-    const res = await recognizeEmployee({ member, source: kiosk ? "kiosk" : "web" });
+    const res = await recognizeEmployee({ member, source: kiosk ? "kiosk" : "web", location });
     return NextResponse.json(res);
   }
 
