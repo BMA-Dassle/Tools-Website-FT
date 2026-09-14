@@ -34,6 +34,31 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       attention list so it stops burying real work, but the underlying rail
       needs looking at. Possibly money.
 
+- [ ] **The deal shows none of the contract or payment state it already holds,
+      and none of the links a planner needs.** Owner, on Juniper Landscaping
+      (H2892): "this one has contract payments everyting but not seeing that
+      stuff in CRM. History could have been pulled in from notes. We should
+      have links to customer confirmation page, waiver page for customer,
+      latest contract, contract history, etc."
+      Measured — the data is ALL there and simply never joined:
+      - `group_function_quotes`: e41b6fdf, balance_link_sent, total $4,648.79,
+        deposit $2,397.24 PAID 28 Aug, balance $2,251.55 outstanding.
+      - `crm_leads` L-225 exists, status confirmed.
+      - **`gf_short_id` is NULL on all 187 leads.** Nothing has ever populated
+        it, which is why the drawer says "no quote yet" over a paid deposit.
+        Do NOT backfill it — both sides already carry the BMI project id, so
+        the project-first join resolves this with no data repair.
+      - LINKS to add: customer confirmation page, guest waiver page, latest
+        contract, contract history (`contract_versions` +
+        `contract_audit_log`).
+      - HISTORY FROM THE MEMO: Preferred Contact, Preferred Time, Event Type,
+        Special Requests, Interests, the free-text brief, the
+        `----- Portal Staff -----` block (Food Out, staffing) and the
+        `— FastTrax Web —` dated delivery log, which on this deal records a
+        card-declined notice from 13 Sep. B6's Notes tab already parses these
+        sections — reuse `events/notes/office-notes.ts`, do not write a second
+        parser.
+
 ## Open — presentation
 
 - [ ] **Collapse consecutive lanes into ranges** ("Lanes 1-24") on the Event
@@ -43,6 +68,24 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       guest / time / guests / centre).
 - [ ] **The deal drawer layout** — owner: "Hate this layout". Needs a proper
       pass against the Direction B prototype rather than piecemeal fixes.
+- [ ] **The deal HEADER needs a design pass** — owner: "mAKE THIS LOOK BETTER".
+      Observed on Juniper Landscaping / H2892. Specifics to fix, not just
+      "tidy it":
+      - A stray calendar glyph followed by an EMPTY pill sits after the centre
+        name. It renders as a grey stub with no content. Either it has data and
+        is not showing it, or it should not be drawn.
+      - Seven separate chips and labels compete on two lines: status, BMI state,
+        project number, no-touch timer, rep avatar, centre. No hierarchy — the
+        eye has nowhere to land first.
+      - The money is the largest thing on the header but is greyed almost to
+        the background, so the one number a planner wants reads as disabled.
+      - The meta row's icons are inconsistent in weight and size against the
+        action row's, which is what the owner meant by "Icons look off".
+      - The stage bar's labels (Assigned / Contacted / Quote / Contract /
+        Booked) are cramped under full-width segments and wrap badly at narrow
+        widths.
+      Reference: `direction-b.html` deal header. Match its hierarchy rather
+      than inventing one.
 
 ## Open — decisions the owner owes
 
@@ -67,6 +110,56 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
   asking for two dates, or bowling against karting, is a planner building two
   projects for one enquiry — today that becomes two unlinked leads and the
   pipeline double-counts. Owner: "if not don't do it now."
+
+
+---
+
+## ARCHITECTURE DECISION (owner, 2026-09-13 night)
+
+**The BMI project is the SPINE. The lead and the contract are OVERLAYS on it.**
+Screens read the project and left-join the rest.
+
+Owner: "I'm really concerned about the direction we took... our CRM is based on
+leads which might have a BMI" — then, decisively, "Build it. Don't write rows to
+block gaps we need to do this right before we start using it."
+
+### Why, measured on production
+
+| source | rows |
+|---|---|
+| BMI group events mirrored | 5,106 |
+| contracts (`group_function_quotes`) | 559 |
+| leads (`crm_leads`) | 185 |
+
+- **4,615** BMI group events have no contract, so a contract-first screen can
+  never show them.
+- **Every one of the 185 leads has a BMI project id, and every one of those
+  projects is mirrored. Zero exceptions.** The owner confirms historically a
+  lead ALWAYS created a BMI event regardless.
+- So the project is a true SUPERSET. Keying reads on it loses nothing and gains
+  4,615.
+
+### Why it matters
+
+Every gap found tonight has this one cause: contracts missing from the pipeline,
+events that would not open, a lead that arrived at 7:49 pm and was invisible.
+Three symptoms, one shape. Daily Events already reads BMI-first and merges our
+data on, and has never had this class of bug — there is a comment in its service
+about an event where staff rang a real till check and nothing on our side
+noticed, because the event had no quote row. Same failure, found July 2026.
+
+### What does NOT change
+
+Capture stays lead-first. A web enquiry becomes a `crm_leads` row FIRST and
+mints its BMI project second, because our database must own guest data before an
+external call can fail (hard rule, born from losing Pizza Bowl toppings).
+
+### Standing rule from this decision
+
+**Do not write rows to make a screen look populated.** If a project has no lead,
+the screen shows it with no lead. The 179 rows adopted earlier tonight were
+exactly that kind of patch; they carry real assignment data so they are not
+being deleted yet, but the new read must not depend on them.
 
 ---
 
