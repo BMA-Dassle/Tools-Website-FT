@@ -28,6 +28,9 @@ import {
   useNowTick,
   useReservationsData,
 } from "~/features/reservations-admin/hooks";
+import { useReservationGridData } from "~/features/reservations-admin/use-grid-data";
+import { layoutFromParam, type BoardLayout } from "~/features/reservations-admin/grid";
+import ReservationGrid from "./ReservationGrid";
 import type { Reservation } from "~/features/reservations-admin/types";
 import BoardCardList from "./BoardCardList";
 import BoardTable from "./BoardTable";
@@ -49,7 +52,7 @@ import ContactModal, { type ContactTarget } from "./modals/ContactModal";
 import RescheduleModal from "./modals/RescheduleModal";
 import SquareOrderModal, { type OrderTarget } from "./modals/SquareOrderModal";
 import ManageReservationModal from "./manage/ManageReservationModal";
-import { BOARD_CSS, baThemeCss } from "./theme";
+import { BOARD_CSS, GRID_CSS, NAV_BTN, baThemeCss } from "./theme";
 import NflGameCards from "./NflGameCards";
 import { buildNflGameGroups, isNflReservation } from "~/features/reservations-admin/nfl-board";
 
@@ -89,6 +92,24 @@ export default function ReservationsBoard({
     const slug = p.get("center")?.toLowerCase() || "";
     return CENTER_SLUGS[slug] || "";
   });
+  // List vs the lane/track grid. Seeded from ?layout= and written back on every
+  // change, so a portal-iframe refresh — which the portal does on theme and
+  // centre changes — returns to the view the manager was actually using.
+  const [layout, setLayout] = useState<BoardLayout>(() => {
+    if (typeof window === "undefined") return "list";
+    return layoutFromParam(new URLSearchParams(window.location.search).get("layout"));
+  });
+  /**
+   * Which centre the GRID is drawn for.
+   *
+   * Lanes belong to one building, so a grid spanning centres is meaningless.
+   * The portal always scopes the board with ?center=; the standalone page may
+   * not, and then this picker decides. Defaults to HeadPinz Fort Myers — the
+   * busiest book, and the one someone opening an unscoped board is most likely
+   * to want.
+   */
+  const [gridCenterPick, setGridCenterPick] = useState<string>("TXBSQN0FEKQ11");
+  const [gridExpanded, setGridExpanded] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
   const [hideCancelled, setHideCancelled] = useState(true);
   const [hideWalkins, setHideWalkins] = useState(true);
@@ -114,6 +135,23 @@ export default function ReservationsBoard({
 
   // Countdown heartbeat — keeps the VIP pills moving between data polls.
   useNowTick(30_000);
+
+  const gridCenter = center || gridCenterPick;
+  const gridState = useReservationGridData(token, date, gridCenter, layout === "grid");
+
+  // Reflect the view in the URL. replaceState, not push: flipping List/Grid is
+  // a lens on the same board, and stacking history entries would turn the
+  // portal's Back button into an undo log for a toggle.
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (layout === "grid") url.searchParams.set("layout", "grid");
+      else url.searchParams.delete("layout");
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      /* URL state is best-effort */
+    }
+  }, [layout]);
 
   const [resendTarget, setResendTarget] = useState<Reservation | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
@@ -292,6 +330,27 @@ export default function ReservationsBoard({
   );
 
   /**
+   * Every row the GRID may match a vendor bar against — unfiltered, and with
+   * the VIP combo legs folded in.
+   *
+   * Combo legs arrive in their own array (fetched unscoped, because a combo
+   * spans FastTrax racing and HeadPinz bowling), so a bowling leg stored under
+   * a centre SLUG rather than a Square location code is absent from
+   * `reservations` for this board. Leaving it out would draw that guest's lane
+   * as somebody else's walk-in.
+   */
+  const gridMatchRows = useMemo(() => {
+    const seen = new Set<number>();
+    const out: Reservation[] = [];
+    for (const r of [...reservations, ...vipReservations]) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push(r);
+    }
+    return out;
+  }, [reservations, vipReservations]);
+
+  /**
    * BMI SYNC FEED (owner 2026-08-12) — the on-site (Pandora) work still owed for
    * the reservations on screen, powering both the panel and each row's pill.
    *
@@ -449,7 +508,7 @@ export default function ReservationsBoard({
   // reference them. Accent colors (status badges, pills) stay hardcoded
   // since they work on both backgrounds. PORTAL_SKIN_CSS re-tokens both
   // themes to the employee portal's palette (navy gradient / white).
-  const themeStyle = baThemeCss(theme) + BOARD_CSS + PORTAL_SKIN_CSS;
+  const themeStyle = baThemeCss(theme) + BOARD_CSS + GRID_CSS + PORTAL_SKIN_CSS;
 
   const anyModalOpen = Boolean(
     resendTarget ||
@@ -484,7 +543,10 @@ export default function ReservationsBoard({
         padding: "1rem",
       }}
     >
-      {/* eslint-disable-next-line react/no-danger -- theme CSS variables */}
+      {/* Theme CSS variables — a build-time constant string, no guest input.
+          (The `react/no-danger` disable this line used to carry was dead: the
+          rule is not enabled in eslint.config.mjs, so the directive itself
+          tripped `reportUnusedDisableDirectives`.) */}
       <style dangerouslySetInnerHTML={{ __html: themeStyle }} />
       {/* Toast */}
       {toast && (
@@ -616,6 +678,8 @@ export default function ReservationsBoard({
         reservations={reservations}
         vipReservations={vipReservations}
         nflReservations={nflReservations}
+        layout={layout}
+        setLayout={setLayout}
         hideCancelled={hideCancelled}
         setHideCancelled={setHideCancelled}
         hideWalkins={hideWalkins}
@@ -681,6 +745,62 @@ export default function ReservationsBoard({
           >
             {error}
           </div>
+        ) : layout === "grid" ? (
+          <>
+            {/* Centre picker — only when the board itself is unscoped. Lanes
+                belong to one building, so the grid always draws exactly one. */}
+            {!center && (
+              <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                {(
+                  [
+                    ["TXBSQN0FEKQ11", "HeadPinz FM"],
+                    ["PPTR5G2N0QXF7", "HeadPinz Naples"],
+                    ["LAB52GY480CJF", "FastTrax"],
+                  ] as const
+                ).map(([code, label]) => {
+                  const isActive = gridCenterPick === code;
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => setGridCenterPick(code)}
+                      style={{
+                        ...NAV_BTN,
+                        fontSize: "0.72rem",
+                        fontWeight: 600,
+                        backgroundColor: isActive ? "rgba(96,165,250,0.15)" : "var(--ba-input-bg)",
+                        borderColor: isActive ? "rgba(96,165,250,0.45)" : "var(--ba-input-border)",
+                        color: isActive ? "#60a5fa" : "var(--ba-muted)",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <ReservationGrid
+              data={gridState.data}
+              loading={gridState.loading}
+              error={gridState.error}
+              // ALL of the day's rows, deliberately not `displayRows`: the kind
+              // and status chips narrow the LIST, and a bar that stopped being
+              // clickable because "Race" was selected would break the one thing
+              // the owner asked for ("if the reservation is one of ours, should
+              // be able to click it").
+              rows={gridMatchRows}
+              groupEvents={visibleGroupEvents}
+              date={date}
+              expandedSections={gridExpanded}
+              onToggleSection={(name) =>
+                setGridExpanded((prev) => ({ ...prev, [name]: prev[name] !== true }))
+              }
+              onOpenReservation={openManage}
+              onOpenEvent={openEventDetail}
+              resolvingEventId={resolvingEventId}
+            />
+          </>
         ) : nflActive ? (
           nflGames.length === 0 ? (
             <div style={{ textAlign: "center", padding: "3rem", color: "var(--ba-muted)" }}>

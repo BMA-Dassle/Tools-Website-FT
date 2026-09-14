@@ -336,6 +336,37 @@ describe("window arithmetic", () => {
     ]);
   });
 
+  it("keeps two same-titled bookings apart when their reservation ids differ", () => {
+    // "Birthday Party" is a category at both centres, and back-to-back parties
+    // on one lane are the normal Saturday shape. Fusing them would hand the
+    // reservations board one bar carrying one id — and open the wrong booking.
+    const merged = mergeAdjacent([
+      { kind: "party", label: "Birthday Party", start: 1080, end: 1140, reservationId: "A" },
+      { kind: "party", label: "Birthday Party", start: 1140, end: 1200, reservationId: "B" },
+    ]);
+    expect(merged).toHaveLength(2);
+  });
+
+  it("still merges the same booking's touching stretches", () => {
+    const merged = mergeAdjacent([
+      { kind: "party", label: "Birthday Party", start: 1080, end: 1140, reservationId: "A" },
+      { kind: "party", label: "Birthday Party", start: 1140, end: 1200, reservationId: "A" },
+    ]);
+    expect(merged).toEqual([
+      { kind: "party", label: "Birthday Party", start: 1080, end: 1200, reservationId: "A" },
+    ]);
+  });
+
+  it("merges blocks that predate the field exactly as it did before", () => {
+    // An older 60 s cache entry has `undefined` on both sides — equal, so the
+    // pre-existing behaviour is unchanged for anything already in Redis.
+    const merged = mergeAdjacent([
+      { kind: "league", label: "Tues Nite Mixed", start: 1110, end: 1140 },
+      { kind: "league", label: "Tues Nite Mixed", start: 1140, end: 1170 },
+    ]);
+    expect(merged).toHaveLength(1);
+  });
+
   it("clamps blocks to the drawn day and drops the ones outside it", () => {
     const clamped = clampBlocks(
       [

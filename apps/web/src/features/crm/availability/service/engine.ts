@@ -52,6 +52,18 @@ export interface LaneBlock {
   label: string;
   start: number;
   end: number;
+  /**
+   * The QAMF reservation this stretch belongs to, when the read knew one.
+   *
+   * The availability screen never looks at it — it asks "is this lane free?",
+   * and one booking is as opaque as the next. The reservations board asks a
+   * different question ("is this block OURS, so staff can open it?") and
+   * answers it by matching this against `bowling_reservations.qamf_reservation_id`.
+   *
+   * Absent for a lane opened straight in Conqueror with no reservation behind
+   * it, and for an out-of-service lane — neither is a booking anybody can open.
+   */
+  reservationId?: string;
 }
 
 export interface LaneOccupancy {
@@ -297,12 +309,28 @@ export function evaluate(input: VerdictInput): Verdict {
  * Merge touching blocks that say the same thing, so the timeline draws one bar
  * for a three-hour league instead of six (`crm-shared.js:497`). Input must be
  * sorted by start; output is too.
+ *
+ * `reservationId` joins `kind` and `label` in the identity test. Two DIFFERENT
+ * bookings can carry the same title — "Birthday Party" is a category at both
+ * centres, and back-to-back parties on one lane are the normal Saturday shape —
+ * so without it two neighbouring bookings fuse into a single bar. That is
+ * merely untidy on the availability screen, which only asks whether the lane is
+ * free; it is wrong on the reservations board, where the merged bar would carry
+ * one booking's id and silently open the wrong reservation. Blocks that predate
+ * the field (an older 60 s cache entry) have `undefined` on both sides and
+ * compare equal, so they merge exactly as they did before.
  */
 export function mergeAdjacent(blocks: readonly LaneBlock[]): LaneBlock[] {
   const out: LaneBlock[] = [];
   for (const b of blocks) {
     const prev = out[out.length - 1];
-    if (prev && prev.kind === b.kind && prev.label === b.label && prev.end >= b.start) {
+    if (
+      prev &&
+      prev.kind === b.kind &&
+      prev.label === b.label &&
+      prev.reservationId === b.reservationId &&
+      prev.end >= b.start
+    ) {
       prev.end = Math.max(prev.end, b.end);
     } else {
       out.push({ ...b });

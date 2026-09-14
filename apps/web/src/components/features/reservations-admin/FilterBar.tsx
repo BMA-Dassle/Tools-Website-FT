@@ -10,6 +10,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { KIND_BADGE } from "~/features/reservations-admin/constants";
 import { dollars, fmtDate, todayET } from "~/features/reservations-admin/format";
+import type { BoardLayout } from "~/features/reservations-admin/grid";
 import type { Reservation } from "~/features/reservations-admin/types";
 import { INPUT_STYLE, NAV_BTN } from "./theme";
 
@@ -28,6 +29,8 @@ export default function FilterBar({
   reservations,
   vipReservations,
   nflReservations,
+  layout,
+  setLayout,
   hideCancelled,
   setHideCancelled,
   hideWalkins,
@@ -48,6 +51,9 @@ export default function FilterBar({
   reservations: Reservation[];
   vipReservations: Reservation[];
   nflReservations: Reservation[];
+  /** "list" — the table/cards; "grid" — the lane & track timeline. */
+  layout: BoardLayout;
+  setLayout: Dispatch<SetStateAction<BoardLayout>>;
   hideCancelled: boolean;
   setHideCancelled: Dispatch<SetStateAction<boolean>>;
   hideWalkins: boolean;
@@ -81,6 +87,41 @@ export default function FilterBar({
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", marginBottom: "1.5rem" }}>
       <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+        {/* List / Grid — first in the bar because it changes what everything
+            after it applies to (owner: "maybe just an option at the top of this
+            to view reservation grid?"). A segmented pair rather than a single
+            toggle button: the current view has to be readable at a glance from
+            across the desk, not inferred from the label of the thing it would
+            switch you to. */}
+        <div
+          role="group"
+          aria-label="Board layout"
+          style={{ display: "flex", flexWrap: "nowrap", gap: 0 }}
+        >
+          {(["list", "grid"] as const).map((value, i) => {
+            const isActive = layout === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => setLayout(value)}
+                style={{
+                  ...NAV_BTN,
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  borderRadius: i === 0 ? "8px 0 0 8px" : "0 8px 8px 0",
+                  marginLeft: i === 0 ? 0 : -1,
+                  backgroundColor: isActive ? "rgba(96,165,250,0.15)" : "var(--ba-input-bg)",
+                  borderColor: isActive ? "rgba(96,165,250,0.45)" : "var(--ba-input-border)",
+                  color: isActive ? "#60a5fa" : "var(--ba-muted)",
+                }}
+              >
+                {value === "list" ? "List" : "Grid"}
+              </button>
+            );
+          })}
+        </div>
         <button
           type="button"
           onClick={() => setHideCancelled((v) => !v)}

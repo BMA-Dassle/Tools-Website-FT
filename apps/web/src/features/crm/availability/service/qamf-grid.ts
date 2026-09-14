@@ -131,6 +131,14 @@ function outOfServiceBlock(): LaneBlock {
  * ALL DAY and nothing else about it matters, so its own reservations are
  * replaced rather than drawn underneath an out-of-service bar.
  */
+/**
+ * A lane opened straight in Conqueror has no booking behind it, so
+ * `toFloorIntervals` synthesises `floor:lane-7` to keep its intervals keyed.
+ * That is a placeholder, not a reservation — it must never reach a caller that
+ * treats the id as something it can look up or open.
+ */
+const SYNTHETIC_FLOOR_ID = /^floor:/;
+
 export function projectBusy(
   busy: readonly {
     source: "schedule" | "floor";
@@ -139,6 +147,8 @@ export function projectBusy(
     endMs: number;
     kind: string;
     title: string;
+    /** QAMF's own reservation id, when this stretch came from a booking. */
+    reservationId?: string;
   }[],
   lanes: readonly number[],
   dayStartMs: number,
@@ -152,11 +162,14 @@ export function projectBusy(
     const start = minutesFromMidnight(b.startMs, dayStartMs);
     const end = minutesFromMidnight(b.endMs, dayStartMs);
     if (!(end > start)) continue;
+    const reservationId =
+      b.reservationId && !SYNTHETIC_FLOOR_ID.test(b.reservationId) ? b.reservationId : undefined;
     const block: LaneBlock = {
       kind: classifyKind(b.kind),
       label: blockLabel(b.title, b.kind, b.source),
       start,
       end,
+      ...(reservationId ? { reservationId } : {}),
     };
     const list = byLane.get(b.laneNumber);
     if (list) list.push(block);

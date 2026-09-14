@@ -166,6 +166,50 @@ describe("projectBusy", () => {
       { kind: "league", label: "Mixed", start: 18 * 60, end: 21 * 60 },
     ]);
   });
+
+  it("carries the QAMF reservation id through, so a board can match its own rows", () => {
+    const at = (h: number) => dayStartMs + h * 3_600_000;
+    const rows = projectBusy(
+      [
+        {
+          source: "schedule",
+          laneNumber: 5,
+          startMs: at(18),
+          endMs: at(19),
+          kind: "Walk-in > Classic",
+          title: "Yepes",
+          reservationId: "QR-1234",
+        },
+      ],
+      [5],
+      dayStartMs,
+    );
+    expect(rows[0].blocks[0].reservationId).toBe("QR-1234");
+  });
+
+  it("drops the SYNTHETIC id of a lane opened straight in Conqueror", () => {
+    // `toFloorIntervals` invents `floor:lane-7` to key an interval with no
+    // booking behind it. That is a placeholder, and a caller that treated it as
+    // a reservation would offer staff a booking to open that does not exist.
+    const at = (h: number) => dayStartMs + h * 3_600_000;
+    const rows = projectBusy(
+      [
+        {
+          source: "floor",
+          laneNumber: 7,
+          startMs: at(20),
+          endMs: at(21),
+          kind: "lane opened in Conqueror",
+          title: "lane 7 open",
+          reservationId: "floor:lane-7",
+        },
+      ],
+      [7],
+      dayStartMs,
+    );
+    expect(rows[0].blocks).toHaveLength(1);
+    expect(rows[0].blocks[0].reservationId).toBeUndefined();
+  });
 });
 
 describe("laneSectionsFor", () => {
@@ -186,9 +230,17 @@ describe("readLaneGrid", () => {
     expect(grid.lanes).toEqual([1, 5, 13, 14]);
 
     const map = occupancyMap(grid);
-    // The web booking on the adjacent pair 13/14, 7-8 PM local.
+    // The web booking on the adjacent pair 13/14, 7-8 PM local. The vendor's
+    // own reservation id rides along — it is what lets the reservations board
+    // tell one of OUR bookings from a front-desk one.
     expect(map.get(13)).toEqual([
-      { kind: "walkin", label: "Walk-in > Classic", start: 19 * 60, end: 20 * 60 },
+      {
+        kind: "walkin",
+        label: "Walk-in > Classic",
+        start: 19 * 60,
+        end: 20 * 60,
+        reservationId: "X2609121901",
+      },
     ]);
     expect(map.get(14)).toEqual(map.get(13));
     // The Conqueror league on lane 5, 6-9 PM — invisible to Neon, which is the
