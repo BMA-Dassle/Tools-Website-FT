@@ -15,7 +15,10 @@
  */
 import type { AppliedPromo } from "~/features/discount-codes";
 import {
+  removeSessionEmployee,
+  sessionEmployees,
   stampEmployeeOnParty,
+  upsertSessionEmployee,
   type SessionEmployee,
 } from "~/features/discount-codes/programs/employee";
 import type { AppliedVoucherState } from "./types";
@@ -104,11 +107,14 @@ export type Action =
    */
   | { type: "applyPromo"; promo: AppliedPromo | null }
   /**
-   * EMPLOYEE PERKS: set (or clear) the verified team member. Stamps the one
-   * matched party member via `stampEmployeeOnParty` so the pure pricing helpers
-   * read the same person the server will re-derive from the token.
+   * EMPLOYEE PERKS: add a verified team member (several can ride one booking).
+   * Re-stamps the party via `stampEmployeeOnParty` so the pure pricing helpers
+   * read the same people the server will re-derive from the tokens. A 7shifts
+   * user appears once; a party member carries one employee (the later wins).
    */
-  | { type: "setEmployee"; employee: SessionEmployee | null }
+  | { type: "addEmployee"; employee: SessionEmployee }
+  /** EMPLOYEE PERKS: the "Remove" on one team member's perks bar. */
+  | { type: "removeEmployee"; userId: number }
   | { type: "applyVoucher"; voucher: AppliedVoucherState }
   /** No itemIndex = drop every leg of the code; with itemIndex = drop ONE
    *  native leg (kiosk per-leg ✕) and leave the code's other legs applied. */
@@ -402,12 +408,15 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
     case "applyPromo":
       return { ...state, appliedPromo: action.promo };
 
-    case "setEmployee":
-      return {
-        ...state,
-        employee: action.employee,
-        party: stampEmployeeOnParty(state.party, action.employee),
-      };
+    case "addEmployee": {
+      const employees = upsertSessionEmployee(sessionEmployees(state), action.employee);
+      return { ...state, employees, party: stampEmployeeOnParty(state.party, employees) };
+    }
+
+    case "removeEmployee": {
+      const employees = removeSessionEmployee(sessionEmployees(state), action.userId);
+      return { ...state, employees, party: stampEmployeeOnParty(state.party, employees) };
+    }
 
     case "applyVoucher": {
       // Upsert by (code, itemIndex) — re-scans and pending→applied transitions

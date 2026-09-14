@@ -13,8 +13,9 @@ import "server-only";
  *      a live link → the same token with no new code, if 7shifts still lists
  *      them active and the record still passes the rule.
  *   4. `applyEmployeeToSession`      what EVERY price rail calls first: strip the
- *      client's perk stamps, verify the token, re-check active, re-stamp the one
- *      member. The client's fields are display hints; this is the truth.
+ *      client's perk stamps, verify EACH employee's token, re-check active,
+ *      re-stamp exactly those members (several team members can verify on one
+ *      booking). The client's fields are display hints; this is the truth.
  *
  * Neutral failures: an unknown ID, a mobile not on the roster and a wrong code
  * all read as "we couldn't verify you" — no enumeration oracle for who is staff.
@@ -36,6 +37,7 @@ import {
   matchEmployeeToParty,
   normalizeNameToken,
   payWeekKey,
+  sessionEmployees,
   stampEmployeeOnParty,
   type MatchablePerson,
   type SessionEmployee,
@@ -376,6 +378,8 @@ export async function recognizeEmployee(input: {
 
 /** The minimal session shape the reconcile touches (BookingSession satisfies it). */
 export interface EmployeeSessionLike {
+  employees?: SessionEmployee[] | null;
+  /** Pre-2026-09-14 single-employee field — read via `sessionEmployees`, never written. */
   employee?: SessionEmployee | null;
   party: Array<{
     id: string;
@@ -396,56 +400,94 @@ export interface VerifiedEmployee {
 /**
  * Server-authoritative employee state for a session about to be priced:
  *   - strips EVERY client-set `employeePerks` stamp;
- *   - verifies `session.employee.token`, re-checks the user is still active,
- *     requires the token's member to be on the party (and to be the same BMI
- *     person when the token names one);
- *   - re-stamps that one member.
- * Anything short of that prices as a plain guest, loudly.
+ *   - verifies EACH `session.employees[].token`, re-checks the user is still
+ *     active, requires the token's member to be on the party (and to be the
+ *     same BMI person when the token names one);
+ *   - keeps a 7shifts user once and a party member under one employee only;
+ *   - re-stamps exactly those members.
+ * Anything short of that, per employee, prices that person as a plain guest,
+ * loudly (`dropped` names every reason) — the OTHER verified employees keep
+ * their perks.
  */
 export async function applyEmployeeToSession<S extends EmployeeSessionLike>(
   session: S,
-): Promise<{ session: S; employee: VerifiedEmployee | null; dropped: string | null }> {
-  const claimed = session.employee;
-  const clean = (
-    dropped: string | null,
-  ): { session: S; employee: null; dropped: string | null } => ({
-    session: { ...session, employee: null, party: stampEmployeeOnParty(session.party, null) },
-    employee: null,
-    dropped,
-  });
-  if (!claimed) return clean(null);
-  if (!employeePerksEnabled()) return clean("disabled");
-  const tok = verifyEmployeeToken(claimed.token);
-  if (!tok) return clean("bad-token");
-  if (!tok.memberId) return clean("unmatched");
-  const member = session.party.find((m) => m.id === tok.memberId);
-  if (!member) return clean("member-missing");
-  if (tok.bmiPersonId && member.bmiPersonId && member.bmiPersonId !== tok.bmiPersonId) {
-    return clean("person-mismatch");
-  }
-  const rec = await getStaffRecord(tok.userId);
-  // 7shifts unreachable AND no cached roster: fail CLOSED — a perk is a
-  // discount, and an outage must not hand it to somebody deactivated today.
-  if (!rec.ok) return clean(rec.reason === "unavailable" ? "roster-unavailable" : "inactive");
+): Promise<{ session: S; employees: VerifiedEmployee[]; dropped: string[] }> {
+  const claimed = sessionEmployees(session);
+  const kept: SessionEmployee[] = [];
+  const verified: VerifiedEmployee[] = [];
+  const dropped: string[] = [];
+  const enabled = employeePerksEnabled();
+  const rosterByUser = new Map<number, Awaited<ReturnType<typeof getStaffRecord>>>();
 
-  const employee: SessionEmployee = {
-    ...claimed,
-    userId: tok.userId,
-    firstName: rec.staff.firstName,
-    memberId: tok.memberId,
-    weekKey: claimed.weekKey || payWeekKey(),
-    usedThisWeek: Math.max(0, Number(claimed.usedThisWeek) || 0),
-  };
-  return {
-    session: { ...session, employee, party: stampEmployeeOnParty(session.party, employee) },
-    employee: {
+  for (const c of claimed) {
+    if (!enabled) {
+      dropped.push("disabled");
+      continue;
+    }
+    const tok = verifyEmployeeToken(c.token);
+    if (!tok) {
+      dropped.push("bad-token");
+      continue;
+    }
+    if (!tok.memberId) {
+      dropped.push("unmatched");
+      continue;
+    }
+    const member = session.party.find((m) => m.id === tok.memberId);
+    if (!member) {
+      dropped.push("member-missing");
+      continue;
+    }
+    if (tok.bmiPersonId && member.bmiPersonId && member.bmiPersonId !== tok.bmiPersonId) {
+      dropped.push("person-mismatch");
+      continue;
+    }
+    // One 7shifts user once, one party member under one employee — the first
+    // valid claim wins; a duplicate is a stale re-verification, not a perk.
+    if (kept.some((k) => k.userId === tok.userId || k.memberId === tok.memberId)) {
+      dropped.push("duplicate");
+      continue;
+    }
+    let rec = rosterByUser.get(tok.userId);
+    if (!rec) {
+      rec = await getStaffRecord(tok.userId);
+      rosterByUser.set(tok.userId, rec);
+    }
+    // 7shifts unreachable AND no cached roster: fail CLOSED — a perk is a
+    // discount, and an outage must not hand it to somebody deactivated today.
+    if (!rec.ok) {
+      dropped.push(rec.reason === "unavailable" ? "roster-unavailable" : "inactive");
+      continue;
+    }
+    const employee: SessionEmployee = {
+      ...c,
+      userId: tok.userId,
+      firstName: rec.staff.firstName,
+      memberId: tok.memberId,
+      weekKey: c.weekKey || payWeekKey(),
+      usedThisWeek: Math.max(0, Number(c.usedThisWeek) || 0),
+    };
+    kept.push(employee);
+    verified.push({
       userId: tok.userId,
       firstName: rec.staff.firstName,
       memberId: tok.memberId,
       weekKey: employee.weekKey,
       claimedUsedThisWeek: employee.usedThisWeek,
+    });
+  }
+
+  return {
+    session: {
+      ...session,
+      employees: kept,
+      // The legacy single field never survives a reconcile — `employees` is
+      // the one list every pricing helper reads from here on.
+      employee: undefined,
+      party: stampEmployeeOnParty(session.party, kept),
     },
-    dropped: null,
+    employees: verified,
+    dropped,
   };
 }
 

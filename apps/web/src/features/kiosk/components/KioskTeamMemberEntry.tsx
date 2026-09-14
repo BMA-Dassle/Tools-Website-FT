@@ -28,7 +28,7 @@ export function KioskTeamMemberEntry({
   onDone,
 }: {
   party: PartyMember[];
-  /** The server's SessionEmployee — the parent dispatches setEmployee. */
+  /** The server's SessionEmployee — the parent dispatches addEmployee. */
   onVerified: (employee: SessionEmployee, linked: boolean) => void;
   onBack: () => void;
   /** Leave the code screen for the main menu once verified — the same exit a

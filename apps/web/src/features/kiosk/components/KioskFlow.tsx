@@ -70,6 +70,7 @@ import {
 } from "../service/qualification-refresh-client";
 import { useKioskConfig } from "../KioskConfigContext";
 import { KioskEmployeeSheet, useEmployeeRecognition } from "./KioskEmployeeSheet";
+import { sessionEmployees } from "~/features/discount-codes/programs/employee";
 import { useLocale, type MessageKey, type Translate } from "../i18n";
 import { gameZoneCapability, isTestKiosk } from "../config";
 import {
@@ -2239,8 +2240,9 @@ export function KioskFlow({
         initialScan={entryScanHandoff?.target === "code-entry" ? entryScanHandoff.raw : undefined}
         onApplied={(promo) => dispatch({ type: "applyPromo", promo })}
         // EMPLOYEE PERKS: the "Team member" door on the code screen. The server's
-        // SessionEmployee lands on the session and stamps the matched member.
-        onEmployeeVerified={(employee) => dispatch({ type: "setEmployee", employee })}
+        // SessionEmployee joins the session's team members and stamps the
+        // matched member (a second employee adds alongside the first).
+        onEmployeeVerified={(employee) => dispatch({ type: "addEmployee", employee })}
         voucherRedeem={voucherRedeem}
         appliedVoucherCodes={appliedVouchers.map((v) => v.code)}
         onVoucherAccepted={(code, name) =>
@@ -2346,7 +2348,8 @@ export function KioskFlow({
           capability={gameZoneCapability(config) === "swipe" ? "swipe" : "full"}
           initialVoucherCodes={gzVoucherCodes}
           // EMPLOYEE PERKS: a verified team member's standalone cards load 2× (bonus).
-          employeeToken={session.employee?.token ?? null}
+          // Any one verified token proves "a team member is here" for the cards.
+          employeeToken={sessionEmployees(session)[0]?.token ?? null}
           // A game card scanned on the attract screen or the chooser — opens
           // straight on its balance rather than asking for the card again.
           initialCardAccount={

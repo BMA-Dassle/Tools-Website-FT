@@ -38,10 +38,11 @@ import { getComboSpecial } from "~/features/combos/combo-specials";
 import { getRaceSimProduct, getRaceSimTrack, raceSimPriceFor } from "~/features/race-sims/products";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import {
-  employeeMember,
+  employeeMembers,
   computeEmployeeFreeHeats,
   employeeAttractionUnits,
 } from "~/features/booking/service/employee-perks";
+import { sessionEmployees } from "~/features/discount-codes/programs/employee";
 import { racerNeedsLicense } from "~/features/booking/service/license";
 import { useT } from "~/features/kiosk/i18n";
 import { racePackTeaserVisible } from "./steps/race/RacePackTeaser";
@@ -376,7 +377,7 @@ export function CartGameCardsBlock({
   let gz: ReturnType<typeof resolveCartPurchase>;
   try {
     gz = resolveCartPurchase(session.gameCardPurchase, {
-      employee: !!employeeMember(session.party),
+      employee: employeeMembers(session.party).length > 0,
     });
   } catch {
     gz = null;
@@ -1368,14 +1369,14 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
             (s, l) => s + l.amount,
             0,
           );
-        // EMPLOYEE PERKS — the team member's free single races, same coverage
+        // EMPLOYEE PERKS — the team members' free single races, same coverage
         // slot as the charge (after vouchers, before BOGO), differenced against
         // THIS item's own lines like everything above.
         const empFree = computeEmployeeFreeHeats(
           session.items,
           session.party,
           base,
-          session.employee,
+          sessionEmployees(session),
         );
         if (empFree.heats.size > 0) {
           employeeFreeTotal =
@@ -1420,7 +1421,7 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
         return Math.max(0, base - cents / 100);
       }
     }
-    // EMPLOYEE PERKS — the team member's own gel/laser units at 50%, the same
+    // EMPLOYEE PERKS — the team members' own gel/laser units at 50%, the same
     // helper the charge builder splits its line with.
     const emp = employeeAttractionUnits(item, session.party);
     if (emp.units > 0 && config?.bookingMode === "per-person") {

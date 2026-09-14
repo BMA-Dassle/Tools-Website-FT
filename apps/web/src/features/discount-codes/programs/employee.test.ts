@@ -7,7 +7,11 @@ import {
   matchEmployeeToParty,
   normalizeNameToken,
   payWeekKey,
+  removeSessionEmployee,
+  sessionEmployees,
   stampEmployeeOnParty,
+  upsertSessionEmployee,
+  type SessionEmployee,
 } from "./employee";
 
 const staff = {
@@ -131,21 +135,77 @@ describe("stampEmployeeOnParty", () => {
   const party = [
     { id: "a", firstName: "Jordan", employeePerks: { userId: 9, firstName: "Old" } },
     { id: "b", firstName: "Sam" },
+    { id: "c", firstName: "Alex" },
   ];
 
   it("stamps exactly the matched member and clears every other stamp", () => {
-    const out = stampEmployeeOnParty(party, { userId: 42, firstName: "Sam", memberId: "b" });
+    const out = stampEmployeeOnParty(party, [{ userId: 42, firstName: "Sam", memberId: "b" }]);
     expect(out[0].employeePerks).toBeUndefined();
     expect(out[1].employeePerks).toEqual({ userId: 42, firstName: "Sam" });
+    expect(out[2].employeePerks).toBeUndefined();
+  });
+
+  it("stamps one member per verified employee when several ride one booking", () => {
+    const out = stampEmployeeOnParty(party, [
+      { userId: 42, firstName: "Sam", memberId: "b" },
+      { userId: 77, firstName: "Alex", memberId: "c" },
+    ]);
+    expect(out[0].employeePerks).toBeUndefined();
+    expect(out[1].employeePerks).toEqual({ userId: 42, firstName: "Sam" });
+    expect(out[2].employeePerks).toEqual({ userId: 77, firstName: "Alex" });
   });
 
   it("clears all stamps when there is no employee or no match", () => {
     expect(stampEmployeeOnParty(party, null).every((m) => !m.employeePerks)).toBe(true);
+    expect(stampEmployeeOnParty(party, []).every((m) => !m.employeePerks)).toBe(true);
     expect(
-      stampEmployeeOnParty(party, { userId: 42, firstName: "Sam", memberId: null }).every(
+      stampEmployeeOnParty(party, [{ userId: 42, firstName: "Sam", memberId: null }]).every(
         (m) => !m.employeePerks,
       ),
     ).toBe(true);
+  });
+});
+
+describe("session employee list", () => {
+  const sam: SessionEmployee = {
+    userId: 42,
+    firstName: "Sam",
+    memberId: "b",
+    token: "emp.sam",
+    usedThisWeek: 0,
+    weekKey: "2026-09-16",
+  };
+  const alex: SessionEmployee = { ...sam, userId: 77, firstName: "Alex", memberId: "c" };
+
+  it("reads the employees list, and falls back to the pre-09-14 single field", () => {
+    expect(sessionEmployees(null)).toEqual([]);
+    expect(sessionEmployees({})).toEqual([]);
+    expect(sessionEmployees({ employees: [sam, alex] })).toEqual([sam, alex]);
+    expect(sessionEmployees({ employee: sam })).toEqual([sam]);
+    // Once the list exists it is the truth — a stale legacy field is ignored.
+    expect(sessionEmployees({ employees: [], employee: sam })).toEqual([]);
+  });
+
+  it("adds a second team member alongside the first", () => {
+    expect(upsertSessionEmployee([sam], alex)).toEqual([sam, alex]);
+  });
+
+  it("re-verifying the same 7shifts user replaces their earlier entry", () => {
+    const fresh = { ...sam, token: "emp.sam2", usedThisWeek: 1 };
+    expect(upsertSessionEmployee([sam, alex], fresh)).toEqual([alex, fresh]);
+  });
+
+  it("a party member carries one employee — the later verification wins the member", () => {
+    const alsoB = { ...alex, memberId: "b" };
+    expect(upsertSessionEmployee([sam], alsoB)).toEqual([alsoB]);
+    // An unmatched employee (no member yet) never evicts anyone.
+    const unmatched = { ...alex, memberId: null };
+    expect(upsertSessionEmployee([sam], unmatched)).toEqual([sam, unmatched]);
+  });
+
+  it("removes one employee and leaves the others", () => {
+    expect(removeSessionEmployee([sam, alex], 42)).toEqual([alex]);
+    expect(removeSessionEmployee([sam], 999)).toEqual([sam]);
   });
 });
 

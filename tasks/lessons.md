@@ -6015,3 +6015,33 @@ was cut from it and none of the files were there.
 - **Recover with fast-forwards, never force**: `git merge --ff-only <sha>` on the branch moved the
   commit onto it and `git push` fast-forwarded the remote; local `main` was left for the owner to
   reset (dropping a commit from main is theirs to approve, not the assistant's).
+
+## Every new way to reach $0 has to be taught to BOTH rails, or it dies twice (2026-09-14)
+
+**What happened.** Employee perks shipped 09-13 with a per-heat $0 coverage kind
+(`employee-perk`). A returning team member booking only their two free single races on the
+kiosk got "cardSourceId or giftCardNonce required for paid orders". The review computes
+`isCreditOrder = preTaxSubtotal <= 0` and sends credit orders down the LEGACY
+`/api/booking/v2/reserve` unless a voucher is applied — the one carve-out the 07-31 voucher fix
+added. The legacy rail knows nothing about perks: it rebuilt the Square order from the review
+lines at full price and refused a chargeless reserve. Routing the order to the unified rail
+would then have hit the SECOND failure: employee-covered heats had a $0 priced line but no $0
+Square line, so the cart built zero Square lines — exactly the 09-06 voucher incident, one
+coverage kind over.
+
+**Why.** The $0 path is not one path. A new coverage mechanism has to be wired into (1) the
+CheckoutStep routing carve-out (`reserveAll` vs `reserveBooking`) and (2) the covered-heats $0
+Square line in `buildCombinedLineItems`. Vouchers got both on separate incidents; perks got
+neither because the builder's "credit / pack / BOGO are deliberately unchanged" comment reads as
+"the list is closed", and nobody tested a cart where the new mechanism was the ONLY thing in it.
+
+**How to apply.**
+- Any new coverage kind in `PricedLine.coverage.kind`: add it to the `kind === "voucher"` $0
+  Square-line condition AND to the `handleConfirm` unified-rail condition in the same commit, and
+  write the repro test where the covered thing is the WHOLE cart (returning racer, no licence
+  line, nothing else) — `employee-perks-pricing.test.ts` is the template.
+- "cardsource" in an error the guest saw = the legacy rail. Grep for the exact wording before
+  theorising; the unified rail says "Card or gift card required".
+- A per-person perk is a LIST from day one. `session.employee` (one) had to become
+  `session.employees[]` a day after shipping because two colleagues racing together is the
+  normal case, not the edge case.

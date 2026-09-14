@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { quoteUnifiedSession } from "~/features/booking/service/unified-reserve";
 import type { BookingSession } from "~/features/booking/state/types";
 import { applyEmployeeToSession } from "~/features/discount-codes/programs/employee.server";
+import { sessionEmployees } from "~/features/discount-codes/programs/employee";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,20 +27,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No items in session" }, { status: 400 });
     }
     // EMPLOYEE PERKS: the quote prices the SAME server-re-derived employee state
-    // the charge will (token verified, roster re-checked, one member stamped) —
-    // so a forged or expired claim never shows a discount the reserve won't honour.
+    // the charge will (every token verified, roster re-checked, exactly those
+    // members stamped) — so a forged or expired claim never shows a discount
+    // the reserve won't honour.
+    const claimed = sessionEmployees(body.session);
     const emp = await applyEmployeeToSession(body.session);
-    if (emp.dropped) {
+    if (emp.dropped.length > 0) {
       // Loud + returned: a team member who sees full price needs the reason in
       // the logs AND on the screen, not a silent guest quote.
       console.warn(
-        `[v2/quote] employee perks NOT applied: ${emp.dropped} (userId=${body.session.employee?.userId ?? "?"}, memberId=${body.session.employee?.memberId ?? "none"})`,
+        `[v2/quote] employee perks NOT applied for ${emp.dropped.length} of ${claimed.length}: ` +
+          `${emp.dropped.join(", ")} (claimed=${claimed
+            .map((e) => `${e.userId}:${e.memberId ?? "none"}`)
+            .join(" ")})`,
       );
     }
     return NextResponse.json({
       ...quoteUnifiedSession(emp.session),
-      ...(body.session.employee
-        ? { employee: { applied: !!emp.employee, dropped: emp.dropped } }
+      ...(claimed.length > 0
+        ? { employees: { applied: emp.employees.length, dropped: emp.dropped } }
         : {}),
     });
   } catch (err) {
