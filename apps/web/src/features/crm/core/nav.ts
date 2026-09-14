@@ -184,7 +184,7 @@ export const SCREEN_META: Record<ScreenId, ScreenMeta> = {
   },
   history: {
     title: "History & accounts",
-    description: "Every event across centres and years, from the BMI mirror",
+    description: "Every event across centers and years, from the BMI mirror",
   },
   account: { title: "Account", description: "One business or household across every year." },
   cold: { title: "Cold lists", description: "Import a CSV, map the columns, dial down the list" },
@@ -214,7 +214,7 @@ export const SCREEN_META: Record<ScreenId, ScreenMeta> = {
   statuses: {
     title: "Statuses",
     description:
-      "Our pipeline on top of BMI. Each of our statuses writes one BMI state per centre.",
+      "Our pipeline on top of BMI. Each of our statuses writes one BMI state per center.",
   },
   availability: {
     title: "Availability",

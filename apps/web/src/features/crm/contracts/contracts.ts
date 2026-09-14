@@ -313,6 +313,7 @@ export const CONTRACT_TEST_IDS = {
   statusFolders: "crm-contracts-status",
   search: "crm-contracts-search",
   closedToggle: "crm-contracts-closed",
+  pastToggle: "crm-contracts-past",
   table: "crm-contracts-table",
   row: (shortId: string) => "crm-contract-row-" + shortId,
   /** The row's jump to the Events board on the day the event happens. */

@@ -154,7 +154,7 @@ export function RuleSheet({
           ) : null}
         </div>
         <div className="field">
-          <label htmlFor={`${ids}-centre`}>Centre</label>
+          <label htmlFor={`${ids}-centre`}>Center</label>
           <select
             id={`${ids}-centre`}
             className="select"

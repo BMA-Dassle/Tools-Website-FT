@@ -29,6 +29,7 @@ export interface ContractsListParams {
   rep?: string;
   q?: string;
   closed?: boolean;
+  past?: boolean;
   cursor?: string | null;
   limit?: number;
 }
@@ -42,6 +43,7 @@ export const fetchContracts = (f: CrmFetch, p: ContractsListParams) =>
       rep: p.rep && p.rep !== "all" ? p.rep : null,
       q: p.q?.trim() || null,
       closed: p.closed ? "1" : null,
+      past: p.past ? "1" : null,
       cursor: p.cursor ?? null,
       limit: p.limit ? String(p.limit) : null,
     })}`,

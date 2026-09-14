@@ -324,6 +324,23 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  /* THE GROUP HAS TO WRAP TOO (owner, 2026-09-14: "the buttons at top not
+     properly formatting"). `.topbar` wraps, so on a narrow screen the action
+     group drops to its own row — but the group itself was a single
+     unwrappable flex line, so three buttons (Lead queue has Rules, New lead
+     and Auto-assign all) could only squash or run off the edge once that row
+     was narrower than they are. Wrapping inside the group is what lets them
+     stack instead; `justify-content` keeps a part-full second line against the
+     right edge rather than stranding it in the middle, and `min-width: 0`
+     stops the group refusing to shrink in the first place. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+/* Buttons of different content ("Rules" vs "Auto-assign all", icon vs no icon)
+   otherwise sit at different heights on a wrapped row. */
+.crm-root .topbar .actions > * {
+  flex: none;
 }
 .crm-root .content {
   flex: 1;

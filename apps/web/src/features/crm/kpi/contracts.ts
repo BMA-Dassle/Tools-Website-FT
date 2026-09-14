@@ -35,7 +35,7 @@ export type RevenueBasis = "bmi" | "contract" | "square" | "count" | "minutes";
 
 /** The sentence a tile's tooltip shows, keyed by basis. Rendered, not summarised. */
 export const REVENUE_BASIS: Record<RevenueBasis, string> = {
-  bmi: "BMI project value (Office totalValue) — what the centre booked, not what has been paid.",
+  bmi: "BMI project value (Office totalValue) — what the center booked, not what has been paid.",
   contract: "Signed contract total (group_function_quotes.total_cents) — no last-year twin exists.",
   square: "Money Square actually captured — deposit at signing plus balance at T-72h.",
   count: "A count of records, not money.",

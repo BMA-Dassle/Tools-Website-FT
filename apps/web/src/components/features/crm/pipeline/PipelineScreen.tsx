@@ -200,7 +200,7 @@ export default function PipelineScreen({ query }: ScreenProps) {
             value={centre ?? ""}
             onChange={(e) => setUrlQuery({ centre: e.target.value || null })}
           >
-            <option value="">Centre: All</option>
+            <option value="">Center: All</option>
             {CENTRE_LIST.map((c) => (
               <option key={c.code} value={c.code}>
                 {c.name}

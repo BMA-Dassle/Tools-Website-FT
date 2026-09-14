@@ -114,7 +114,7 @@ export function HeatsPanel({ data, onSelectResource }: HeatsPanelProps) {
           </div>
         ) : state === "empty" ? (
           <EmptyState>
-            No heats are published for this day yet. Check the centre&rsquo;s Office day planner.
+            No heats are published for this day yet. Check the center&rsquo;s Office day planner.
           </EmptyState>
         ) : null}
 

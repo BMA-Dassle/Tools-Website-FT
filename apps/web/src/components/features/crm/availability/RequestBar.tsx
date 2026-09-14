@@ -57,7 +57,7 @@ export function RequestBar({
       <span className="eyebrow">Request</span>
 
       <div className="field avail-field">
-        <label htmlFor="avail-centre">Centre</label>
+        <label htmlFor="avail-centre">Center</label>
         <select
           id="avail-centre"
           className="select"

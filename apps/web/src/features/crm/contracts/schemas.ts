@@ -49,6 +49,8 @@ export const ContractsListQuerySchema = z.object({
   q: z.string().trim().max(80).optional(),
   /** Show completed / cancelled / denied / expired too. */
   closed: Flag.optional(),
+  /** Show past events in the attention window. Off by default. */
+  past: Flag.optional(),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(CONTRACTS_PAGE_MAX).optional(),
   /** Counts only — the sidebar badge poll. No rows, no COUNT over the page. */

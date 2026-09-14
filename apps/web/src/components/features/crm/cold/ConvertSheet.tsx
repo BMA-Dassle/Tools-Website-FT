@@ -159,7 +159,7 @@ export function ConvertSheet({
       <div className="eyebrow">What they want</div>
       <div className="grid grid-2">
         <div className="field">
-          <label htmlFor={`cv-centre-${row.id}`}>Centre</label>
+          <label htmlFor={`cv-centre-${row.id}`}>Center</label>
           <select
             id={`cv-centre-${row.id}`}
             className="select"

@@ -201,7 +201,7 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
         {data?.source === "lanes" && data.lanesReported < data.lanesExpected ? (
           <div className="pad">
             <Banner tone="warn">
-              The centre reported {data.lanesReported} of {data.lanesExpected} lanes. The{" "}
+              The center reported {data.lanesReported} of {data.lanesExpected} lanes. The{" "}
               {data.lanesExpected - data.lanesReported} it did not report are treated as
               unavailable, not as free.
             </Banner>

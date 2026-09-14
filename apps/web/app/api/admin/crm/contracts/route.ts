@@ -32,7 +32,7 @@ export const GET = withCrmRoute(
   ContractsListQuerySchema,
   async ({ input }): Promise<ContractListPage> => {
     if (isOn(input.counts)) {
-      const counts = await contractCounts().catch(() => EMPTY_COUNTS);
+      const counts = await contractCounts(new Date(), isOn(input.past)).catch(() => EMPTY_COUNTS);
       return { rows: [], nextCursor: null, total: 0, counts };
     }
     return listContracts({
@@ -42,6 +42,7 @@ export const GET = withCrmRoute(
       rep: input.rep,
       q: input.q,
       closed: isOn(input.closed),
+      past: isOn(input.past),
       cursor: input.cursor ?? null,
       limit: input.limit,
     });

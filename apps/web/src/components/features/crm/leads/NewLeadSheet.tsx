@@ -124,7 +124,7 @@ export function NewLeadSheet({ defaultCentre = "HPFM", onCancel, onCreated }: Ne
       />
       <div className="grid grid-2">
         <div className="field">
-          <label htmlFor={`${id}-centre`}>Centre</label>
+          <label htmlFor={`${id}-centre`}>Center</label>
           <select
             id={`${id}-centre`}
             className="select"

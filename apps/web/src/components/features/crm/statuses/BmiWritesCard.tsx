@@ -129,7 +129,7 @@ export function BmiWritesCard({ columns, canEdit }: BmiWritesCardProps) {
                   <Pill key={c.clientKey}>{label}</Pill>
                 );
               })}
-              <span className="xs muted">Per-centre switches are separate</span>
+              <span className="xs muted">Per-center switches are separate</span>
             </div>
           </>
         ) : null}

@@ -169,7 +169,7 @@ export default function EventsScreen({ query }: ScreenProps) {
               <Seg
                 options={CENTRE_OPTIONS}
                 value={centre}
-                label="Centre"
+                label="Center"
                 onChange={(v) => setUrlQuery({ centre: v === "HPFM" ? null : v })}
               />
             </>,

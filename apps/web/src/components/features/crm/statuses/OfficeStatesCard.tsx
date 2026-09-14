@@ -75,11 +75,11 @@ export function OfficeStatesCard({
   return (
     <div className="card" data-testid={TEST_IDS.officeStates}>
       <div className="card-h">
-        <h2>BMI state per centre</h2>
+        <h2>BMI state per center</h2>
         <div className="right">
           {centres.length > 0 && centre ? (
             <Seg
-              label="Centre"
+              label="Center"
               value={centre}
               onChange={onCentre}
               options={centres.map((c) => ({ value: c.code, label: c.short }))}
@@ -97,7 +97,7 @@ export function OfficeStatesCard({
         </div>
       </div>
       <div className="pad stack">
-        {centre === null ? <EmptyState>No centres to map.</EmptyState> : null}
+        {centre === null ? <EmptyState>No centers to map.</EmptyState> : null}
         {officeQ.isPending && centre !== null ? (
           <LoadingState label="Asking Office for its state names…" />
         ) : null}

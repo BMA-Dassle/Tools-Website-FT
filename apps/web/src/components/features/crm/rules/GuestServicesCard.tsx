@@ -75,7 +75,7 @@ export function GuestServicesCard({ canEdit }: { canEdit: boolean }) {
         <div className="right">{data?.gsRep ? <Pill>{data.gsRep.displayName}</Pill> : null}</div>
       </div>
 
-      {gsQ.isPending ? <LoadingState label="Loading the call centre…" /> : null}
+      {gsQ.isPending ? <LoadingState label="Loading the call center…" /> : null}
       {gsQ.isError ? (
         <div className="pad">
           <ErrorState message={errorMessage(gsQ.error)} onRetry={() => void gsQ.refetch()} />

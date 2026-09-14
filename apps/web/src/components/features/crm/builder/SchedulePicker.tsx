@@ -198,7 +198,7 @@ export function SchedulePicker({
           </div>
         ) : heatsQ.isPending ? null : (
           <EmptyState>
-            No heats are published for this day. Check the centre&rsquo;s Office day planner.
+            No heats are published for this day. Check the center&rsquo;s Office day planner.
           </EmptyState>
         )}
 

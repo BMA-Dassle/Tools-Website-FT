@@ -150,11 +150,11 @@ export const WRITES_PAUSED_MESSAGE = "BMI writes are paused by admin";
 /**
  * Office's cloud reaches a centre's own Pandora copy in minutes, not
  * milliseconds. Until the local side reads the schedule back, the builder says
- * "syncing to centre" rather than pretending the desk can already see it.
+ * "syncing to center" rather than pretending the desk can already see it.
  */
 export type SyncState = "clean" | "syncing" | "unknown";
 
-export const SYNCING_MESSAGE = "Syncing to the centre — the front desk sees this in a few minutes";
+export const SYNCING_MESSAGE = "Syncing to the center — the front desk sees this in a few minutes";
 
 // ---------------------------------------------------------------------------
 // Templates — `crm_quote_templates`
@@ -184,7 +184,7 @@ export interface TemplateLine {
 export interface QuoteTemplate {
   id: string;
   name: string;
-  /** A centre code, or null for "every centre". */
+  /** A centre code, or null for "every center". */
   centre: CentreCode | null;
   baselineGuests: number;
   description: string | null;

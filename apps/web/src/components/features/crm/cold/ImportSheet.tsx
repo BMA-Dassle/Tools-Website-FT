@@ -264,7 +264,7 @@ export function ImportSheet({ reps, defaultOwnerRepId, onImported }: ImportSheet
               </select>
             </div>
             <div className="field">
-              <label htmlFor="cold-centre">Centre</label>
+              <label htmlFor="cold-centre">Center</label>
               <select
                 id="cold-centre"
                 className="select"

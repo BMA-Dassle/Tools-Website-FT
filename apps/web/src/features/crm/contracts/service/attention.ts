@@ -183,6 +183,32 @@ export const ATTENTION_SQL = `(
   )
 )`;
 
+/**
+ * THE attention predicate — the badge's and the list's, so they cannot drift.
+ *
+ * They had drifted, and by a lot. The badge counted
+ * `(ATTENTION_SQL AND not closed) OR PAST_UNPAID_DAYOF_SQL` while the list
+ * filtered on `ATTENTION_SQL` alone, so the badge read 312 over a list that
+ * paged out at 82 (owner, 2026-09-14: "needs attention 312 is wrong in
+ * contract. Last page shows 82"). The ~230 in the gap are the unsettled day-of
+ * Square orders going back to May: `PAST_UNPAID_DAYOF_SQL` has no date bound,
+ * where the day-of branch INSIDE `ATTENTION_SQL` stops at 14 days.
+ *
+ * And by default past events are out altogether, financial issue or not —
+ * owner: "By default hide past contracts even if finacial issue. Just have a
+ * toggle or something to show." A settled backlog is a report somebody runs,
+ * not a list that shouts every morning; `includePast` is that toggle, and it
+ * brings the whole unbounded day-of backlog with it.
+ *
+ * Placeholders: `$1` = today (ET, YYYY-MM-DD), `$2` = the unsigned cutoff.
+ * Both call sites bind them in that order.
+ */
+export function attentionPredicate(includePast: boolean): string {
+  return includePast
+    ? `(${ATTENTION_SQL} OR ${PAST_UNPAID_DAYOF_SQL})`
+    : `(${ATTENTION_SQL} AND event_date >= $1::date)`;
+}
+
 /** The day-of half of the prototype's count expression, on its own. */
 export const PAST_UNPAID_DAYOF_SQL = `(
   square_dayof_order_id IS NOT NULL AND square_settled_order_id IS NULL AND event_date < $1::date

@@ -205,7 +205,7 @@ export function TemplateEditor({ initial, onSubmit, onCancel }: TemplateEditorPr
         </div>
 
         <div className="field">
-          <label htmlFor={`${ids}-centre`}>Centre</label>
+          <label htmlFor={`${ids}-centre`}>Center</label>
           <select
             id={`${ids}-centre`}
             className="select"
@@ -213,7 +213,7 @@ export function TemplateEditor({ initial, onSubmit, onCancel }: TemplateEditorPr
             onChange={(e) => setCentre(e.target.value)}
             disabled={pending}
           >
-            <option value="">All centres</option>
+            <option value="">All centers</option>
             {CENTRE_CODES.map((c) => (
               <option key={c} value={c}>
                 {CENTRES[c].name}

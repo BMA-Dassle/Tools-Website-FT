@@ -81,10 +81,19 @@ export default function ContractsScreen({ query }: ScreenProps) {
   const centre = urlQuery.centre ?? "all";
   const rep = urlQuery.rep ?? "all";
   const closed = urlQuery.closed === "1";
+  const past = urlQuery.past === "1";
   const rawSearch = urlQuery.q ?? "";
   const search = useDebouncedValue(rawSearch.trim(), SEARCH_DEBOUNCE_MS, rawSearch.trim());
 
-  const filters = { win, status, centre, rep, q: search, closed: closed ? "1" : "0" };
+  const filters = {
+    win,
+    status,
+    centre,
+    rep,
+    q: search,
+    closed: closed ? "1" : "0",
+    past: past ? "1" : "0",
+  };
 
   const list = useQuery({
     queryKey: [...contractsKeys.list(filters), cursor ?? "first"],
@@ -96,6 +105,7 @@ export default function ContractsScreen({ query }: ScreenProps) {
         rep,
         q: search,
         closed,
+        past,
         cursor,
         limit: CONTRACTS_PAGE_SIZE,
       }),
@@ -224,7 +234,7 @@ export default function ContractsScreen({ query }: ScreenProps) {
             value={centre}
             onChange={(e) => patch({ centre: e.target.value === "all" ? null : e.target.value })}
           >
-            <option value="all">All centres</option>
+            <option value="all">All centers</option>
             {CENTRE_OPTIONS.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
@@ -279,6 +289,26 @@ export default function ContractsScreen({ query }: ScreenProps) {
             />
             show completed &amp; cancelled
           </span>
+          {/* Past events are OUT of Needs attention by default, financial issue
+              or not (owner, 2026-09-14: "By default hide past contracts even if
+              finacial issue. Just have a toggle or something to show"). Turning
+              it on also brings in the unsettled day-of Square orders going back
+              to May, which is the ~230 the badge used to count over a list that
+              never showed them. Only meaningful on the attention window. */}
+          {win === "attention" ? (
+            <span className="hstack xs muted" style={{ gap: 6 }}>
+              <button
+                type="button"
+                className="toggle"
+                role="switch"
+                aria-checked={past}
+                data-testid={CONTRACT_TEST_IDS.pastToggle}
+                aria-label="Show past events that still need attention"
+                onClick={() => patch({ past: past ? null : "1" })}
+              />
+              show past
+            </span>
+          ) : null}
         </div>
 
         <div style={{ padding: "0 14px 10px" }}>

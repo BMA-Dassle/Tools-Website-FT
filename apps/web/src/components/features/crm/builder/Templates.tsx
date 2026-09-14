@@ -95,7 +95,7 @@ export function Templates({
                   <span className="strong">{t.name}</span>
                   <span className="xs muted">{templateSummary(t)}</span>
                   <span className="xs muted">{usageLabel(t.uses)}</span>
-                  {t.centre === null ? <span className="pill">All centres</span> : null}
+                  {t.centre === null ? <span className="pill">All centers</span> : null}
                 </button>
                 {isDirector ? (
                   confirming === t.id ? (

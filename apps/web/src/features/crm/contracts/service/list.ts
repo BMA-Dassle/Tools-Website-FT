@@ -36,7 +36,7 @@ import {
   type ContractWindow,
 } from "../contracts";
 import { ensureGfSchema } from "../transport";
-import { ATTENTION_SQL, PAST_UNPAID_DAYOF_SQL, UNSIGNED_AGE_MINUTES } from "./attention";
+import { attentionPredicate, UNSIGNED_AGE_MINUTES } from "./attention";
 import { repIndexByEmail, toContractRow, type QuoteRowSource, type RowContext } from "./rows";
 
 export const QUOTE_COLUMNS = `
@@ -59,6 +59,8 @@ export interface ContractListFilter {
   rep?: string;
   q?: string;
   closed?: boolean;
+  /** Show past events in the attention window. Off by default. */
+  past?: boolean;
   cursor?: string | null;
   limit?: number;
   now?: Date;
@@ -156,7 +158,7 @@ export function buildContractWhere(
     b.add(new Date(now.getTime() - UNSIGNED_AGE_MINUTES * 60_000).toISOString()); // $2
   }
 
-  if (win === "attention") where.push(ATTENTION_SQL);
+  if (win === "attention") where.push(attentionPredicate(filter.past === true));
   else if (win === "past") where.push(`q.event_date < $1::date`);
   else if (win !== "all") {
     where.push(`q.event_date >= $1::date AND q.event_date <= ($1::date + ${Number(win)})`);
@@ -210,7 +212,10 @@ function whereSql(where: string[]): string {
  * (`(hasReasons && !closed) || pastUnpaidDayof`, crm-events.js:213) exactly,
  * parentheses included.
  */
-export async function contractCounts(now = new Date()): Promise<ContractCounts> {
+export async function contractCounts(
+  now = new Date(),
+  includePast = false,
+): Promise<ContractCounts> {
   if (!isDbConfigured()) return EMPTY_COUNTS;
   await ensureGfSchema();
   const q = sql();
@@ -220,7 +225,7 @@ export async function contractCounts(now = new Date()): Promise<ContractCounts> 
 
   const rows = (await q.query(
     `SELECT
-       count(*) FILTER (WHERE (${ATTENTION_SQL} AND q.status <> ALL($3::text[])) OR ${PAST_UNPAID_DAYOF_SQL})::int AS attention,
+       count(*) FILTER (WHERE ${attentionPredicate(includePast)} AND q.status <> ALL($3::text[]))::int AS attention,
        count(*) FILTER (WHERE q.status = 'pending_approval')::int AS pending_approval,
        count(*) FILTER (WHERE q.status = 'contract_sent')::int AS out_unsigned,
        COALESCE(sum(q.total_cents) FILTER (WHERE q.status = 'contract_sent'), 0)::bigint AS out_unsigned_cents,
@@ -275,7 +280,12 @@ export async function listContracts(filter: ContractListFilter = {}): Promise<Co
     // sentinel — the tiles still count every open contract, as the prototype's
     // do, because they were never scoped by the rep filter.
     if (!email) {
-      return { rows: [], nextCursor: null, total: 0, counts: await contractCounts(now) };
+      return {
+        rows: [],
+        nextCursor: null,
+        total: 0,
+        counts: await contractCounts(now, filter.past === true),
+      };
     }
     plannerEmail = email;
   }
@@ -309,7 +319,7 @@ export async function listContracts(filter: ContractListFilter = {}): Promise<Co
       `SELECT count(*)::int AS n FROM group_function_quotes q ${whereSql(built.where)}`,
       built.params,
     ),
-    contractCounts(now),
+    contractCounts(now, filter.past === true),
   ]);
   const pageRows = pageRaw as QuoteRowSource[];
   const totalRows = totalRaw as { n: number }[];

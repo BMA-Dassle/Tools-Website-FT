@@ -266,7 +266,7 @@ export const RULE_SEED: readonly RuleSeed[] = [
     label: "Kids' birthdays to Guest Services",
     when: { type: "birthday", kids: true },
     then: { route: "gs" },
-    why: "The call centre books children's parties",
+    why: "The call center books children's parties",
   },
   {
     position: 3,

@@ -155,7 +155,7 @@ export default function KpiScreen({ query }: ScreenProps) {
 
       <div className="hstack wrap" style={{ gap: 8 }}>
         <Seg
-          label="Centre"
+          label="Center"
           options={[
             { value: "", label: "All centres" },
             ...CENTRE_LIST.map((c) => ({ value: c.code, label: c.short })),
