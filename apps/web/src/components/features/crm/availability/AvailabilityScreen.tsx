@@ -1,6 +1,6 @@
 "use client";
 
-import { IconRefresh } from "@tabler/icons-react";
+import { IconInfoCircle, IconRefresh } from "@tabler/icons-react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { createPortal } from "react-dom";
@@ -20,10 +20,12 @@ import { CRM_BASE } from "~/features/crm/core/contracts";
 import { fDate, todayEasternYmd } from "~/features/crm/core/dates";
 import type { ScreenProps } from "~/features/crm/core/screens";
 import type { CentreCode } from "~/features/crm/core/types";
+import { isMegaDay, megaDaysPhrase } from "~/features/racing/mega-calendar";
 import { errorMessage } from "../lib/crm-fetch";
 import { useUrlQuery } from "../lib/use-url-query";
 import { useCrmFetch, useCrmToast, useScreenHead, useTopbarSlot } from "../lib/use-crm-user";
 import { Banner } from "../primitives/Banner";
+import { ICON } from "../primitives/icon-props";
 import { Seg } from "../primitives/Seg";
 import { ErrorState, LoadingState } from "../primitives/States";
 import { EveningTimeline } from "./EveningTimeline";
@@ -87,6 +89,7 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
     start: numberFrom(urlQuery.start),
     dur: numberFrom(urlQuery.dur),
     guests: numberFrom(urlQuery.guests),
+    section: urlQuery.section,
     lead: leadId,
   };
 
@@ -134,7 +137,33 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
     start: numberFrom(urlQuery.start) ?? DEFAULT_START_MIN,
     dur: numberFrom(urlQuery.dur) ?? DEFAULT_DURATION_MIN,
     guests: numberFrom(urlQuery.guests) ?? DEFAULT_GUESTS,
+    section: urlQuery.section ?? null,
   };
+
+  /**
+   * MEGA NIGHTS CHANGE WHAT FASTTRAX CAN SELL.
+   *
+   * On a Mega day the barrier between Blue and Red comes out and the venue runs
+   * one 2,108 ft circuit — a different BMI resource with a different product
+   * set, not a relabel. Quoting Blue track heats for a Tuesday is quoting a
+   * track that will not exist that night. Owner, 2026-09-14: "Fasttrax
+   * availability needs to take an account the websites mega track configuration
+   * which is tuesday and thursday right now. There is single place to get
+   * that."
+   *
+   * There is, and this is it: `features/racing/mega-calendar`, which exists
+   * precisely because the literal "Tuesday" was once hardcoded in twelve
+   * places. NOT hardcoded here either — the Thursday window closes on
+   * 2026-11-01 by itself.
+   *
+   * IT SAYS SO RATHER THAN RE-COMPUTING. Office's own `dayPlanner` is what the
+   * heats come from, and on a Mega night Office schedules the Mega resource, so
+   * the grid is already right. What a rep was missing is the CONTEXT for what
+   * they are looking at. Second-guessing Office's schedule from a calendar
+   * would be worse: the module's own header warns that ops can run split
+   * tracks on a Mega day.
+   */
+  const megaDay = request.centre === "FT" && isMegaDay(request.date);
   const fallbackBounds = boundsFor({ start: request.start, dur: request.dur });
   const bounds = data?.bounds ?? { ...fallbackBounds, ticks: ticksBetween(fallbackBounds) };
   // `??`, never `||`: the karting branch answers `need: 0` on purpose and a
@@ -164,6 +193,7 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
     start?: number;
     dur?: number;
     guests?: number;
+    section?: string | null;
   }) => {
     setUrlQuery({
       centre: patch.centre,
@@ -171,6 +201,8 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
       start: patch.start === undefined ? undefined : String(patch.start),
       dur: patch.dur === undefined ? undefined : String(patch.dur),
       guests: patch.guests === undefined ? undefined : String(patch.guests),
+      // `null` clears the key, so "Any" returns to a plain, shareable URL.
+      section: patch.section === undefined ? undefined : patch.section,
     });
   };
 
@@ -228,6 +260,10 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
           start={request.start}
           dur={request.dur}
           guests={request.guests}
+          // The names this centre has, from the answer itself — never a second
+          // copy of the lane map on the client.
+          sections={(data?.sections ?? []).map((sec) => sec.name)}
+          section={request.section}
           need={need}
           bounds={bounds}
           busy={gridQ.isFetching || refresh.isPending}
@@ -313,6 +349,16 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
             leagues and maintenance that BMI cannot see. Holding lanes writes the lane block into
             the BMI quote; the QAMF reservation is made by the contract rail at deposit.
           </div>
+        </div>
+      ) : null}
+
+      {megaDay ? (
+        <div className="pad">
+          <Banner tone="info" icon={<IconInfoCircle {...ICON} />}>
+            <b>Mega night.</b> The barrier comes out and FastTrax runs one 2,108 ft circuit, so Blue
+            and Red do not run — Mega {megaDaysPhrase(request.date)}. Quote the Mega heats below,
+            not a Blue track block.
+          </Banner>
         </div>
       ) : null}
 

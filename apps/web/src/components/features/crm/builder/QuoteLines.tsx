@@ -172,27 +172,35 @@ export function QuoteLines({
         offer to retry, reschedule or delete them. The row says where it came
         from and points at Office for edits.
       */}
-      {officeOnly.map((line) => (
-        <tr key={`office-${line.bmiProjectProductId}`} className="office-line">
-          <td>
-            <div className="stack" style={{ gap: 2 }}>
-              <span className="strong">{line.name ?? `Product ${line.productId ?? "?"}`}</span>
-              <span className="xs muted">Added in Office — edit it there</span>
-            </div>
-          </td>
-          <td className="num">{line.quantity ?? "—"}</td>
-          <td className="num money">—</td>
-          <td className="num money">
-            {line.totalCents === null ? "—" : moneyExact(line.totalCents)}
-          </td>
-          <td>
-            <Chip bmi title={`Office projectProduct ${line.bmiProjectProductId}`}>
-              In BMI
-            </Chip>
-          </td>
-          <td />
-        </tr>
-      ))}
+      {officeOnly.map((line) => {
+        const name = line.name ?? `Product ${line.productId ?? "?"}`;
+        return (
+          <tr key={`office-${line.bmiProjectProductId}`} className="office-line">
+            <td>
+              {line.name ?? `Product ${line.productId ?? "?"}`}
+              <span className="xs muted" style={{ display: "block" }}>
+                Added in Office — edit it there
+              </span>
+            </td>
+            <td className="num">{line.quantity ?? "—"}</td>
+            <td className="num money">—</td>
+            <td className="num money">
+              {line.totalCents === null ? "—" : moneyExact(line.totalCents)}
+            </td>
+            <td>
+              <Chip bmi title={`Office projectProduct ${line.bmiProjectProductId}`}>
+                In BMI
+              </Chip>
+            </td>
+            {/* No actions: the CRM did not write this line, so it must not
+                offer to retry, reschedule or delete it. The cell says that
+                rather than being an unexplained blank in the actions column. */}
+            <td>
+              <span className="sr-only">No actions — {name} was added in Office</span>
+            </td>
+          </tr>
+        );
+      })}
     </Table>
   );
 }

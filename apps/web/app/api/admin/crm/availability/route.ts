@@ -70,8 +70,21 @@ export const GET = withCrmRoute(AvailabilityQuerySchema, async ({ input, user })
     bounds: { ...bounds, ticks: ticksBetween(bounds) },
   };
 
-  const sections = laneSectionsFor(request.centre);
-  if (!sections) {
+  const allSections = laneSectionsFor(request.centre);
+  /**
+   * NARROW TO THE SECTION THE PLANNER IS SELLING.
+   *
+   * Owner, 2026-09-14: "Need to be able to select what type of lanes they
+   * want." The verdict used to choose for them — it prefers a non-VIP section
+   * so the premium lanes stay sellable — which is the right DEFAULT and the
+   * wrong answer when somebody is on the phone selling VIP.
+   *
+   * A filter rather than a new code path: `bestRun` already takes the section
+   * list, so asking for one section is handing it a shorter list. An unknown
+   * name falls through to every section rather than to none — a stale link
+   * should show the board, not an empty verdict.
+   */
+  if (!allSections) {
     // FastTrax: karting, no lanes. The heats route answers for this centre.
     return {
       ...base,
@@ -88,6 +101,14 @@ export const GET = withCrmRoute(AvailabilityQuerySchema, async ({ input, user })
       cached: false,
     };
   }
+
+  // The narrowing happens AFTER the "this centre has no lanes at all" branch,
+  // so FastTrax still short-circuits to the heats answer rather than being
+  // filtered to an empty list and reading as "does not fit".
+  const sections =
+    request.section && allSections.some((s) => s.name === request.section)
+      ? allSections.filter((s) => s.name === request.section)
+      : allSections;
 
   const lanesExpected = sections.reduce((n, s) => n + s.lanes.length, 0);
 

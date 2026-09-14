@@ -39,6 +39,8 @@ export const AvailabilityQuerySchema = z.object({
     .optional(),
   dur: z.coerce.number().int().min(30).max(600).optional(),
   guests: z.coerce.number().int().min(1).max(100_000).optional(),
+  /** A lane section NAME ("VIP"); an unknown one falls back to every section. */
+  section: z.string().trim().max(40).optional(),
   /** A `crm_leads.public_id`; when present it supplies the defaults. */
   lead: z
     .string()

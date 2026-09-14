@@ -41,6 +41,8 @@ describe("resolveRequest", () => {
       start: DEFAULT_START_MIN,
       dur: DEFAULT_DURATION_MIN,
       guests: DEFAULT_GUESTS,
+      // "Wherever it fits" is the default; a section is a live choice on a call.
+      section: null,
     });
   });
 
@@ -51,6 +53,7 @@ describe("resolveRequest", () => {
       start: 18 * 60,
       dur: DEFAULT_DURATION_MIN,
       guests: 60,
+      section: null,
     });
   });
 
@@ -65,7 +68,27 @@ describe("resolveRequest", () => {
       start: 19 * 60,
       dur: 180,
       guests: 90,
+      section: null,
     });
+  });
+
+  /**
+   * Owner, 2026-09-14: "Need to be able to select what type of lanes they
+   * want." The verdict prefers a non-VIP section so the premium lanes stay
+   * sellable — right as a default, wrong when somebody is selling VIP.
+   */
+  it("carries a chosen lane section, and treats blank as 'anywhere'", () => {
+    expect(resolveRequest({ section: "VIP" }, null, TODAY).section).toBe("VIP");
+    expect(resolveRequest({ section: "  Old Time Lanes  " }, null, TODAY).section).toBe(
+      "Old Time Lanes",
+    );
+    // An empty or whitespace-only value is the same as not asking.
+    expect(resolveRequest({ section: "   " }, null, TODAY).section).toBeNull();
+    expect(resolveRequest({ section: "" }, null, TODAY).section).toBeNull();
+  });
+
+  it("never takes a section from the LEAD — it is a decision, not a property", () => {
+    expect(resolveRequest({}, LEAD, TODAY).section).toBeNull();
   });
 
   it("handles a lead with no time on it", () => {

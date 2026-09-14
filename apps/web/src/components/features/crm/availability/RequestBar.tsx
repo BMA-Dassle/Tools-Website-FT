@@ -24,6 +24,10 @@ export interface RequestBarProps {
   start: number;
   dur: number;
   guests: number;
+  /** Section names this centre has, in lane order. Empty for a karting centre. */
+  sections?: readonly string[];
+  /** The section being asked for, or null for "wherever it fits". */
+  section?: string | null;
   need: number;
   bounds: DayBounds;
   busy: boolean;
@@ -33,12 +37,15 @@ export interface RequestBarProps {
     start?: number;
     dur?: number;
     guests?: number;
+    section?: string | null;
   }) => void;
 }
 
 export function RequestBar({
   centre,
   date,
+  sections = [],
+  section = null,
   start,
   dur,
   guests,
@@ -118,6 +125,33 @@ export function RequestBar({
           ))}
         </select>
       </div>
+
+      {/* WHICH LANES, when a planner already knows. The verdict prefers a
+          non-VIP section so the premium lanes stay sellable, which is the right
+          default and the wrong answer on a call selling VIP. "Any" keeps that
+          default one click away. Hidden where there is nothing to choose —
+          FastTrax is karting and has no lane sections at all. Owner,
+          2026-09-14: "Need to be able to select what type of lanes they want."
+      */}
+      {sections.length > 1 ? (
+        <div className="field avail-field">
+          <label htmlFor="avail-section">Lanes</label>
+          <select
+            id="avail-section"
+            className="select"
+            style={{ width: "auto" }}
+            value={section ?? ""}
+            onChange={(e) => onChange({ section: e.target.value || null })}
+          >
+            <option value="">Any</option>
+            {sections.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
 
       <div className="field avail-field">
         <label htmlFor="avail-guests">Guests</label>

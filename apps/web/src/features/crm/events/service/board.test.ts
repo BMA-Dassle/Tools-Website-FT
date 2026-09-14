@@ -302,7 +302,7 @@ describe('eventsBoard — centre "all"', () => {
     const seen: number[] = [];
     return {
       deps: {
-        listDailyEvents: async (locationId: number, _date: string) => {
+        listDailyEvents: async (locationId: number) => {
           seen.push(locationId);
           const day = perLocation[locationId];
           if (day instanceof Error) throw day;

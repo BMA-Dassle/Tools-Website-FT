@@ -25,6 +25,8 @@ export interface RequestQuery {
   start?: number;
   dur?: number;
   guests?: number;
+  /** A lane section name to narrow the verdict to. */
+  section?: string;
 }
 
 /**
@@ -51,5 +53,8 @@ export function resolveRequest(
     start: snapToSlot(query.start ?? leadStart ?? DEFAULT_START_MIN),
     dur: query.dur ?? DEFAULT_DURATION_MIN,
     guests: query.guests ?? lead?.guests ?? DEFAULT_GUESTS,
+    // No lead default: which section to sell is a live decision on a call, not
+    // a property of the enquiry.
+    section: query.section?.trim() || null,
   };
 }

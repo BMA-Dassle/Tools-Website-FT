@@ -35,6 +35,17 @@ export interface AvailabilityRequest {
   start: number;
   dur: number;
   guests: number;
+  /**
+   * Narrow the answer to one lane section ("VIP", "Old Time Lanes"), or null
+   * for "wherever it fits" — which is the default, and what the verdict has
+   * always done.
+   *
+   * Owner, 2026-09-14: "Need to be able to select what type of lanes they
+   * want." The engine prefers a non-VIP section so the premium lanes stay
+   * sellable; that is the right default and the wrong answer when a planner is
+   * on the phone selling VIP.
+   */
+  section: string | null;
 }
 
 export interface AvailabilitySection {
