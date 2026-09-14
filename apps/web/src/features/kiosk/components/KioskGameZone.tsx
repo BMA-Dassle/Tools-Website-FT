@@ -381,6 +381,7 @@ export function KioskGameZone({
   initialVoucherCodes = null,
   initialCardAccount = null,
   onVoucherOutcome,
+  employeeToken = null,
 }: {
   center: CenterCode;
   brand: Brand;
@@ -396,6 +397,10 @@ export function KioskGameZone({
   /** KIOSK cart mode (owner 2026-07-18): with activities already in the cart,
    *  cards join the BOOKING instead of checking out here — one payment at the
    *  shared checkout, fulfillment on the confirmation screen. */
+  /** EMPLOYEE PERKS: the session's verified team-member token (from the code
+   *  screen or sign-in recognition). Sent with the standalone reader prepare so
+   *  the server doubles the bought tokens into bonus at full price. Null = guest. */
+  employeeToken?: string | null;
   cartHasItems?: boolean;
   onAddToVisit?: (purchase: GameCardCartPurchase) => void;
   /** Fires ONCE per dispenser hold fault (out of cards / bin full / jam / bad
@@ -2197,7 +2202,13 @@ export function KioskGameZone({
     const res = await fetch("/api/game-cards/terminal-prepare", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind, locationCode, items, kioskId }),
+      body: JSON.stringify({
+        kind,
+        locationCode,
+        items,
+        kioskId,
+        ...(employeeToken ? { employeeToken } : {}),
+      }),
     });
     const data = await res.json();
     if (!res.ok || !data.orderId || !(data.totalCents > 0)) {

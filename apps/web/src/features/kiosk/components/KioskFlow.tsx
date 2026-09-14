@@ -2345,6 +2345,8 @@ export function KioskFlow({
           brand={config.brand}
           capability={gameZoneCapability(config) === "swipe" ? "swipe" : "full"}
           initialVoucherCodes={gzVoucherCodes}
+          // EMPLOYEE PERKS: a verified team member's standalone cards load 2× (bonus).
+          employeeToken={session.employee?.token ?? null}
           // A game card scanned on the attract screen or the chooser — opens
           // straight on its balance rather than asking for the card again.
           initialCardAccount={
