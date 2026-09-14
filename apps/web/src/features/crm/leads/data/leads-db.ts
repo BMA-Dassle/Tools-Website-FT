@@ -516,12 +516,31 @@ export async function listUnassignedLeads(limit = LEAD_LIST_MAX): Promise<LeadVi
     `SELECT ${LEAD_SELECT} ${LEAD_FROM}
        JOIN crm_statuses s ON s.id = l.status_id
       WHERE l.assigned_rep_id IS NULL AND l.archived_at IS NULL AND s.kind = 'open'
+        AND s.position <= $2
       ORDER BY l.created_at ASC, l.id ASC
       LIMIT $1`,
-    [Math.min(Math.max(limit, 1), LEAD_LIST_MAX)],
+    [Math.min(Math.max(limit, 1), LEAD_LIST_MAX), QUEUE_MAX_STATUS_POSITION],
   )) as LeadRowRaw[];
   return rows.map(mapLeadRow);
 }
+
+/**
+ * THE ASSIGNMENT QUEUE IS FOR LEADS NOBODY HAS WORKED YET.
+ *
+ * It used to take ANY unassigned lead with an open status, and "Quote sent" and
+ * "Contract sent" are open, so adopting the live BMI deals put contracts that
+ * are out for signature into a queue that says "Not assigned yet — the sweep
+ * will hand it to Stephanie" (owner, 2026-09-13: "These are pending signed why
+ * are they in assignment list?"). A contract out for signature has plainly been
+ * worked; what it lacks is an OWNER on our side, which is a different problem
+ * from an unanswered enquiry and does not belong in the same list.
+ *
+ * Ordered by `crm_statuses.position` rather than by id, so a director who
+ * renames or reorders a status does not silently change what the queue holds.
+ * Position 3 is "Contacted": new, assigned and contacted are still first-touch
+ * work. Anything past it is live work that shows on the pipeline instead.
+ */
+const QUEUE_MAX_STATUS_POSITION = 3;
 
 export async function countUnassignedLeads(): Promise<number> {
   if (!isDbConfigured()) return 0;
@@ -531,6 +550,7 @@ export async function countUnassignedLeads(): Promise<number> {
     SELECT count(*)::int AS n
       FROM crm_leads l JOIN crm_statuses s ON s.id = l.status_id
      WHERE l.assigned_rep_id IS NULL AND l.archived_at IS NULL AND s.kind = 'open'
+       AND s.position <= ${QUEUE_MAX_STATUS_POSITION}
   `) as { n: number }[];
   return Number(rows[0]?.n ?? 0);
 }
