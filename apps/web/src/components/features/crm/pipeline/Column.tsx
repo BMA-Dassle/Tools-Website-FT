@@ -1,5 +1,6 @@
 "use client";
 
+import { useDroppable } from "@dnd-kit/core";
 import type { ReactNode } from "react";
 import type { BoardColumnView } from "~/features/crm/statuses/contracts";
 import { PIPELINE_TEST_IDS } from "~/features/crm/statuses/contracts";
@@ -10,31 +11,35 @@ import { columnSum } from "./model";
  * One `.col` of the pipeline (direction-b.html:71): the status chip, the
  * count, the Σ of the column's values, and the cards.
  *
- * `data-col` is what the drag reads out of the DOM to find its drop target, so
- * it is on the OUTER element and covers the header as well as the body — a
- * card dropped on a column header lands in that column, which is what the
- * gesture looks like it should do.
+ * The whole column is the drop target — header included, so a card dropped on
+ * a column heading lands in that column, which is what the gesture looks like
+ * it should do. The synthetic Booked / Closed columns register as DISABLED
+ * droppables rather than not registering at all, so dnd-kit can still tell they
+ * are there and refuse them; they visibly dim while a drag is in flight so the
+ * refusal is legible before the hand lands, not after.
  *
  * The drop highlight is inline rather than a CSS class: it is two properties
  * on one element, and every other PR in this wave is editing `crm.css`.
  */
 export interface ColumnProps {
   column: BoardColumnView;
-  /** True while a dragged card is over this column and the drop is allowed. */
-  over: boolean;
+  /** The column the card in flight came from — it does not highlight itself. */
+  fromColumnId: string | null;
   /** A drag is in flight somewhere on the board. */
   dragging: boolean;
   empty?: ReactNode;
   children: ReactNode;
 }
 
-export function Column({ column, over, dragging, empty, children }: ColumnProps) {
+export function Column({ column, fromColumnId, dragging, empty, children }: ColumnProps) {
+  const { isOver, setNodeRef } = useDroppable({ id: column.id, disabled: !column.droppable });
   const sum = columnSum(column);
+  const over = isOver && column.id !== fromColumnId;
   const refusing = dragging && !column.droppable;
   return (
     <div
+      ref={setNodeRef}
       className="col"
-      data-col={column.id}
       data-testid={PIPELINE_TEST_IDS.column(column.id)}
       style={{
         outline: over ? "2px solid var(--acc, #5b8cff)" : undefined,

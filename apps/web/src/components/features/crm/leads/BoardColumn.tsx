@@ -9,13 +9,28 @@ export interface BoardColumnProps {
   /** Rendered in `.col-body` when `count === 0`. */
   empty?: ReactNode;
   testId?: string;
+  /**
+   * A callback ref on the outer `.col`. The queue hands dnd-kit's droppable ref
+   * in here so a whole rep column is a drop target; a plain prop rather than
+   * `forwardRef` because this repo installs React 18 at the root and 19 inside
+   * `apps/web`, and an explicit prop behaves the same in both.
+   */
+  setRef?: (element: HTMLDivElement | null) => void;
   children: ReactNode;
   style?: React.CSSProperties;
 }
 
-export function BoardColumn({ header, count, empty, testId, children, style }: BoardColumnProps) {
+export function BoardColumn({
+  header,
+  count,
+  empty,
+  testId,
+  setRef,
+  children,
+  style,
+}: BoardColumnProps) {
   return (
-    <div className="col" data-testid={testId} style={style}>
+    <div className="col" data-testid={testId} ref={setRef} style={style}>
       <div className="col-h">{header}</div>
       <div className="col-body">
         {count === 0 ? (

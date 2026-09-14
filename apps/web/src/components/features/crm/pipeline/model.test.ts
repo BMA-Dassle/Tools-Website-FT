@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { StatusBmiMapRow } from "~/features/crm/core/types";
 import { makeLead } from "~/features/crm/leads/test-support";
 import { STATUSES } from "~/features/crm/statuses/test-support";
-import { boardSubtitle, columnIdAtPoint, columnSum, leadIndex, statusOptions } from "./model";
+import { boardSubtitle, columnSum, leadIndex, statusOptions } from "./model";
 
 /**
  * The board's pure client helpers. The one worth reading twice is
@@ -107,24 +107,5 @@ describe("statusOptions", () => {
     expect(
       statusOptions(archived, lead, map, "headpinzftmyers").map((o) => o.status.id),
     ).not.toContain("waiting");
-  });
-});
-
-describe("columnIdAtPoint", () => {
-  it("reads the column id off the nearest [data-col] ancestor", () => {
-    const card = { closest: (sel: string) => (sel === "[data-col]" ? col : null) };
-    const col = { dataset: { col: "quote" } } as unknown as HTMLElement;
-    const doc = { elementFromPoint: () => card } as unknown as Document;
-    expect(columnIdAtPoint(10, 10, doc)).toBe("quote");
-  });
-
-  it("is null outside any column, and null when there is no document at all", () => {
-    const doc = {
-      elementFromPoint: () => ({ closest: () => null }),
-    } as unknown as Document;
-    expect(columnIdAtPoint(10, 10, doc)).toBeNull();
-    expect(
-      columnIdAtPoint(10, 10, { elementFromPoint: () => null } as unknown as Document),
-    ).toBeNull();
   });
 });

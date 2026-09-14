@@ -278,6 +278,7 @@ export const LEAD_TEST_IDS = {
   queue: "crm-queue",
   queueUnassigned: "crm-queue-unassigned",
   queueRep: (slug: string) => "crm-queue-rep-" + slug,
+  queueDragGhost: "crm-queue-drag-ghost",
   assignSheet: "crm-assign-sheet",
   newLeadSheet: "crm-new-lead-sheet",
   myDay: "crm-my-day",

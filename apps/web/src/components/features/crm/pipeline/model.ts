@@ -4,17 +4,13 @@ import type { LeadView } from "~/features/crm/leads/contracts";
 import type { BoardColumnView } from "~/features/crm/statuses/contracts";
 
 /**
- * Pure helpers behind the pipeline board — no hooks, no fetch, no DOM types
- * beyond the one lookup the drag needs. Tested.
+ * Pure helpers behind the pipeline board — no hooks, no fetch, no DOM. Tested.
  *
  * CLIENT-SAFE IMPORTS ONLY: `core/format`, `core/types`, and the two sub
  * `contracts.ts` files. Never a sub's `index.ts` — that barrel reaches the
  * Office transport and ioredis, and one such import fails the production build
  * (§5.7b, proven on feat/crm-availability).
  */
-
-/** How far a pointer must travel before a press becomes a drag rather than a tap. */
-export const DRAG_THRESHOLD_PX = 6;
 
 /** `12 open · $84,300 quoted` (direction-b.html:75, verbatim shape). */
 export function boardSubtitle(openCount: number, openValueCents: number): string {
@@ -28,19 +24,6 @@ export function columnSum(column: Pick<BoardColumnView, "sumCents">): string | n
 
 export function leadIndex(leads: readonly LeadView[]): Map<string, LeadView> {
   return new Map(leads.map((l) => [l.id, l]));
-}
-
-/**
- * The column under a point, from the DOM. The board marks each column
- * `data-col="<id>"` exactly as the prototype does, so the drag has one place
- * to look and the keyboard path needs no geometry at all.
- */
-export function columnIdAtPoint(x: number, y: number, doc?: Document): string | null {
-  const d = doc ?? (typeof document === "undefined" ? null : document);
-  if (!d) return null;
-  const el = d.elementFromPoint(x, y);
-  const col = el?.closest?.("[data-col]") as HTMLElement | null | undefined;
-  return col?.dataset.col ?? null;
 }
 
 export interface StatusOption {
