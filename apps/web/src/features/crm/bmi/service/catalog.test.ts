@@ -15,16 +15,22 @@ const CATALOG: Record<string, string> = {
 };
 
 describe("scoreProductName", () => {
+  // The ORDER is the contract, not the numbers — those were rescaled when
+  // token matching was added and a test pinned to literals would have failed
+  // for a change that altered no behaviour anyone can see.
   it("prefix beats word-start beats substring", () => {
-    expect(scoreProductName("Pizza", "piz")).toBe(3);
-    expect(scoreProductName("Deep Dish Pizza", "piz")).toBe(2);
-    expect(scoreProductName("Extra Pepperoni", "pepp")).toBe(2);
-    expect(scoreProductName("Bowling Lane (2 hours)", "owl")).toBe(1);
+    const prefix = scoreProductName("Pizza", "piz");
+    const wordStart = scoreProductName("Deep Dish Pizza", "piz");
+    const substring = scoreProductName("Bowling Lane (2 hours)", "owl");
+    expect(prefix).toBeGreaterThan(wordStart);
+    expect(wordStart).toBeGreaterThan(substring);
+    expect(substring).toBeGreaterThan(0);
+    expect(scoreProductName("Extra Pepperoni", "pepp")).toBe(wordStart);
     expect(scoreProductName("Pizza", "lane")).toBe(-1);
   });
 
   it("is case-insensitive and treats an empty query as neutral", () => {
-    expect(scoreProductName("PIZZA", "pizza")).toBe(3);
+    expect(scoreProductName("PIZZA", "pizza")).toBe(scoreProductName("Pizza", "piz"));
     expect(scoreProductName("anything", "")).toBe(0);
   });
 
@@ -78,5 +84,57 @@ describe("rankCatalog", () => {
     const [first] = rankCatalog({ "63000000009561437": "Big id product" }, "");
     expect(first.productId).toBe("63000000009561437");
     expect(typeof first.productId).toBe("string");
+  });
+});
+
+describe("the picker finds what Office finds", () => {
+  /**
+   * Owner, 2026-09-14: "missing products that BMI office has". Searching
+   * "GF Start" in the builder returned nothing while Office's own product list
+   * returned six — because the ranker required the whole query as one
+   * contiguous substring, and "GF Race Blue Starter Mon-Thur" does not contain
+   * "gf start".
+   */
+  const KARTING: Record<string, string> = {
+    "1": "GF Race Blue Starter Mon-Thur",
+    "2": "GF Race Blue Starter Fri-Sun",
+    "3": "GF Race Red Starter Mon-Thur",
+    "4": "GF Race Red Starter Fri-Sun",
+    "5": "GF Race Mega Starter",
+    "6": "GF Duckpin Buyout",
+  };
+
+  it('"GF Start" finds every starter, the way Office does', () => {
+    const names = rankCatalog(KARTING, "GF Start").map((p) => p.name);
+    expect(names).toHaveLength(5);
+    expect(names).toContain("GF Race Blue Starter Mon-Thur");
+    expect(names).toContain("GF Race Mega Starter");
+    // Still a filter, not a free-for-all: the Duckpin buyout has no "start".
+    expect(names).not.toContain("GF Duckpin Buyout");
+  });
+
+  it("word order does not matter — a rep types what they remember", () => {
+    expect(rankCatalog(KARTING, "starter blue").map((p) => p.name)).toEqual([
+      "GF Race Blue Starter Fri-Sun",
+      "GF Race Blue Starter Mon-Thur",
+    ]);
+  });
+
+  it("a token that is nowhere in the name still rules it out", () => {
+    expect(rankCatalog(KARTING, "GF Bowling")).toEqual([]);
+    expect(scoreProductName("GF Race Mega Starter", "GF Bowling")).toBe(-1);
+  });
+
+  it("the tighter match still wins: a substring outranks scattered tokens", () => {
+    const menu = { a: "Pizza", b: "Deep Dish Pizza", c: "Pepperoni and Sausage Pizza" };
+    expect(rankCatalog(menu, "piz")[0]!.name).toBe("Pizza");
+    // "deep pizza" matches b by tokens only; "deep dish" is a real substring.
+    expect(scoreProductName("Deep Dish Pizza", "deep dish")).toBeGreaterThan(
+      scoreProductName("Deep Dish Pizza", "deep pizza"),
+    );
+  });
+
+  it("a single word that is not present is still no match", () => {
+    expect(scoreProductName("GF Race Mega Starter", "bowling")).toBe(-1);
   });
 });

@@ -10,6 +10,35 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 
 ## Open — functional
 
+- [ ] **Step through deals from inside the drawer.** Owner, 2026-09-14: "When
+      I open an event from the pipeline I should be able to hit right and left
+      buttons to just keep going through each of them. something in top right
+      I'd assume." Today closing and re-opening is the only way to reach the
+      next card, which makes working a column a click-per-deal chore.
+      Shape: prev/next beside Full page in the drawer header, stepping the
+      ORDER THE SCREEN IS SHOWING (the pipeline's column order, the queue's
+      oldest-first, the contracts' event date) — not a global list, or the
+      buttons would wander out of the column a rep is working. The screen owns
+      the order, so it passes the neighbours in; the drawer never guesses.
+      Disable at each end rather than wrapping. Keyboard: left/right arrows
+      when focus is not in a field. `?deal=` already carries the open deal, so
+      each step stays a shareable URL.
+
+- [ ] **The deal's Availability box should ANSWER, not link.** Owner,
+      2026-09-14: "For availablity box on event for headpinz default to lanes
+      available just how many regular, old time and vip, etc. If FastTrax show
+      availabliyt of blue track."
+      Today it says "Live lanes and heats from QAMF and Office open on the full
+      grid" and offers a Full grid button — a signpost where a number belongs.
+      It should read the event's own window and show counts by SECTION:
+      - HeadPinz Fort Myers: Old Time (1-4), VIP (5-12), Regular (13-28)
+      - HeadPinz Naples: Regular (1-24), VIP (25-32)
+      - FastTrax: the Blue track's free places for that window
+      The lane sections are already defined (`reference_headpinz_lane_sections`)
+      and C4's QAMF reader already fetches the grid, so this is a projection
+      over data we have rather than a new integration. Full grid stays as the
+      way to see the detail.
+
 - [ ] **Events needs a date / range filter and quick months.** Owner,
       2026-09-14: "Add date and range filter for events page. Plus ability to
       quickly select certain months." Today it is Day / Week plus
@@ -176,6 +205,21 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       read "Unassigned".
 
 ## Open — presentation
+
+- [ ] **The deal header's icons and chips.** Owner, 2026-09-14: "Fix icons and
+      such. Even worse on mobile." Seen on H3449 at desktop width:
+      - A bare circular **"?" avatar** sits between the project number and the
+        centre chip — that is the rep avatar rendering its unknown state on an
+        UNASSIGNED lead. An unassigned deal should say "Unassigned" or show
+        nothing, never a question mark the reader has to decode.
+      - The money is an em dash "—" in the largest type on the header, with
+        "no quote yet · 4 days out" beneath it. The biggest thing on the card
+        carries no information.
+      - The meta icons (clock, people, building, gift) are a different weight
+        and size from the action row's, which is the "icons look off" the owner
+        first raised on 2026-09-13 and is still open.
+      Do this together with the header design pass below rather than as
+      separate nudges.
 
 - [ ] **The email thread layout does not scale.** Owner, 2026-09-14: "think
       there is a beter layout of this screen espcailly when you start getting

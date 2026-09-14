@@ -4312,3 +4312,59 @@ body:has(.crm-root) {
   overscroll-behavior: none;
   background: var(--ba-bg, #0b1220);
 }
+
+/* ── SCROLLBARS YOU CAN ACTUALLY GRAB ───────────────────────────────────────
+   Owner, 2026-09-14: "scroll bar is stupid thin up and down. on every page".
+
+   Nothing styled them, so every pane wore the platform default — on Windows in
+   a dark UI that is a near-invisible hairline, and the CRM has a lot of panes
+   (the content column, each board column, the thread list, the drawer, every
+   overflow-x table). A board whose bar you cannot find is a board that feels
+   stuck, which is the same complaint as the horizontal one.
+
+   Both syntaxes on purpose: `scrollbar-width`/`scrollbar-color` is the
+   standard and is what Firefox honours, `::-webkit-scrollbar` is what Chrome
+   and Edge honour and is the only one that can set a real width. 12px is a
+   deliberate compromise — wide enough to hit without aiming, narrow enough not
+   to eat a 272px column.
+
+   Scoped to `.crm-root` so nothing here changes the kiosk, the booking flow or
+   the signage walls. */
+.crm-root {
+  scrollbar-width: auto;
+  scrollbar-color: var(--border2) transparent;
+}
+.crm-root *::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+.crm-root *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.crm-root *::-webkit-scrollbar-thumb {
+  background: var(--border2);
+  border-radius: 8px;
+  /* The border is what keeps the thumb clear of the track edge; with
+     `background-clip` it reads as a rounded bar rather than a filled gutter. */
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.crm-root *::-webkit-scrollbar-thumb:hover {
+  background: var(--muted2);
+  background-clip: content-box;
+}
+/* Where two scrollers meet. Without this the corner is a flat platform grey. */
+.crm-root *::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* A touch screen draws its own overlay bar and hides it when idle; a 12px
+   gutter there is 12px stolen from a 390px column. */
+@media (hover: none) and (pointer: coarse) {
+  .crm-root *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  .crm-root {
+    scrollbar-width: thin;
+  }
+}

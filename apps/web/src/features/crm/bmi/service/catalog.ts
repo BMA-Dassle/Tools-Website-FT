@@ -22,19 +22,40 @@ export const CATALOG_LIMIT = 200;
 /**
  * Rank a catalogue hit for a query.
  *
- * A prefix match beats a word-start match beats a bare substring, so typing
- * "piz" puts "Pizza" above "Deep Dish Pizza" above "Party Pizza Add-on" —
- * the order a rep expects rather than whatever the metadata blob happened to
- * list first.
+ * EVERY WORD, ANYWHERE — not the whole query as one contiguous substring.
+ * Office's own product picker matches on tokens and ours did not: searching
+ * "GF Start" returned NOTHING here while Office returned six, because
+ * "GF Race Blue Starter Mon-Thur" does not contain the string "gf start".
+ * Owner, 2026-09-14: "missing products that BMI office has". A rep typing the
+ * two words they remember should not have to remember their order as well.
+ *
+ * The tighter match still ranks higher, so the order a rep expects survives:
+ * the whole query as a prefix, then at a word boundary, then as a substring,
+ * then all tokens matched separately. Typing "piz" still puts "Pizza" above
+ * "Deep Dish Pizza" above "Party Pizza Add-on".
  */
 export function scoreProductName(name: string, query: string): number {
   const n = name.toLowerCase();
-  const q = query.toLowerCase();
+  const q = query.trim().toLowerCase();
   if (!q) return 0;
-  if (n.startsWith(q)) return 3;
-  if (new RegExp(`\\b${escapeRegExp(q)}`).test(n)) return 2;
-  if (n.includes(q)) return 1;
-  return -1;
+  if (n.startsWith(q)) return 5;
+  if (new RegExp(`\\b${escapeRegExp(q)}`).test(n)) return 4;
+  if (n.includes(q)) return 3;
+
+  // Every token must be present, or a two-word query would match half the
+  // catalogue. A token at a word start counts double, so "gf start" ranks
+  // "GF Race Blue Starter" above a name that merely contains those letters.
+  const tokens = q.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return -1;
+  let score = 0;
+  for (const t of tokens) {
+    if (new RegExp(`\\b${escapeRegExp(t)}`).test(n)) score += 2;
+    else if (n.includes(t)) score += 1;
+    else return -1;
+  }
+  // Normalised to at most 2, so a long token match can never out-rank a real
+  // substring hit (3).
+  return Math.min(2, score / (tokens.length * 2));
 }
 
 function escapeRegExp(s: string): string {

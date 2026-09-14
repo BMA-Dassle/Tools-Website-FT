@@ -70,7 +70,6 @@ export default function ConversationsScreen({ view, query }: ScreenProps) {
   const selectedKey = view[0] ?? null;
   const folder = (urlQuery.folder as ConversationFolder) || "all";
   const teamWide = isDirector && urlQuery.all === "1";
-  const tab = activeConversationTab(urlQuery);
 
   const list = useQuery({
     queryKey: smsKeys.conversations({ folder, all: teamWide ? "1" : "0" }),
@@ -131,6 +130,9 @@ export default function ConversationsScreen({ view, query }: ScreenProps) {
     [list.data, folder],
   );
   const counts = tabCounts(detail.data ?? null);
+  // Resolved AFTER the detail so it can fall back to the channel this person
+  // actually uses; an explicit `?tab=` still wins.
+  const tab = activeConversationTab(urlQuery, detail.data ?? null);
   const leadStatusId = detail.data?.summary.leadStatus ?? null;
   const leadStatus = leadStatusId ? (statuses.get(leadStatusId) ?? null) : null;
   const TabBody = LAZY_TABS[tab];
