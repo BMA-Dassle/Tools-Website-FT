@@ -34,6 +34,7 @@ import { clientKeyForLookup } from "~/features/kiosk/license/lookup.server";
 import type { LicenseMatch } from "~/features/kiosk/license/types";
 import {
   matchEmployeeToParty,
+  normalizeNameToken,
   payWeekKey,
   stampEmployeeOnParty,
   type MatchablePerson,
@@ -319,8 +320,13 @@ export async function recognizeEmployee(input: {
     if (!rec.ok) {
       return { ok: false, reason: rec.reason === "unavailable" ? "unavailable" : "inactive" };
     }
-    const verdict = matchEmployeeToParty(rec.staff, [input.member]);
-    if (!verdict.ok) return { ok: false, reason: "mismatch" };
+    // The LINK is the proof here (it was made on a phone match or a texted
+    // code). Re-check only that the BMI record was not renamed since — NOT the
+    // phone: web party members carry no phone (only the contact does), and a
+    // phone demand here made every linked employee "mismatch" on web.
+    if (normalizeNameToken(input.member.lastName) !== normalizeNameToken(rec.staff.lastName)) {
+      return { ok: false, reason: "mismatch" };
+    }
     userId = link.userId;
     staff = rec.staff;
     void touchEmployeeLink(userId, personId).catch(() => undefined);

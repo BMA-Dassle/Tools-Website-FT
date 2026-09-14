@@ -50,7 +50,7 @@ import type { SavedCard } from "@/components/square/SavedCardSelector";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
-import { EmployeePerksInput } from "./EmployeePerksInput";
+import { EmployeePerksInput, useEmployeeRecognitionWeb } from "./EmployeePerksInput";
 import {
   planVoucherCoverage,
   sessionVouchers,
@@ -198,6 +198,11 @@ export function CheckoutStep({
     ((url: string) => {
       window.location.href = url;
     });
+  // EMPLOYEE PERKS — web code-free recognition, every checkout phase (owner
+  // 2026-09-13: "web should do the automatic check as well").
+  useEmployeeRecognitionWeb(session.party, session.employee, (employee) =>
+    dispatch({ type: "setEmployee", employee }),
+  );
   const [phase, setPhase] = useState<Phase>(() =>
     // Merged kiosk checkout skips the contact phase: mount on the booking
     // spinner (the auto-submit effect below runs the actual submit). Falls
