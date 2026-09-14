@@ -834,9 +834,21 @@
 }
 .crm-root .deal-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+  /* COLLAPSES TO ONE COLUMN RATHER THAN SQUEEZING THE SECOND.
+     It used to be `minmax(0, 1.6fr) minmax(300px, 1fr)`, a fixed two-column
+     rule. When the drawer was narrower than the two tracks could honour, the
+     right rail did not drop below — it was crushed to about a character wide
+     and "Guest messages" rendered one LETTER per line, which is what the owner
+     was looking at. `auto-fit` with a floor means the browser fits two columns
+     when there is room for two and one when there is not. */
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 16px;
   align-items: start;
+}
+/* Grid items refuse to shrink below their content without this, which is the
+   other half of the same squeeze. */
+.crm-root .deal-grid > * {
+  min-width: 0;
 }
 .crm-root .timeline {
   display: flex;
