@@ -213,3 +213,48 @@ export function dayRange(startYmd: string, view: EventsView): string[] {
 export function stepDate(startYmd: string, view: EventsView, direction: -1 | 1): string {
   return shiftYmd(startYmd, direction * (view === "week" ? EVENTS_WEEK_DAYS : 1));
 }
+
+/**
+ * The next few months as jump targets, each the FIRST of its month.
+ *
+ * Owner, 2026-09-14: "Add date and range filter for events page. Plus ability
+ * to quickly select certain months." Reaching November meant about ten presses
+ * of the Next arrow, and Prev/Next/Today cannot express "show me December".
+ *
+ * Anchored on the month of the date being viewed, not on today, so stepping
+ * forward and then picking a month behaves the way the strip already reads.
+ * The first entry is the current month so there is always a way back to it.
+ */
+export function monthJumps(fromYmd: string, count = 6): Array<{ ymd: string; label: string }> {
+  const [y, m] = fromYmd.split("-").map(Number);
+  if (!y || !m) return [];
+  const out: Array<{ ymd: string; label: string }> = [];
+  for (let i = 0; i < count; i++) {
+    const total = m - 1 + i;
+    const year = y + Math.floor(total / 12);
+    const month = (total % 12) + 1;
+    const ymd = `${year}-${String(month).padStart(2, "0")}-01`;
+    out.push({
+      ymd,
+      // The year only when it is not the one we started in, so the strip stays
+      // short until it actually crosses into January.
+      label: MONTH_SHORT[month - 1] + (year === y ? "" : ` ${String(year).slice(2)}`),
+    });
+  }
+  return out;
+}
+
+const MONTH_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];

@@ -6,6 +6,7 @@ import {
   IconChartLine,
   IconDots,
   IconFile,
+  IconGridDots,
   IconHistory,
   IconHome,
   IconLayoutKanban,
@@ -39,6 +40,7 @@ const NAV_ICONS: Record<NavIcon, ComponentType<IconProps>> = {
   target: IconTarget,
   chart: IconChartLine,
   settings: IconSettings,
+  grid: IconGridDots,
   dots: IconDots,
   logout: IconLogout,
 };

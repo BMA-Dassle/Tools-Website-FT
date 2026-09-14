@@ -39,13 +39,56 @@ export function normalizeBmiStateName(raw: string | null | undefined): string {
 
 export const CONFIRMED_STATES = ["confirmation", "confirmation + waiver"] as const;
 
-export const QUOTED_STATES = ["quote", "deposit requested"] as const;
+/**
+ * THESE ARE THE NAMES OFFICE ACTUALLY USES.
+ *
+ * They were `["quote", "deposit requested"]`, and `hits()` matches by prefix —
+ * but this tenant has no state called "Quote". It has "Pending Quote", which
+ * does not start with "quote", so the whole bucket matched almost nothing and
+ * "Quoted, not yet won" read $0 beside a subtitle counting four open quotes.
+ * Owner, 2026-09-14: "KPI quoted not won is not populating it should be taking
+ * in account all the pending signed contracts etc."
+ *
+ * Read off the mirror on 2026-09-14, every group-event state in use:
+ *   Confirmation 2873 · Confirmation + Waiver 1070 · Cancellation 814 ·
+ *   Pending Quote 103 · Deposite Paid 98 · Pending Signed Contract 69 ·
+ *   Deposit Requested (+ HPFM / FT variants) 53 · Temporary 18 · New Lead 8 ·
+ *   Send Contract 1 · Contacted 1
+ *
+ * "Deposite Paid" is Office's own spelling, not a typo here — matching the
+ * misspelling is the only way to count those 98 projects.
+ *
+ * A JUDGEMENT WORTH CHALLENGING: deposit-paid events are counted as QUOTED
+ * rather than confirmed, because the tile means "not yet won" and Office has
+ * not moved them to Confirmation. They are money partly collected, so if the
+ * owner would rather see them as won, this list is the one place to change.
+ */
+export const QUOTED_STATES = [
+  "pending quote",
+  "send contract",
+  "pending signed contract",
+  "deposit requested",
+  "deposit paid",
+  "deposite paid",
+] as const;
 
+/**
+ * The conversion DENOMINATOR — every project that was ever a live enquiry.
+ *
+ * Carried the same two phantom names, so "Pending Quote" and "Pending Signed
+ * Contract" were not counted as leads and conversion was overstated: Sept read
+ * 32 of 42 (76%) when the four pending-signed contracts belonged in the 42.
+ * "Temporary" stays out — it is an Office draft, not an enquiry.
+ */
 export const LEAD_STATES = [
   "new lead",
   "contacted",
+  "pending quote",
+  "send contract",
+  "pending signed contract",
   "deposit requested",
-  "quote",
+  "deposit paid",
+  "deposite paid",
   "confirmation",
   "confirmation + waiver",
   "cancellation",

@@ -34,6 +34,9 @@ describe("the nav is the prototype's (direction-b.html:51-57,121)", () => {
       "queue",
       "contracts",
       "events",
+      // Owner, 2026-09-14: "Add availability to the lft side menu" — beside
+      // Events, where a planner reaches for it mid-sentence.
+      "availability",
       "conversations",
       "calls",
       "history",

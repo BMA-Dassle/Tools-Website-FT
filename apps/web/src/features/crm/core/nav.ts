@@ -30,6 +30,7 @@ export type NavIcon =
   | "target"
   | "chart"
   | "settings"
+  | "grid"
   | "dots"
   | "logout";
 
@@ -72,6 +73,10 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       },
       { id: "contracts", label: "Contracts", icon: "file", badge: "pendingApproval", ready: true },
       { id: "events", label: "Events", icon: "calendar", ready: true },
+      // Beside Events on purpose: a planner reaches for it mid-sentence,
+      // answering "can we fit them on the 18th?" — not from a settings menu.
+      // Owner, 2026-09-14: "Add availability to the lft side menu".
+      { id: "availability", label: "Availability", icon: "grid", ready: true },
       {
         id: "conversations",
         label: "Conversations",
@@ -122,6 +127,7 @@ export const PHONE_TABS: readonly NavItem[] = [
 export const MORE_ITEMS: readonly NavItem[] = [
   { id: "queue", label: "Lead queue", icon: "bolt", director: true, ready: true },
   { id: "events", label: "Events", icon: "calendar", ready: true },
+  { id: "availability", label: "Availability", icon: "grid", ready: true },
   { id: "calls", label: "Calls", icon: "phone", badge: "missedCalls", ready: true },
   { id: "history", label: "History & accounts", icon: "history", ready: true },
   { id: "cold", label: "Cold lists", icon: "list", ready: true },

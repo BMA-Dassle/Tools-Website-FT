@@ -71,16 +71,45 @@ describe("buckets", () => {
     expect(isConfirmedState("Quote")).toBe(false);
   });
 
-  it("QUOTED is Quote and Deposit Requested", () => {
-    expect(isQuotedState("Quote")).toBe(true);
-    expect(isQuotedState("Deposit Requested (HPFM)")).toBe(true);
+  /**
+   * The names below are the ones Office ACTUALLY uses, read off the mirror on
+   * 2026-09-14. The list used to say "quote", and `hits()` matches by prefix,
+   * so "Pending Quote" never matched and the tile read $0 over four open
+   * quotes.
+   */
+  it("QUOTED is every state where money is in play but not yet won", () => {
+    for (const n of [
+      "Pending Quote",
+      "Send Contract",
+      "Pending Signed Contract",
+      "Deposit Requested",
+      "Deposit Requested (HPFM)",
+      "Deposit Requested (FT)",
+      "Deposite Paid", // Office's own spelling; matching it is the only way to count these
+    ]) {
+      expect(isQuotedState(n), n).toBe(true);
+    }
     expect(isQuotedState("Confirmation")).toBe(false);
+    expect(isQuotedState("Cancellation")).toBe(false);
+    expect(isQuotedState("Temporary")).toBe(false);
   });
 
   it("LEAD is the whole funnel including cancellations", () => {
-    for (const n of ["New Lead", "Contacted", "Quote", "Confirmation", "Cancellation"]) {
-      expect(isLeadState(n)).toBe(true);
+    for (const n of [
+      "New Lead",
+      "Contacted",
+      "Pending Quote",
+      "Pending Signed Contract",
+      "Deposit Requested",
+      "Confirmation",
+      "Confirmation + Waiver",
+      "Cancellation",
+    ]) {
+      expect(isLeadState(n), n).toBe(true);
     }
+    // An Office DRAFT, not an enquiry — it must not inflate the conversion
+    // denominator.
+    expect(isLeadState("Temporary")).toBe(false);
     // Not one of the portal's states at all: excluded from every figure.
     expect(isLeadState("Kiosk Confirmation")).toBe(false);
     expect(bucketOf("Kiosk Confirmation")).toBeNull();

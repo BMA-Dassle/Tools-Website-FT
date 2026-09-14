@@ -13,7 +13,7 @@ import {
   type EventsView,
 } from "~/features/crm/events/contracts";
 import { EVENTS_POLL_MS, eventsKeys } from "~/features/crm/events/queries";
-import { dayRange, stepDate } from "~/features/crm/events/projection";
+import { dayRange, monthJumps, stepDate } from "~/features/crm/events/projection";
 import { todayEasternYmd } from "~/features/crm/core/dates";
 import { errorMessage } from "../lib/crm-fetch";
 import { useUrlQuery } from "../lib/use-url-query";
@@ -177,6 +177,27 @@ export default function EventsScreen({ query }: ScreenProps) {
           )
         : null}
 
+      {/* "Plus ability to quickly select certain months" — the same jump, one
+          press, anchored on the month being viewed so stepping forward and then
+          picking a month behaves the way the strip reads. */}
+      <div className="hstack" style={{ gap: 6, flexWrap: "wrap" }}>
+        <span className="xs muted">Jump to</span>
+        {monthJumps(date).map((m) => {
+          const here = date.slice(0, 7) === m.ymd.slice(0, 7);
+          return (
+            <button
+              key={m.ymd}
+              type="button"
+              className="btn btn-sm"
+              aria-pressed={here}
+              onClick={() => setUrlQuery({ date: m.ymd })}
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="hstack between">
         <div className="hstack">
           <button
@@ -199,6 +220,21 @@ export default function EventsScreen({ query }: ScreenProps) {
           <button type="button" className="btn btn-sm" onClick={() => setUrlQuery({ date: null })}>
             Today
           </button>
+          {/* Jump straight to a day. Owner, 2026-09-14: "Add date and range
+              filter for events page." Prev/Next/Today could only walk, so a
+              date in November was ten presses away. `?date=` already carries
+              it, so a jump stays a shareable URL. */}
+          <label className="sr-only" htmlFor="crm-events-date">
+            Jump to a date
+          </label>
+          <input
+            id="crm-events-date"
+            type="date"
+            className="input"
+            style={{ width: "auto" }}
+            value={date}
+            onChange={(e) => setUrlQuery({ date: e.target.value || null })}
+          />
         </div>
         <div className="hstack xs muted">
           <Chip kind="won">PAID</Chip>

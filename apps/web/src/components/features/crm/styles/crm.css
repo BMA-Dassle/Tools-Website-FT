@@ -4368,3 +4368,12 @@ body:has(.crm-root) {
     scrollbar-width: thin;
   }
 }
+
+/* The Events month jumps. Same button as Today beside them, with the month
+   being viewed pressed — `aria-pressed` is already the accessible truth, so
+   the style hangs off it rather than a second class that could disagree. */
+.crm-root .btn[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}

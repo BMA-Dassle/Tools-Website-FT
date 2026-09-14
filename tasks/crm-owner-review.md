@@ -10,6 +10,29 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 
 ## Open — functional
 
+- [ ] **KPI: "99% of goal" and "+534% vs LY" are not on the same basis.** Owner,
+      2026-09-14: "How can we be 99% of goal but over 500% up. Someting doesn't
+      seem right." They were right; both numbers are arithmetically correct and
+      measure different things.
+      - THE GOAL is a whole-month revenue target, seeded from last year's total
+        event value.
+      - THE PACING LINE (`bookedByDayRollup`) is this month's events bucketed by
+        `bmi_created_at` — so it counts ONLY the part of the month that was sold
+        DURING the month, and excludes everything sold in advance. For group
+        events most of a month is sold weeks earlier, so last year's $11,531 is
+        a sliver rather than a baseline, and the ratio against it explodes.
+      Measured, HPFM, online bookings excluded: Sept 2025 was 77 group events /
+      $62,663; Sept 2026 is 47 / $95,072. Up on value, DOWN on count — nothing
+      like +534%.
+      FIX (owner's call, because it changes what every number on the page
+      means): either start the pacing cumulative at the value already on the
+      books before day 1, so "99% of goal" reads "99% of the month's target is
+      booked" — which is how a director thinks — or make the goal a
+      "sold-this-month" target and say so on the tile. Do not leave two bases
+      on one card.
+      NOT a data problem: `bmi_created_at` is present on all 56,032 mirrored
+      rows and the query already excludes online (`kind_id <> '-10'`).
+
 - [ ] **Step through deals from inside the drawer.** Owner, 2026-09-14: "When
       I open an event from the pipeline I should be able to hit right and left
       buttons to just keep going through each of them. something in top right
@@ -393,6 +416,40 @@ being deleted yet, but the new read must not depend on them.
 ---
 
 ## Done 2026-09-14
+
+- [x] **"Quoted, not yet won" read $0 over four open quotes.** Owner: "KPI
+      quoted not won is not populating it should be taking in account all the
+      pending signed contracts etc." `QUOTED_STATES` was `["quote","deposit
+      requested"]` and the matcher is prefix-based — but Office has no state
+      called "Quote". It has **Pending Quote**, which does not start with
+      "quote", so the bucket matched almost nothing. Read the real vocabulary
+      off the mirror and used it. HPFM September now reads $4,964.88 instead of
+      $0. The same two phantom names were in `LEAD_STATES`, so the conversion
+      denominator missed them too: 32 of 46 (70%), not 32 of 42 (76%).
+      JUDGEMENT TO CHALLENGE: deposit-paid events are counted as QUOTED, since
+      the tile means "not yet won" and Office has not moved them to
+      Confirmation. If you would rather see them as won, `QUOTED_STATES` is the
+      one place to change.
+
+- [x] **Text and Email on a board card opened the phone's own apps.** Owner:
+      "why are the email and sms buttons opening up 3rd party apps on pipline
+      page when we have our own internal". The card rail still used `tel:` /
+      `sms:` / `mailto:` — correct before C1/C2/C3 existed, left in place after
+      they shipped, so nothing a rep sent that way was ever logged against the
+      deal. Text and Email now open the person's Conversations thread and Call
+      opens the deal; and they go through the ROUTER rather than
+      `location.assign`, which was reloading the whole app.
+
+- [x] **Events: a date picker and month jumps** (owner asked twice). Prev /
+      Next / Today could only walk, so November was ten presses away. `?date=`
+      already carries the anchor, so a jump stays a shareable URL. A Month VIEW
+      is still open — the read is per-day and a month must not become 30 reads.
+
+- [x] **Availability is in the left nav**, beside Events where a planner
+      reaches for it mid-sentence.
+
+- [x] **"No response" could not be clicked** — a reason was demanded for every
+      status of kind "lost", which is Lost AND No response.
 
 - [x] **Microsoft Graph can send as a planner** — owner granted and consented
       `Mail.ReadWrite` (application) on the "HeadPinz Sales CRM" registration,

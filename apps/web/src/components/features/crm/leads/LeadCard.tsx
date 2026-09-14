@@ -13,14 +13,26 @@ import { Chip } from "../primitives/Chip";
 import { ICON } from "../primitives/icon-props";
 import { Pill } from "../primitives/Pill";
 import { Timer } from "../primitives/Timer";
-import { bmiChip, cardUrgency, contactHrefs, dueLabel, isOpen, leadTitle } from "./model";
+import { bmiChip, cardUrgency, dueLabel, isOpen, leadTitle } from "./model";
+import { useRouter } from "next/navigation";
+import { conversationKeyFor } from "../deal/actions";
 
 /**
  * The board card (`kcard`, direction-b.html): title + value, date · guests ·
  * centre, the due timer while open, and the footer with the assignee, the BMI
- * chip and the hover rail (Call · Text · Email). The rail's buttons open the
- * phone's dialer / messages / mail through `tel:` / `sms:` / `mailto:` — the
- * 3CX, Vox and Graph channels (C3 / C1 / C2) replace them in place.
+ * chip and the hover rail (Call · Text · Email).
+ *
+ * THE RAIL STAYS INSIDE THE CRM. It used to hand off to the device — `tel:`,
+ * `sms:`, `mailto:` — which was right before C1/C2/C3 existed and was left in
+ * place after they shipped, so pressing Text or Email on a board card opened
+ * the phone's own apps and nothing was ever logged against the deal. Owner,
+ * 2026-09-14: "why are the email and sms buttons opening up 3rd party apps on
+ * pipline page when we have our own internal".
+ *
+ * Text and Email go to the person's Conversations thread — one composer, one
+ * consent check, one place the message is recorded. Call opens the deal, where
+ * the Call sheet and its disposition live. `tel:` survives for Call on a phone
+ * only as the dialer fallback inside that sheet, not as the button itself.
  *
  * Opening the deal: `onOpen` (the screens open the drawer over their board)
  * or, without it, a link to the full deal page.
@@ -52,10 +64,6 @@ export interface LeadCardProps {
   quiet?: boolean;
 }
 
-function go(href: string | null) {
-  if (href && typeof window !== "undefined") window.location.assign(href);
-}
-
 export function LeadCard({
   lead,
   status,
@@ -66,15 +74,23 @@ export function LeadCard({
   footer,
   quiet,
 }: LeadCardProps) {
+  const router = useRouter();
+  // Through the ROUTER, never `location.assign`: these are CRM paths now, and a
+  // page load would throw away the cache, re-mint the API token, re-run the SSO
+  // gate and close the board the rep is standing on.
+  const go = (to: string | null) => {
+    if (to) router.push(to);
+  };
   const urgency = cardUrgency(lead, status, now);
   const due = lead.nextAction && isOpen(status) ? dueLabel(lead.nextAction.due, now) : null;
   const chip = bmiChip(lead);
-  const hrefs = contactHrefs(lead);
+  const conversationHref = conversationKeyFor(lead);
   const cls = ["kcard", `c-${lead.centre}`, urgency, quiet ? "quiet" : ""]
     .filter(Boolean)
     .join(" ");
   const title = leadTitle(lead);
   const href = `${CRM_BASE}/deal/${lead.publicId}`;
+  const dealHref = href;
 
   return (
     <div className={cls} data-testid={LEAD_TEST_IDS.leadCard(lead.publicId)}>
@@ -132,24 +148,27 @@ export function LeadCard({
             <button
               type="button"
               aria-label="Call"
-              disabled={!hrefs.tel}
-              onClick={() => go(hrefs.tel)}
+              title={lead.guest.phone ? "Open the deal to call" : "No phone on file"}
+              disabled={!lead.guest.phone}
+              onClick={() => go(dealHref)}
             >
               <IconPhone {...ICON} />
             </button>
             <button
               type="button"
               aria-label="Text"
-              disabled={!hrefs.sms}
-              onClick={() => go(hrefs.sms)}
+              title={conversationHref ? "Text from your own number" : "No phone on file"}
+              disabled={!conversationHref}
+              onClick={() => go(conversationHref)}
             >
               <IconMessage {...ICON} />
             </button>
             <button
               type="button"
               aria-label="Email"
-              disabled={!hrefs.mailto}
-              onClick={() => go(hrefs.mailto)}
+              title={lead.guest.email ? "Email from your Outlook" : "No email on file"}
+              disabled={!lead.guest.email || !conversationHref}
+              onClick={() => go(conversationHref ? `${conversationHref}?tab=email` : null)}
             >
               <IconMail {...ICON} />
             </button>
