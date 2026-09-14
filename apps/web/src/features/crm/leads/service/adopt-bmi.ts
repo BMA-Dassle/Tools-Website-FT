@@ -68,6 +68,42 @@ export const ADOPTABLE_STATES: Readonly<Record<string, Readonly<Record<string, s
   },
 };
 
+/**
+ * OFFICE USER IDS ARE PER TENANT, and `crm_reps.bmi_user_id` holds only one.
+ *
+ * The same person is a different id at each centre. Probed from live Office
+ * metadata and the mirror, Fort Myers first, Naples second:
+ *
+ *   eric 75262 / 25228 · lori 465247 / 41096 · stephanie 465242 / 1559644
+ *   jacob 7251049 / 3690605 · kelsea 28267036 / 6338800 · gs 30080112 / 6400642
+ *
+ * The roster column carries the Fort Myers value, so every NAPLES project
+ * matched nobody on id. That is why the owner saw a BMI "New Lead" with a real
+ * owner arrive here with none, and why the Assigned column was empty: all three
+ * were Naples enquiries owned by Guest Services under Naples id 6400642, which
+ * the roster has never heard of. Office also calls that bucket "CallCenter"
+ * rather than "Guest Services", so the name fallback missed it too.
+ *
+ * A stop-gap in the shape the brief asks for (`crm_reps.bmi_user_ids` as JSONB
+ * plus `bmiUserIdFor(rep, clientKey)`). Until that column exists the pairs live
+ * here, beside the failure that found them.
+ */
+export const OFFICE_ID_ALIASES: Readonly<Record<string, string>> = {
+  "25228": "eric",
+  "41096": "lori",
+  "1559644": "stephanie",
+  "3690605": "jacob",
+  "6338800": "kelsea",
+  "6400642": "gs",
+};
+
+/** Office display names that are not the roster's display name. */
+export const OFFICE_NAME_ALIASES: Readonly<Record<string, string>> = {
+  callcenter: "gs",
+  "call center": "gs",
+  "guest services": "gs",
+};
+
 /** Office location id → the centre a planner would name. */
 export function centreOfLocation(locationId: number | null): CentreCode | null {
   if (locationId === 332160) return "HPFM";
@@ -109,6 +145,89 @@ interface MirrorCandidate {
 }
 
 /**
+ * Re-resolve the owner of leads that were adopted before the per-tenant ids
+ * above were known, and that therefore landed with nobody on them.
+ *
+ * Adoption is idempotent on `bmi_project_id`, which is the right default and
+ * also means a matcher fix does NOT reach rows already written — they are
+ * skipped, not revisited. Without this the three Naples enquiries the owner
+ * spotted would have stayed ownerless for ever, and the fix above would only
+ * have helped deals adopted in the future.
+ *
+ * Only ever FILLS a blank owner. It will not move a lead that already has one,
+ * whether a director assigned it by hand or adoption got it right first time.
+ */
+export async function repairAdoptedAssignments({ dryRun = false } = {}): Promise<{
+  candidates: number;
+  repaired: number;
+  stillUnmatched: string[];
+}> {
+  const out = { candidates: 0, repaired: 0, stillUnmatched: [] as string[] };
+  if (!isDbConfigured()) return out;
+  const q = sql();
+
+  const reps = (await q`
+    SELECT id::text AS id, slug, bmi_user_id, lower(bmi_username) AS uname, lower(first_name) AS fname
+      FROM crm_reps WHERE active IS TRUE
+  `) as {
+    id: string;
+    slug: string;
+    bmi_user_id: string | null;
+    uname: string | null;
+    fname: string | null;
+  }[];
+  const byOfficeId = new Map(reps.filter((r) => r.bmi_user_id).map((r) => [r.bmi_user_id!, r.id]));
+  const bySlug = new Map(reps.map((r) => [r.slug, r.id]));
+  const byName = new Map<string, string>();
+  for (const r of reps) {
+    if (r.uname) byName.set(r.uname, r.id);
+    if (r.fname) byName.set(r.fname, r.id);
+  }
+
+  const rows = (await q`
+    SELECT l.id::text AS lead_id, p.responsible_user_id, p.responsible_name
+      FROM crm_leads l
+      JOIN crm_bmi_projects p ON p.project_id = l.bmi_project_id
+     WHERE l.assigned_rep_id IS NULL
+       AND l.archived_at IS NULL
+       AND l.created_by = 'crm-adopt'
+  `) as { lead_id: string; responsible_user_id: string | null; responsible_name: string | null }[];
+
+  const unmatched = new Set<string>();
+  for (const r of rows) {
+    out.candidates += 1;
+    const alias =
+      (r.responsible_user_id ? OFFICE_ID_ALIASES[r.responsible_user_id] : undefined) ??
+      (r.responsible_name
+        ? OFFICE_NAME_ALIASES[r.responsible_name.trim().toLowerCase()]
+        : undefined);
+    const repId =
+      (r.responsible_user_id ? byOfficeId.get(r.responsible_user_id) : undefined) ??
+      (alias ? bySlug.get(alias) : undefined) ??
+      (r.responsible_name ? byName.get(r.responsible_name.toLowerCase()) : undefined) ??
+      null;
+    if (!repId) {
+      if (r.responsible_name) unmatched.add(r.responsible_name);
+      continue;
+    }
+    if (!dryRun) {
+      // `assigned` rather than `new`: BMI says a planner owns it, so it is not
+      // waiting for a first decision.
+      await q`
+        UPDATE crm_leads
+           SET assigned_rep_id = ${repId}::bigint,
+               assigned_at = COALESCE(assigned_at, now()),
+               status_id = CASE WHEN status_id = 'new' THEN 'assigned' ELSE status_id END,
+               updated_at = now()
+         WHERE id = ${r.lead_id}::bigint AND assigned_rep_id IS NULL`;
+    }
+    out.repaired += 1;
+  }
+  out.stillUnmatched = [...unmatched].sort();
+  return out;
+}
+
+/**
  * @param dryRun report what WOULD be adopted without writing a row. The owner
  *   sees the count and the status split before anything lands in a planner's
  *   queue, because a bad run would put someone else's deals on their board.
@@ -131,12 +250,13 @@ export async function adoptOpenBmiDeals({ dryRun = false } = {}): Promise<AdoptR
   // Office id AND display name, so a Naples project whose id does not match can
   // still find its planner by the name Office shows.
   const reps = (await q`
-    SELECT id::text AS id, role, bmi_user_id, lower(bmi_username) AS uname,
+    SELECT id::text AS id, slug, role, bmi_user_id, lower(bmi_username) AS uname,
            lower(display_name) AS dname, lower(first_name) AS fname
       FROM crm_reps
      WHERE active IS TRUE
   `) as {
     id: string;
+    slug: string;
     role: string;
     bmi_user_id: string | null;
     uname: string | null;
@@ -144,6 +264,7 @@ export async function adoptOpenBmiDeals({ dryRun = false } = {}): Promise<AdoptR
     fname: string | null;
   }[];
   const byOfficeId = new Map(reps.filter((r) => r.bmi_user_id).map((r) => [r.bmi_user_id!, r.id]));
+  const bySlug = new Map(reps.map((r) => [r.slug, r.id]));
 
   // NAME MATCHING IS THREE-TIERED AND FIRST NAMES ARE THE TIER THAT MATTERS.
   // Office's `responsible` is frequently just "Kelsea" or "Lori" — the full
@@ -214,8 +335,14 @@ export async function adoptOpenBmiDeals({ dryRun = false } = {}): Promise<AdoptR
     }
 
     const statusId = ADOPTABLE_STATES[r.client_key]?.[String(r.state_id)] ?? "new";
+    const aliasSlug =
+      (r.responsible_user_id ? OFFICE_ID_ALIASES[r.responsible_user_id] : undefined) ??
+      (r.responsible_name
+        ? OFFICE_NAME_ALIASES[r.responsible_name.trim().toLowerCase()]
+        : undefined);
     const repId =
       (r.responsible_user_id ? byOfficeId.get(r.responsible_user_id) : undefined) ??
+      (aliasSlug ? bySlug.get(aliasSlug) : undefined) ??
       (r.responsible_name ? byName.get(r.responsible_name.toLowerCase()) : undefined) ??
       null;
     if (!repId && r.responsible_name) unmatched.add(r.responsible_name);
