@@ -39,6 +39,118 @@ the build scratchpad; `docs/crm/README.md` is the distilled reference. **Nothing
         seed each rep's `crm_reps.threecx_extension` (none set, so every call has `rep_id` null);
         point the 3CX CRM template at production after merge; decision D7 on recordings.
 - [ ] Preview smoke log (URL + build SHA + pass/fail per §6.3 line) goes here per PR.
+
+## Reservations board: a GRID view over the real QAMF lane grid (2026-09-14) — worktree `.claude/worktrees/rez-board-view`, branch `worktree-rez-board-view`
+
+Owner: "build a board view of this like we did in CRM for availability but without the number of
+people, etc. If the reservation is one of ours, should be able to click it as well. Maybe just an
+option at the top of this to view reservation grid?" — then, correcting the first plan: **"we do
+assign lanes when they book… you should be using the new QAMF api as the availability board does
+so you don't have to worry about this. It will just tell you lane"** and **"Race legs use blocks,
+again look at the CRM availability board."**
+
+### Grounding (read, not assumed)
+
+- The screen is `src/components/features/reservations-admin/ReservationsBoard.tsx` (758 lines),
+  rendered by `/admin/reservations` (SSO) and `/admin/[token]/reservations` (v1 token) via
+  `app/admin/_tools/reservations/AdminToolPage.tsx`; the portal iframes it at
+  `/management/operations/reservations` (CSP `frame-ancestors https://portal.headpinz.com`).
+- Rows and group events are ALREADY clickable: `openManage(r)` → `ManageReservationModal` (+ stamps
+  `?res=`), `openEventDetail(ge)` → resolves the BMI projectId off the daily-events board →
+  `DailyEventModal`. **The grid reuses both handlers verbatim — no new modal, no new fetch.**
+- `Reservation.qamfReservationId` is the join key to QAMF. `lane-plan/grid.server.ts`
+  `BusyInterval` already carries `reservationId` (`r.Id`) alongside `laneNumber`, `startMs`,
+  `endMs`, `title`, `kind`, `isBlock`. **That is what makes "one of ours" decidable.**
+- `crm/availability/service/qamf-grid.ts` `readLaneGrid(centre, date)` → per-lane blocks in
+  minutes-from-ET-midnight, classified (`league` / `party` / `walkin` / `maint`), out-of-service
+  lanes drawn as whole-day `maint`, through a 60 s Redis cache keyed `crm:avail:{qamfCenterId}:{date}`.
+  It reads BOTH the schedule and the live floor, so it sees leagues, front-desk bookings and
+  Conqueror walk-ins our Neon table never learns about (56 of 130 rows on FM 2026-08-22).
+- `crm/availability/service/heats.ts` `readHeats(centre, date)` → BMI Office `dayPlanner` resources
+  (Blue/Red/Mini Track, duckpin, sim) each with `blocks[]` carrying real `start`/`stop`,
+  `capacity`, `freePlaces`, `bookedSpots`. **This is the race "blocks" model the owner pointed at.**
+- `LANE_SECTIONS` (engine.ts): HPFM 1-4 Old Time / 5-12 VIP / 13-28 Regular; HPN 1-24 Regular /
+  25-32 VIP. FT has no bowling grid — `laneSectionsFor` returns null and it goes down heats.
+- `CENTRES` maps CentreCode ⇄ `pandoraLocationId`, which IS the `centerCode` the board already
+  holds (TXBSQN0FEKQ11 / LAB52GY480CJF / PPTR5G2N0QXF7).
+- The board's skin is its own `--ba-*` token set (`reservations-admin/theme.ts`), NOT the CRM
+  `.gantt` CSS — so the timeline CSS is rewritten against `--ba-*`, not imported.
+- **Correction to my first read:** I proposed type-lane rows and fixed-width pills because I had
+  read the CRM board's UI but not its SERVICE. The lane grid + heat blocks carry real lanes and
+  real windows; nothing needs to be invented. Logged in lessons.md.
+
+### Plan
+
+- [x] **Carry the QAMF reservation id through the projection.** Add optional `reservationId?: string`
+      to `LaneBlock` (engine.ts), populate it in `projectBusy` (qamf-grid.ts), and tighten
+      `mergeAdjacent` to merge only when the id matches too (today it merges on `kind` + `label`,
+      which would fuse two same-titled bookings into one bar). Additive — the CRM screen ignores
+      the field; old 60 s cache entries simply lack it.
+- [x] **New read-only route** `GET /api/admin/bowling/reservations/grid?token&date&center`, auth via
+      `isAdminApiRequest` (the board's minted 8 h `x-admin-token`, NOT the CRM's `withCrmRoute`).
+      Bowling centres → `readLaneGrid` + `LANE_SECTIONS`; FT → `readHeats` resources. Shares the
+      existing `crm:avail:*` cache, so it adds no QAMF/Office load. Vendor failure → `source:
+      "unavailable"` + a banner, never an empty cheerful grid.
+- [x] **`ReservationGrid.tsx`** in `components/features/reservations-admin/` — lane rows grouped by
+      section (bowling) and resource rows of heat blocks (racing), hourly axis, a NOW line, bars
+      positioned by percentage. Group events ride their own section, placed by `event_date`.
+- [x] **Bar content: time + name only.** No player counts, no money — the owner's "without the
+      number of people, etc."
+- [x] **Ours vs theirs.** A block whose `reservationId` matches a visible row's `qamfReservationId`
+      gets the accent + pointer and opens `openManage`; a heat block matches a race leg on resource
+      + start minute (`liveHeats[].start`, else `bookingMetadata.heats[].heatId`). League /
+      maintenance / walk-in / front-desk blocks draw but do not click, and say so on hover.
+- [x] **List / Grid toggle** in `FilterBar`, persisted as `?layout=grid` next to the existing
+      `?res=` / `?view=` URL state so a portal-iframe refresh returns to the same view.
+- [x] **Unscoped centre:** the portal always passes `?center=`; standalone may not. Show centre tabs
+      in the grid header and read one centre at a time rather than fanning out to three grids.
+- [x] Keep `usePortalAutoHeight` honest — the grid is taller than the table; verify the iframe resizes.
+- [x] Gates: tsc 0 · vitest (new projection + matching units) · eslint `--max-warnings=0` on changed
+      files · a11y gate · one final build · `check-admin-token-leak`.
+
+### Review — BUILT 2026-09-14, all gates green, NOT yet smoked on real data
+
+Shipped exactly the corrected plan. `LaneBlock` gained an optional `reservationId`, `projectBusy`
+fills it (dropping `toFloorIntervals`' synthetic `floor:lane-N` placeholders, which are not
+bookings), and `mergeAdjacent` now keys on it alongside kind+label — without that, two
+back-to-back "Birthday Party" bookings on one lane fused into a single bar carrying one id, and
+the board would have opened the wrong reservation.
+
+New: `GET /api/admin/bowling/reservations/grid` (vendor truth only — the board matches its own
+rows client-side, so the grid never lags the 10 s list poll), `features/reservations-admin/grid.ts`
+(pure, client-safe — no CRM import, so the redis/Office graph stays out of the browser bundle),
+`grid.server.ts`, `use-grid-data.ts`, and `components/features/reservations-admin/ReservationGrid.tsx`.
+
+Design notes worth keeping:
+- **Group events draw a START MARKER, not a bar.** `group_function_quotes.event_date` is a real
+  TIMESTAMPTZ, but a group function books no end — so the row shows a pin at its start and the
+  header says so. Inventing a 3-hour bar would have drawn overlaps that do not exist.
+- **Race legs match on track + start minute**, the same key `resolveRaceLiveState` already uses in
+  production. `liveHeats` beats `booking_metadata` because an office reschedule moves a heat after
+  booking; the stale one would draw the party on a heat they are no longer in.
+- **The grid matches against ALL of the day's rows, not `displayRows`.** The kind/status chips
+  narrow the LIST; a bar that stopped being clickable because "Race" was selected would break the
+  one thing the owner asked for.
+- **`min-width: 30px` on a bar** is a legibility/target-size floor (a 12-minute heat is under 1% of
+  an evening). The bar's LEFT edge is always the true start.
+
+Gates, on the pushed tree: tsc exit 0 — **with a control run** (a deliberate `const x: number =
+"s"` in grid.ts failed at TS2322, proving tsc covers the new files, per lessons § "CONTROL first");
+vitest **716 files / 10,101 passed, 1 skipped**; `check-admin-token-leak` ✓; eslint
+`--max-warnings=0` clean on all 12 changed/new files; a11y gate "zero jsx-a11y violations"; one
+`next build` exit 0 with `ƒ /api/admin/bowling/reservations/grid` registered.
+
+Also removed a DEAD `eslint-disable-next-line react/no-danger` in ReservationsBoard.tsx (the rule
+is not enabled in eslint.config.mjs, so the directive itself tripped
+`reportUnusedDisableDirectives` and blocked the lint gate on a file this PR touches). Its
+explanation was kept as a plain comment. An identical dead directive remains in
+`daily-events-v2/DailyEventsBoardV2.tsx` — untouched, since this PR has no business there.
+
+STILL TO DO (owner): smoke it. Open `/admin/reservations?center=fm`, hit **Grid**, and check that
+(1) a booking you know is ours is coloured and opens the manage modal, (2) a league / front-desk
+booking draws grey and does NOT click, (3) FastTrax (`?center=ft`) shows track rows of heat blocks,
+(4) the NOW line sits where it should. Nothing here has been run against a real centre's book.
+
 ## Camera boards: CHECKING IN row flashes when the group is ready to pull (2026-09-13) — branch `feat/rail-ready-to-pull` (stacked on `fix/track-ops-fast-lane`)
 
 Owner: on the screens outside the briefing rooms (camera view + rail) step 1 should "start blinking

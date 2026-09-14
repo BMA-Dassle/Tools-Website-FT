@@ -1,5 +1,47 @@
 # Lessons Learned
 
+## "Build it like X" means read X's SERVICE, not just X's component — the data layer is where the design decision actually lives (2026-09-14)
+
+**The miss.** Owner: "build a board view of this like we did in CRM for availability." I read
+`AvailabilityScreen.tsx` and `EveningTimeline.tsx` in full, then read the reservations board's own
+types and `bowling_reservations` schema — and concluded from THOSE that we had no lane before
+check-in and no durations at all. So I proposed rows grouped by product type, with fixed-width
+pills, and took the trouble to ask the owner to choose between three row axes and three bar-length
+schemes. Every one of those options was built on a false premise.
+
+The owner corrected both halves in one sentence: *"we do assign lanes when they book. In addition
+you should be using the new QAMF api as the availability board does so you don't have to worry
+about this. It will just tell you lane"* — and *"Race legs use blocks, again look at the CRM
+availability board."*
+
+**What I had not read.** `crm/availability/service/qamf-grid.ts` and
+`lane-plan/grid.server.ts`. `buildGrid` reads QAMF's schedule AND the live floor and returns
+`BusyInterval { laneNumber, startMs, endMs, reservationId, title, kind }` — real lanes, real
+windows, and the QAMF reservation id that decides "is this one of ours". `heats.ts` returns Office
+`dayPlanner` blocks with real `start`/`stop` for the racing side. The two facts I was missing were
+sitting in the two service files behind the component I had just read end to end.
+
+**Why the premise was wrong in a way that LOOKED rigorous.** I grounded on our own Neon schema —
+`bowling_reservations` genuinely has no duration column and genuinely doesn't hold a lane. That
+made "we don't have this data" feel like a verified finding rather than a gap in where I looked.
+But `qamf-grid.ts` opens by saying exactly why Neon is the wrong source: our table only learns
+about a Conqueror booking when its lane OPENS, so leagues, maintenance and walk-ins are invisible —
+56 of 130 reservations on FM 2026-08-22. **Our DB not having a field is evidence about our DB, not
+about the business.** The vendor read is upstream of it.
+
+**The rules.**
+1. When the owner says "like the CRM availability board", the reference is the **whole vertical** —
+   `features/<x>/service/*` first, then the component. The component only shows what the service
+   chose to hand it; `projectBusy` had already dropped `reservationId` on the floor before
+   `EveningTimeline` ever saw it.
+2. **Absence in our schema is never proof the data doesn't exist.** Before designing around a
+   missing field, find the system of record. Ask "who else already reads this?" and grep for the
+   vendor client, not just our tables.
+3. **Do not spend the owner's decision budget on options built from an unverified premise.** A
+   multiple-choice question asserts that the alternatives are real. Offering three row axes when
+   the right answer ("lanes, from QAMF") was one file away cost the owner a round trip and made a
+   gap in my reading look like a genuine product trade-off. Read one layer deeper, THEN ask.
+
 ## A signed agreement has more than one term — gating "does this need re-signing?" on money alone quietly voids the other two (2026-09-13)
 
 **The bug.** `/contract/c31e3aec` (Strikes for Scholarships, FGCU) moved from Sep 13 to Sep 19
