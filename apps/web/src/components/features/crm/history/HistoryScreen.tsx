@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { CRM_BASE, type MirrorEvent } from "~/features/crm/core/contracts";
 import type { ScreenProps } from "~/features/crm/core/screens";
 import { money } from "~/features/crm/core/format";
+import { eventDayHref } from "~/features/crm/core/nav";
 import { historyKeys } from "~/features/crm/bmi/queries";
 import { errorMessage } from "../lib/crm-fetch";
 import { useUrlQuery } from "../lib/use-url-query";
@@ -261,15 +262,49 @@ export default function HistoryScreen({ query }: ScreenProps) {
   );
 }
 
+/**
+ * WHERE A MIRRORED BOOKING GOES WHEN YOU CLICK IT.
+ *
+ * Owner, 2026-09-13: "Anywhere in all this stuff I should be able to click
+ * anywhee on the lead tile to bring up event." These rows had two shapes and
+ * one of them was dead: a link when the mirror had matched the booking to an
+ * account, and a plain `<div>` when it had not.
+ *
+ * The account page is the right destination when there is one — it is this
+ * host, every year. When there is not, the booking is still addressable by the
+ * DAY it happened, which is the Events board: the same lens the Contracts board
+ * now links to. Only a mirrored project with neither an account nor a placeable
+ * date has nowhere to go, and then the row stays plain rather than pretending.
+ *
+ * It deliberately does NOT adopt the project into a CRM lead the way the Events
+ * board does. `createLeadFromEvent` is not keyed on the project, so a second
+ * click would mint a second lead for the same booking — and History is a
+ * browsing surface where people click a lot of rows.
+ */
+function mirrorRowHref(e: MirrorEvent): string | null {
+  if (e.accountId) return `${CRM_BASE}/account/${e.accountId}`;
+  return eventDayHref(e);
+}
+
 function LastYearRow({ event: e }: { event: MirrorEvent }) {
   const was = wasRepLabel(e);
+  const href = mirrorRowHref(e);
+  const title = eventHost(e);
   return (
-    <div className="row">
+    <div className="row row-click">
       <IconAvatar label="Last year">
         <IconHistory {...ICON} />
       </IconAvatar>
       <div>
-        <div className="title">{eventHost(e)}</div>
+        <div className="title">
+          {href ? (
+            <Link className="card-open" href={href} title={`Open ${title}`}>
+              {title}
+            </Link>
+          ) : (
+            title
+          )}
+        </div>
         <div className="meta">
           {eventMeta(e).map((m, i) => (
             <span key={i}>{m}</span>
@@ -292,15 +327,23 @@ function LastYearRow({ event: e }: { event: MirrorEvent }) {
 }
 
 function EventRow({ event: e }: { event: MirrorEvent }) {
-  const body = (
-    <>
+  const href = mirrorRowHref(e);
+  const title = eventHost(e);
+  return (
+    <div className="row row-click">
       <IconAvatar label="Event">
         <IconHistory {...ICON} />
       </IconAvatar>
       <div>
         <div className="title">
-          {eventHost(e)}
-          {e.name && e.name !== eventHost(e) ? <span className="muted small">{e.name}</span> : null}
+          {href ? (
+            <Link className="card-open" href={href} title={`Open ${title}`}>
+              {title}
+            </Link>
+          ) : (
+            title
+          )}
+          {e.name && e.name !== title ? <span className="muted small">{e.name}</span> : null}
         </div>
         <div className="meta">
           {eventMeta(e).map((m, i) => (
@@ -319,13 +362,6 @@ function EventRow({ event: e }: { event: MirrorEvent }) {
           <span className="xs muted">{e.responsibleName}</span>
         ) : null}
       </div>
-    </>
-  );
-  return e.accountId ? (
-    <Link className="row" href={`${CRM_BASE}/account/${e.accountId}`}>
-      {body}
-    </Link>
-  ) : (
-    <div className="row">{body}</div>
+    </div>
   );
 }

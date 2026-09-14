@@ -83,6 +83,24 @@ export function rowMeta(row: ContractRow): string {
   return parts.join(" · ");
 }
 
+/**
+ * What the row's Event control says — the tooltip AND its accessible name,
+ * because the button itself is an icon and the word "Event".
+ *
+ * It names the DAY, because that is what the control opens: the Events board
+ * for the centre and date this contract is for. A row the database cannot place
+ * gets the reason instead, and the control is disabled — never a link that
+ * lands on an arbitrary day and looks like the board lost the booking.
+ */
+export function eventJumpTitle(row: ContractRow): string {
+  if (!row.centre) {
+    return `No centre recorded on this contract (${row.centerCode || "unknown"}) — open it to see the event`;
+  }
+  const centre = CENTRE_LIST.find((c) => c.code === row.centre);
+  const where = centre ? centre.short : row.centerName;
+  return `Open the Events board for ${where} on ${fDate(row.eventDate)}`;
+}
+
 /** The empty-state line, per window (crm-events.js:232). */
 export function emptyMessage(win: ContractWindow): string {
   return win === "attention" ? "Nothing needs a human right now." : "No contracts in this window.";

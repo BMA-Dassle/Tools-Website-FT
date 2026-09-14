@@ -4,10 +4,11 @@ import { IconPlus } from "@tabler/icons-react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { createPortal } from "react-dom";
-import { CRM_BASE } from "~/features/crm/core/contracts";
+import { CRM_BASE, type MirrorEvent } from "~/features/crm/core/contracts";
 import type { ScreenProps } from "~/features/crm/core/screens";
 import { fDateY } from "~/features/crm/core/dates";
 import { money } from "~/features/crm/core/format";
+import { eventDayHref } from "~/features/crm/core/nav";
 import { historyKeys } from "~/features/crm/bmi/queries";
 import { errorMessage } from "../lib/crm-fetch";
 import { useCrmFetch, useScreenHead, useTopbarSlot } from "../lib/use-crm-user";
@@ -26,9 +27,15 @@ import { HISTORY_TEST_IDS } from "./test-ids";
  * and the events table (Date · Ref · Guests · Status · Rep · Spend), every
  * year, newest first. The shell's back arrow points at History.
  *
- * The prototype's rows jump to the deal; deals are the leads PR's, so rows
- * here are plain until B3 links a mirrored project to its lead. "New lead" is
- * the same B3 rail — present, disabled, and says so.
+ * THE ROWS GO SOMEWHERE NOW. They were plain text — the comment here used to
+ * say "until B3 links a mirrored project to its lead", and most of these
+ * bookings never will have a lead: they predate the CRM. What every one of them
+ * does have is a DAY, and the Events board reads BMI directly, so the date cell
+ * opens the booking on the day it happened — the same lens the Contracts board
+ * links to (owner, 2026-09-13: "Contracts should be more intergrated to
+ * events"). A row whose mirrored project has no placeable date stays plain.
+ *
+ * "New lead" is still the B3 rail — present, disabled, and says so.
  */
 export default function AccountScreen({ view }: ScreenProps) {
   const crmFetch = useCrmFetch();
@@ -133,7 +140,9 @@ export default function AccountScreen({ view }: ScreenProps) {
               >
                 {events.map((e) => (
                   <tr key={e.projectId}>
-                    <td>{e.eventDate ? fDateY(e.eventDate) : "—"}</td>
+                    <td>
+                      <EventDayCell event={e} />
+                    </td>
                     <td>{e.number ?? "—"}</td>
                     <td>{e.persons ?? "—"}</td>
                     <td>{e.stateName ?? "—"}</td>
@@ -173,5 +182,22 @@ export default function AccountScreen({ view }: ScreenProps) {
         </>
       ) : null}
     </>
+  );
+}
+
+/**
+ * The Date cell, and the way into the booking behind the row: the Events board
+ * on the day it happened. A real `<Link>` dressed as the text it replaced
+ * (`.link-cell`, the same shape the Contracts table's Event cell uses), so Tab
+ * and Enter reach it — a `<tr onClick>` reaches neither.
+ */
+function EventDayCell({ event }: { event: MirrorEvent }) {
+  const href = eventDayHref(event);
+  const label = event.eventDate ? fDateY(event.eventDate) : "—";
+  if (!href) return <>{label}</>;
+  return (
+    <Link className="link-cell" href={href} title={`Open the Events board for ${label}`}>
+      {label}
+    </Link>
   );
 }

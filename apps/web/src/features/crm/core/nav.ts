@@ -13,8 +13,8 @@
  * "More" list, not from the sidebar, exactly as in the prototype.
  */
 
-import { ADMIN_NAV_GROUP_ID, DIRECTOR_ONLY_SCREENS } from "./contracts";
-import type { CrmRole, ScreenId } from "./types";
+import { ADMIN_NAV_GROUP_ID, CRM_BASE, DIRECTOR_ONLY_SCREENS } from "./contracts";
+import type { CentreCode, CrmRole, ScreenId } from "./types";
 import { SCREEN_IDS } from "./types";
 
 export type NavIcon =
@@ -226,6 +226,38 @@ export const SCREEN_META: Record<ScreenId, ScreenMeta> = {
   },
   more: { title: "More", description: "Everything that is not on the bottom tabs." },
 };
+
+/**
+ * THE EVENT LENS, BY DAY — `/admin/crm/events?centre=…&view=day&date=…`.
+ *
+ * Owner, 2026-09-13: "Contracts should be more intergrated to events." A
+ * contract, a lead and a BMI booking are ONE record seen three ways, and the
+ * only one of the three that is addressable without a CRM lead is the day the
+ * event happens: the Events board reads BMI directly, so it can show a booking
+ * that predates the CRM entirely — which most signed contracts do.
+ *
+ * So this is the link every "…and where does it actually happen?" control uses:
+ * the Contracts row, the contract sheet, and the mirrored rows on History and
+ * Account. One spelling of the URL, in one place, rather than four screens each
+ * assembling their own query string.
+ *
+ * Null when the row cannot name a centre or a date — a legacy `center_code`
+ * that is not one of ours, or a mirrored project with no schedule. The caller
+ * renders a disabled control that says why rather than a link to nowhere.
+ */
+export function eventDayHref(input: {
+  centre: CentreCode | null;
+  eventDate: string | null;
+}): string | null {
+  if (!input.centre) return null;
+  if (!input.eventDate || !/^\d{4}-\d{2}-\d{2}$/.test(input.eventDate)) return null;
+  const qs = new URLSearchParams({
+    centre: input.centre,
+    view: "day",
+    date: input.eventDate,
+  });
+  return `${CRM_BASE}/events?${qs.toString()}`;
+}
 
 export function isScreenId(value: unknown): value is ScreenId {
   return typeof value === "string" && (SCREEN_IDS as readonly string[]).includes(value);

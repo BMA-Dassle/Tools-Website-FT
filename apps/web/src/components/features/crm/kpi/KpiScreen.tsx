@@ -6,7 +6,6 @@ import {
   IconChartLine,
   IconCheck,
   IconFileText,
-  IconHistory,
   IconInbox,
   IconTarget,
 } from "@tabler/icons-react";
@@ -61,7 +60,11 @@ import { rangeOptions, windowKeyOf } from "./range";
  * hovering anything:
  *   Booked / Quoted / pacing / by-salesperson / monthly  → basis `bmi`
  *   Deposits due next 30 days                            → basis `square`
- *   Conversion / leads / response / reach-outs           → counts and minutes
+ *   Conversion / leads / response                        → counts and minutes
+ *
+ * Same-time-last-year reach-outs are NOT here any more. They count a rep's
+ * phone calls, not money, and they now sit with the calls, texts and emails on
+ * the accountability board (owner, 2026-09-13).
  *
  * The rep/director split is NOT done by hiding tiles: `kpiDashboard` narrows a
  * rep to their own row before it reads anything, so this component renders
@@ -245,7 +248,10 @@ export default function KpiScreen({ query }: ScreenProps) {
         />
       </div>
 
-      <div className="grid grid-4">
+      {/* Three, not four: "Same-time-last-year reach-outs" moved to the
+          accountability board (owner, 2026-09-13). It counted phone calls on a
+          page of revenue figures. */}
+      <div className="grid grid-3">
         <Tile
           label={
             <span
@@ -299,27 +305,6 @@ export default function KpiScreen({ query }: ScreenProps) {
           ico={<IconCalendar {...ICON} />}
           icoCls="orange"
           sub={`${data.deposits.events} event${data.deposits.events === 1 ? "" : "s"} · ${data.deposits.unsigned} unsigned contract${data.deposits.unsigned === 1 ? "" : "s"} · Square`}
-        />
-        <Tile
-          label={
-            <span
-              title={basisTitle(
-                "Hosts whose event was in this window last year, and how many we have reached out to.",
-                "count",
-              )}
-            >
-              Same-time-last-year reach-outs
-            </span>
-          }
-          value={String(data.reachOuts.done)}
-          unit={` of ${data.reachOuts.hosts}`}
-          ico={<IconHistory {...ICON} />}
-          icoCls="warn"
-          meter={{
-            p: pctOf(data.reachOuts.done, data.reachOuts.hosts),
-            tone: pctOf(data.reachOuts.done, data.reachOuts.hosts) >= 70 ? "good" : "warn",
-          }}
-          sub={`${data.reachOuts.remaining} host${data.reachOuts.remaining === 1 ? "" : "s"} with no lead this year`}
         />
       </div>
 

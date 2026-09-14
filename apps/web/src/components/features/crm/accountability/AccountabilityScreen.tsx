@@ -1,6 +1,6 @@
 "use client";
 
-import { IconAlertTriangle, IconTarget } from "@tabler/icons-react";
+import { IconAlertTriangle, IconHistory, IconTarget } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ScreenProps } from "~/features/crm/core/screens";
 import {
@@ -18,11 +18,12 @@ import { Banner } from "../primitives/Banner";
 import { ICON } from "../primitives/icon-props";
 import { EmptyState, ErrorState, LoadingState } from "../primitives/States";
 import { Seg } from "../primitives/Seg";
+import { Tile } from "../primitives/Tile";
 import { fetchAccountability, fetchTargets, postTargets } from "../kpi/queries";
 import { RepMeterCard } from "./RepMeterCard";
 import { TargetsSheet } from "./TargetsSheet";
 import { TeamTable } from "./TeamTable";
-import { behindSentence } from "./model";
+import { behindSentence, meterTone, pctOf } from "./model";
 
 /**
  * `/admin/crm/accountability` (C7) — the prototype's `accountability` screen
@@ -86,8 +87,9 @@ export default function AccountabilityScreen({ query }: ScreenProps) {
   }
   if (!dataQ.data) return <EmptyState>Nothing to show yet.</EmptyState>;
 
-  const { window, reps, behind } = dataQ.data;
+  const { window, reps, reachOuts, behind } = dataQ.data;
   const spanLabel = window.weeks > 1 ? `${window.weeks} weeks` : "week";
+  const reachOutPct = pctOf(reachOuts.done, reachOuts.hosts);
 
   const openTargets = (target: RepAccountability) => {
     const weekly =
@@ -131,6 +133,34 @@ export default function AccountabilityScreen({ query }: ScreenProps) {
           {behindSentence(behind, window.workingDaysLeft)}
         </Banner>
       ) : null}
+
+      {/*
+        SAME-TIME-LAST-YEAR REACH-OUTS. Owner, 2026-09-13: "move same time last
+        year reach outs to the accountability board." It was a tile on the KPI
+        dashboard, surrounded by booked, quoted and collected money — and it is
+        not money, it is how much of last year's book the team has phoned. That
+        is the same work the four meters below it count, and `reachouts` is
+        already one of them and one of every rep's weekly targets.
+
+        Full width, because it is the only figure on this page that belongs to
+        the whole team rather than to a person: the denominator is last year's
+        bookings, and a booking is not anybody's.
+      */}
+      <div className="grid" data-testid={MEASURE_TEST_IDS.reachOuts}>
+        <Tile
+          label="Same-time-last-year reach-outs"
+          value={String(reachOuts.done)}
+          unit={` of ${reachOuts.hosts} host${reachOuts.hosts === 1 ? "" : "s"}`}
+          ico={<IconHistory {...ICON} />}
+          icoCls="warn"
+          meter={{ p: reachOutPct, tone: meterTone(reachOutPct) }}
+          sub={
+            reachOuts.hosts === 0
+              ? `Nobody booked a group event in ${window.label.toLowerCase()} a year ago — nothing to reach out to.`
+              : `${reachOuts.remaining} host${reachOuts.remaining === 1 ? "" : "s"} with no lead this year · whole team · ${window.label}`
+          }
+        />
+      </div>
 
       {reps.length === 0 ? (
         <EmptyState>

@@ -24,6 +24,19 @@ import { bmiChip, cardUrgency, contactHrefs, dueLabel, isOpen, leadTitle } from 
  *
  * Opening the deal: `onOpen` (the screens open the drawer over their board)
  * or, without it, a link to the full deal page.
+ *
+ * THE WHOLE CARD OPENS THE DEAL. Owner, 2026-09-13: "Anywhere in all this
+ * stuff I should be able to click anywhee on the lead tile to bring up event."
+ * It used to open only from the title, which is a ~120px target on a card that
+ * looks clickable everywhere. This is ONE card shared by My Day, the queue and
+ * the pipeline board, so fixing it here fixes all three.
+ *
+ * The title control keeps being a real <button> (or <Link>) named by the title
+ * text — `.card-open` in crm.css stretches its ::after over the card. It is not
+ * a <div onClick> (the a11y gate rejects those) and the card is not itself a
+ * <button>, because Assign / Call / Text / Change status live inside it and
+ * nesting buttons is invalid HTML. Those controls sit a layer above the
+ * overlay, so their clicks land on them and never on the card.
  */
 export interface LeadCardProps {
   lead: LeadView;
@@ -69,20 +82,16 @@ export function LeadCard({
         {onOpen ? (
           <button
             type="button"
-            className="btn btn-ghost"
-            style={{
-              padding: 0,
-              border: 0,
-              background: "none",
-              font: "inherit",
-              textAlign: "left",
-            }}
+            className="card-open"
+            title={`Open ${title}`}
             onClick={() => onOpen(lead.publicId)}
           >
             {title}
           </button>
         ) : (
-          <Link href={href}>{title}</Link>
+          <Link className="card-open" href={href} title={`Open ${title}`}>
+            {title}
+          </Link>
         )}
         {lead.valueCents ? <span className="money muted">{moneyK(lead.valueCents)}</span> : null}
       </div>

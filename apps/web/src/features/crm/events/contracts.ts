@@ -303,6 +303,8 @@ export const EVENT_TEST_IDS = {
   board: "crm-events-board",
   band: (date: string) => "crm-events-band-" + date,
   row: (projectId: string) => "crm-event-" + projectId,
+  /** The money pill, which is also the jump to the contract behind the event. */
+  contractJump: (projectId: string) => "crm-event-contract-" + projectId,
   createLeadSheet: "crm-create-lead-from-event",
   notesTab: "crm-deal-tab-notes",
   publicNotes: "crm-public-notes",

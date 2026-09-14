@@ -23,6 +23,7 @@ import { ICON } from "../primitives/icon-props";
 import { Seg } from "../primitives/Seg";
 import { EmptyState, ErrorState, LoadingState } from "../primitives/States";
 import { DealDrawer } from "../deal/DealDrawer";
+import type { DealTabId } from "../deal/tabs";
 import { CreateLeadFromEventSheet } from "./CreateLeadFromEventSheet";
 import { DayBand } from "./DayBand";
 import { createLeadFromEventRow, fetchEventsBoard } from "./queries";
@@ -76,7 +77,8 @@ export default function EventsScreen({ query }: ScreenProps) {
   });
 
   const today = q.data?.today ?? todayEasternYmd();
-  const openDeal = (publicId: string) => setUrlQuery({ deal: publicId, tab: "event" });
+  const openDeal = (publicId: string, tab: DealTabId = "event") =>
+    setUrlQuery({ deal: publicId, tab });
 
   /**
    * CLICKING AN EVENT OPENS THE EVENT. Always.
@@ -95,9 +97,14 @@ export default function EventsScreen({ query }: ScreenProps) {
    * the sheet made, with the same values it would have pre-filled — and the
    * drawer opens on the Event tab. The sheet stays for the one case that needs
    * a human: a host whose name Office never recorded.
+   *
+   * `tab` is where the drawer lands: the Event tab from the row body, the
+   * Contract tab from the money pill. An event and its contract are one record
+   * seen from two sides, and the drawer's tabs are where they meet — so the
+   * pill needs no screen of its own, only a different landing tab.
    */
-  const openEvent = async (row: EventRowView) => {
-    if (row.lead) return openDeal(row.lead.publicId);
+  const openEvent = async (row: EventRowView, tab: DealTabId = "event") => {
+    if (row.lead) return openDeal(row.lead.publicId, tab);
     const name = (row.personName || "").trim();
     if (!name) return createLead(row); // nothing to seed from — ask.
     const cut = name.lastIndexOf(" ");
@@ -118,7 +125,7 @@ export default function EventsScreen({ query }: ScreenProps) {
         type: "corporate",
       });
       void qc.invalidateQueries({ queryKey: eventsKeys.all });
-      openDeal(r.lead.publicId);
+      openDeal(r.lead.publicId, tab);
     } catch (err) {
       // Never swallow it into a dead click: fall back to the sheet, which can
       // show the guest what went wrong and let them correct it.
@@ -220,7 +227,13 @@ export default function EventsScreen({ query }: ScreenProps) {
             <EmptyState>No group events at {CENTRES[centre].short} in this window.</EmptyState>
           ) : null}
           {days.map((band) => (
-            <DayBand key={band.date} band={band} todayYmd={today} onOpenEvent={openEvent} />
+            <DayBand
+              key={band.date}
+              band={band}
+              todayYmd={today}
+              onOpenEvent={(row) => void openEvent(row)}
+              onOpenContract={(row) => void openEvent(row, "contract")}
+            />
           ))}
         </div>
       ) : null}

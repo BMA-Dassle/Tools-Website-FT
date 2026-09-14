@@ -22,7 +22,7 @@ import type { DealTabProps } from "./tabs";
  * second rail that writes the same BMI state from this tab would be exactly
  * the "two writers for one entity" R5 forbids. The copy says where to do it.
  */
-export default function ContractTab({ detail }: DealTabProps) {
+export default function ContractTab({ detail, setQuery }: DealTabProps) {
   const { lead } = detail;
 
   if (!lead.gfShortId) {
@@ -55,7 +55,9 @@ export default function ContractTab({ detail }: DealTabProps) {
 
   return (
     <div data-testid={LEAD_TEST_IDS.dealTab("contract")}>
-      <ContractPanel shortId={lead.gfShortId} />
+      {/* The event is a sibling tab, so "open the event" switches tabs rather
+          than navigating: same record, other lens, drawer stays open. */}
+      <ContractPanel shortId={lead.gfShortId} onOpenEvent={() => setQuery({ tab: "event" })} />
     </div>
   );
 }

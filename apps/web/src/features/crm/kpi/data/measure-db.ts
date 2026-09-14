@@ -521,11 +521,14 @@ export async function callsByWeek(filter: {
   }));
 }
 
-/** Reach-out activities in the window, team-wide — the KPI tile's numerator. */
-export async function reachOutCount(filter: { from: string; until: string }): Promise<number> {
-  const rows = await touchCounts(filter);
-  return rows.filter((r) => r.channel === "reachout").reduce((a, r) => a + r.touches, 0);
-}
+/*
+ * `reachOutCount` used to live here: a second `touchCounts` read that kept one
+ * of its four channels, for the KPI dashboard's reach-out tile. The tile moved
+ * to the accountability board (owner, 2026-09-13), which already reads
+ * `touchCounts` for its per-rep meters, so the figure is summed off those rows
+ * in `service/accountability.ts` (`reachOutProgress`) and the duplicate query
+ * is gone with it.
+ */
 
 // ---------------------------------------------------------------------------
 // Contracts + Square (bases `contract` and `square`)

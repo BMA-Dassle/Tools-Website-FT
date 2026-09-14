@@ -37,11 +37,9 @@ import {
   depositsDue,
   eventWindowRollup,
   funnelByStatus,
-  lastYearHostCounts,
   leadsBySource,
   lostReasons,
   monthlyRollup,
-  reachOutCount,
   responseMinutes,
   type MirrorRollupRow,
 } from "../data/measure-db";
@@ -185,8 +183,6 @@ export async function kpiDashboard(
     lost,
     response,
     prevResponse,
-    hosts,
-    reachOuts,
     deposits,
   ] = await Promise.all([
     eventWindowRollup({ from: window.from, until: window.until, locationId }),
@@ -221,8 +217,6 @@ export async function kpiDashboard(
       repId: leadRepId,
       centre,
     }),
-    lastYearHostCounts({ from: lyFrom, until: lyUntil, locationId }),
-    reachOutCount({ from: window.from, until: window.until }),
     depositsDue({ ...depositWindow(now), centerCode }),
   ]);
 
@@ -345,7 +339,6 @@ export async function kpiDashboard(
     lostReasons: lost satisfies LostRow[],
     monthly: monthlyRows(monthsThis, monthsLast, goals, inScope, filterRep, window.year, now),
     deposits: { ...deposits, days: DEPOSIT_WINDOW_DAYS } satisfies DepositsDue,
-    reachOuts: { done: reachOuts, hosts: hosts.hosts, remaining: hosts.remaining },
     medianResponseMinutes: median(response.minutes),
     previousMedianResponseMinutes: median(prevResponse.minutes),
     leadSources: sources.map((s) => ({

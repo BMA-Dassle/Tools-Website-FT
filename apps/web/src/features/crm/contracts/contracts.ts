@@ -315,6 +315,8 @@ export const CONTRACT_TEST_IDS = {
   closedToggle: "crm-contracts-closed",
   table: "crm-contracts-table",
   row: (shortId: string) => "crm-contract-row-" + shortId,
+  /** The row's jump to the Events board on the day the event happens. */
+  eventJump: (shortId: string) => "crm-contract-event-" + shortId,
   pager: "crm-contracts-pager",
   contractTab: "crm-deal-contract",
   paymentsTab: "crm-deal-payments",

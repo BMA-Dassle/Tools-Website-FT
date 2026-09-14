@@ -76,6 +76,20 @@ export const PILL_TITLE: Record<string, string> = {
   none: "No group-function contract for this event",
 };
 
+/**
+ * The tooltip and accessible name on the Events row's money pill, now that the
+ * pill is the jump to the contract behind the event (owner, 2026-09-13:
+ * "Contracts should be more intergrated to events").
+ *
+ * It names the contract by its short id where there is one, and always says
+ * where the contract stands — the pill's own label — so the control announces
+ * both what it opens and what it will show.
+ */
+export function contractJumpTitle(row: EventRowView): string {
+  const ref = row.contract?.shortId ? ` #${row.contract.shortId}` : "";
+  return `Open the contract${ref} · ${row.pill.label}`;
+}
+
 /** `Sep 16` etc. for the toast after a create. */
 export function eventShortDate(ymd: string): string {
   const p = dateParts(ymd);
