@@ -298,7 +298,14 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       become 30 day-reads; widen the query instead. Keep the URL the state
       (`?date=` already is), so a range stays shareable.
 
-- [ ] **Status filters on the Events page.** Owner, 2026-09-14: "filters based
+- [x] **Status filters on the Events page.** DONE 2026-09-14 — the money pills
+      ARE the filter now (they described the board and did nothing). Filtered
+      client-side because every row already carries its `pill.kind`, so it
+      costs no second read of Office — which matters on the All board, where
+      one day is three centre reads. In the URL, so "every unsigned event in
+      October" is a link, and the empty state names the filter rather than
+      claiming there is no data. STILL OPEN: our own pipeline status alongside
+      the BMI state. ORIGINAL NOTE: Owner, 2026-09-14: "filters based
       on statues on events page?" The header already shows PAID / DEPOSIT /
       UNSIGNED as legend pills and a "BMI state" control, but none of them
       FILTER — they only describe. Make the money pills togglable filters, and
@@ -321,7 +328,14 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
         reach"), director-only to edit.
       Do NOT build it as a static file — the whole value is the ack trail.
 
-- [ ] **A PRE-SHIFT NOTE FROM THE OWNER on My Day.** Owner, 2026-09-14: "Would
+- [x] **A PRE-SHIFT NOTE FROM THE OWNER on My Day.** DONE 2026-09-14 —
+      `crm_daily_notes` + `crm_daily_note_reads`, a card at the top of My Day,
+      and a compose box that stays out of the way until a director asks for it.
+      Belongs to ONE DATE and expires by being about yesterday. Audience
+      narrows (everyone / a centre / one rep) and the most specific shows
+      first. "Got it" dismisses PER REP and does not delete, so "did the team
+      see Friday's note" still has an answer — which is most of the point.
+      ORIGINAL NOTE: Owner, 2026-09-14: "Would
       be cool to have a little note for the day from me, something like a pre
       shift that appears on their 'my day'."
       Shape: one note per day per audience (all / a centre / one rep), written
@@ -460,7 +474,14 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 
 ## Open — presentation
 
-- [ ] **The deal header's icons and chips.** Owner, 2026-09-14: "Fix icons and
+- [x] **The deal header's icons and chips.** DONE 2026-09-14 — the "?" avatar
+      is gone (an unowned deal says "Unassigned"); the money is never an em
+      dash in hero type (the countdown leads when there is no quote, so the
+      biggest thing always carries information); the BMI chip appears only when
+      Office disagrees with the status beside it; the reference number stopped
+      wearing a state pill; and `.facts .icon` forced 15px over a 16px glyph,
+      which is why that row read thinner than the buttons next to it.
+      ORIGINAL NOTE: Owner, 2026-09-14: "Fix icons and
       such. Even worse on mobile." Seen on H3449 at desktop width:
       - A bare circular **"?" avatar** sits between the project number and the
         centre chip — that is the rep avatar rendering its unknown state on an
@@ -475,7 +496,13 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       Do this together with the header design pass below rather than as
       separate nudges.
 
-- [ ] **The email thread layout does not scale.** Owner, 2026-09-14: "think
+- [x] **The email thread layout now scales.** DONE 2026-09-14 — cards collapse
+      to who, when and the first line actually written; the newest stays open
+      because it is the one being replied to; quoted trails fold behind "Show
+      quoted text". `splitQuoted` cuts at the first quote prefix or attribution
+      line, never hides everything, and discards nothing. STILL OPEN: pinning
+      the composer so it does not travel down the page.
+      ORIGINAL NOTE: Owner, 2026-09-14: "think
       there is a beter layout of this screen espcailly when you start getting
       alot of emails back and forth." Today the deal's Email sheet stacks the
       whole thread above the compose form, so with a dozen messages the reply

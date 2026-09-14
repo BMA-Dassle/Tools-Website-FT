@@ -5014,3 +5014,22 @@ body:has(.crm-root) {
     transition: none;
   }
 }
+
+/* ── A pressed money filter has to LOOK pressed ────────────────────────────
+   Owner, 2026-09-14: "filters based on statues on events page?" The Events
+   legend now filters, and a filter that gives no sign it is on is worse than
+   no filter — somebody sees a short board and concludes the data is missing.
+
+   `aria-pressed` is already the accessible truth, so the style hangs off it
+   rather than a second class that could drift out of step with it. The chip
+   keeps its own hue (that hue is the whole legend); what changes is that it
+   stops looking like a label and starts looking like a switch. */
+.crm-root .chip-button[aria-pressed="true"] .chip {
+  box-shadow: 0 0 0 2px var(--accent);
+  font-weight: 600;
+}
+/* Unpressed siblings recede while ANY filter is on, so the board says at a
+   glance which states it is showing. */
+.crm-root .hstack:has(.chip-button[aria-pressed="true"]) .chip-button[aria-pressed="false"] .chip {
+  opacity: 0.45;
+}

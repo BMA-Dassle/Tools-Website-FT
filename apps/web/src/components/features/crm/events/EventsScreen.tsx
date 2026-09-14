@@ -10,6 +10,7 @@ import type { CentreCode } from "~/features/crm/core/types";
 import {
   EVENTS_COPY,
   EVENT_TEST_IDS,
+  type EventPillKind,
   type EventRowView,
   type EventsView,
 } from "~/features/crm/events/contracts";
@@ -56,6 +57,18 @@ const CENTRE_OPTIONS = [
   ...CENTRE_CODES.map((code) => ({ value: code, label: CENTRES[code].short })),
 ];
 
+/**
+ * The three money states worth filtering on, in the order the legend has
+ * always drawn them. "gf" and "none" are deliberately absent: "some other
+ * contract state" and "no contract" are not what anybody means by "show me the
+ * unsigned ones", and a filter nobody can name is a filter nobody uses.
+ */
+const MONEY_FILTERS: ReadonlyArray<{ kind: EventPillKind; label: string; chip: "won" | "warn" }> = [
+  { kind: "paid", label: "PAID", chip: "won" },
+  { kind: "deposit", label: "DEPOSIT", chip: "won" },
+  { kind: "unsigned", label: "UNSIGNED", chip: "warn" },
+];
+
 function isCentre(value: string | undefined): value is CentreCode {
   return !!value && (CENTRE_CODES as readonly string[]).includes(value);
 }
@@ -81,6 +94,20 @@ export default function EventsScreen({ query }: ScreenProps) {
    * is the same noise the pipeline cards carried.
    */
   const showCentre = centre === "all";
+
+  /**
+   * The money states being shown, from `?money=paid,unsigned`. Empty = all of
+   * them, which is the default and what a planner wants nine days in ten.
+   */
+  const money = (urlQuery.money ?? "")
+    .split(",")
+    .map((m) => m.trim())
+    .filter((m): m is EventPillKind => MONEY_FILTERS.some((f) => f.kind === m));
+
+  const toggleMoney = (kind: EventPillKind) => {
+    const next = money.includes(kind) ? money.filter((m) => m !== kind) : [...money, kind];
+    setUrlQuery({ money: next.length ? next.join(",") : null });
+  };
   const view: EventsView = urlQuery.view === "day" ? "day" : "week";
   const includeCancelled = urlQuery.cancelled === "1";
   const date = /^\d{4}-\d{2}-\d{2}$/.test(urlQuery.date ?? "")
@@ -170,7 +197,20 @@ export default function EventsScreen({ query }: ScreenProps) {
       ),
     });
 
-  const days = q.data?.days ?? [];
+  /**
+   * The board, narrowed to the money states being asked for.
+   *
+   * Filtered HERE rather than in the query, because every row already carries
+   * its own `pill.kind` — so this costs no second read of Office, which matters
+   * most on the All board where one day is three centre reads. A day whose rows
+   * are all filtered out keeps its band: an empty Friday is information ("none
+   * unsigned that day"), where a missing Friday reads as a bug.
+   */
+  const days = (q.data?.days ?? []).map((band) =>
+    money.length === 0
+      ? band
+      : { ...band, events: band.events.filter((e) => money.includes(e.pill.kind)) },
+  );
 
   /**
    * Stepping order for the deal drawer: the board's own day order, but ONLY
@@ -272,10 +312,33 @@ export default function EventsScreen({ query }: ScreenProps) {
             onChange={(e) => setUrlQuery({ date: e.target.value || null })}
           />
         </div>
+        {/* THE LEGEND IS THE FILTER.
+            These three described the board and did nothing — a row of chips
+            that look exactly like the ones on every row, next to a control
+            ("BMI state") that also only described. Owner, 2026-09-14: "filters
+            based on statues on events page?"
+            Pressed, each one narrows the board to that money state; pressed
+            again it lets go. CLIENT-SIDE, deliberately: every row already
+            carries its own `pill.kind`, so filtering costs no second read of
+            Office — which matters on the All board, where a day is three
+            centre reads. It lives in the URL like every other filter, so a
+            link to "every unsigned event in October" is a link. */}
         <div className="hstack xs muted">
-          <Chip kind="won">PAID</Chip>
-          <Chip kind="won">DEPOSIT</Chip>
-          <Chip kind="warn">UNSIGNED</Chip>
+          {MONEY_FILTERS.map((f) => {
+            const on = money.includes(f.kind);
+            return (
+              <button
+                key={f.kind}
+                type="button"
+                className="chip-button"
+                aria-pressed={on}
+                title={on ? `Stop showing only ${f.label}` : `Show only ${f.label}`}
+                onClick={() => toggleMoney(f.kind)}
+              >
+                <Chip kind={f.chip}>{f.label}</Chip>
+              </button>
+            );
+          })}
           <Chip bmi>BMI state</Chip>
           <label className="hstack xs muted" style={{ gap: 6 }}>
             <input
@@ -297,8 +360,27 @@ export default function EventsScreen({ query }: ScreenProps) {
         <div className="stack" style={{ gap: 10 }} data-testid={EVENT_TEST_IDS.board}>
           {nothing ? (
             <EmptyState>
-              No group events {centre === "all" ? "anywhere" : `at ${CENTRES[centre].short}`} in
-              this window.
+              {/* Say WHY it is empty. "No group events" under three pressed
+                  filters is a screen telling somebody their data is missing
+                  when in fact they hid it themselves. */}
+              {money.length > 0 ? (
+                <>
+                  No {money.join(" or ")} events{" "}
+                  {centre === "all" ? "anywhere" : `at ${CENTRES[centre].short}`} in this window.{" "}
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => setUrlQuery({ money: null })}
+                  >
+                    Show all
+                  </button>
+                </>
+              ) : (
+                <>
+                  No group events {centre === "all" ? "anywhere" : `at ${CENTRES[centre].short}`} in
+                  this window.
+                </>
+              )}
             </EmptyState>
           ) : null}
           {days.map((band) => (
