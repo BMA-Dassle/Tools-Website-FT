@@ -46,13 +46,24 @@ const VIEW_OPTIONS: { value: EventsView; label: string }[] = [
   { value: "week", label: "Week" },
 ];
 
-const CENTRE_OPTIONS = CENTRE_CODES.map((code) => ({
-  value: code,
-  label: CENTRES[code].short,
-}));
+/**
+ * "All" leads, because a planner asking "what is on this week" usually means
+ * the company, not one building. Owner, 2026-09-14: "I'd like an 'all' in top
+ * right."
+ */
+const CENTRE_OPTIONS = [
+  { value: "all", label: "All" },
+  ...CENTRE_CODES.map((code) => ({ value: code, label: CENTRES[code].short })),
+];
 
 function isCentre(value: string | undefined): value is CentreCode {
   return !!value && (CENTRE_CODES as readonly string[]).includes(value);
+}
+
+type CentreFilter = CentreCode | "all";
+
+function isCentreFilter(value: string | undefined): value is CentreFilter {
+  return value === "all" || isCentre(value);
 }
 
 export default function EventsScreen({ query }: ScreenProps) {
@@ -63,7 +74,13 @@ export default function EventsScreen({ query }: ScreenProps) {
   const toast = useCrmToast();
   const [urlQuery, setUrlQuery] = useUrlQuery(query);
 
-  const centre: CentreCode = isCentre(urlQuery.centre) ? urlQuery.centre : "HPFM";
+  const centre: CentreFilter = isCentreFilter(urlQuery.centre) ? urlQuery.centre : "HPFM";
+  /**
+   * The row's own centre is only worth printing when the board is mixing them.
+   * On a board already filtered to Fort Myers, "HP Fort Myers" down every row
+   * is the same noise the pipeline cards carried.
+   */
+  const showCentre = centre === "all";
   const view: EventsView = urlQuery.view === "day" ? "day" : "week";
   const includeCancelled = urlQuery.cancelled === "1";
   const date = /^\d{4}-\d{2}-\d{2}$/.test(urlQuery.date ?? "")
@@ -279,7 +296,10 @@ export default function EventsScreen({ query }: ScreenProps) {
       {q.data ? (
         <div className="stack" style={{ gap: 10 }} data-testid={EVENT_TEST_IDS.board}>
           {nothing ? (
-            <EmptyState>No group events at {CENTRES[centre].short} in this window.</EmptyState>
+            <EmptyState>
+              No group events {centre === "all" ? "anywhere" : `at ${CENTRES[centre].short}`} in
+              this window.
+            </EmptyState>
           ) : null}
           {days.map((band) => (
             <DayBand
@@ -288,6 +308,7 @@ export default function EventsScreen({ query }: ScreenProps) {
               todayYmd={today}
               onOpenEvent={(row) => void openEvent(row)}
               onOpenContract={(row) => void openEvent(row, "contract")}
+              showCentre={showCentre}
             />
           ))}
         </div>

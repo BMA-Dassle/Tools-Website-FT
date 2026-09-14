@@ -45,6 +45,19 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 const enabled = process.env.E2E_ADMIN_SSO === "1";
 test.skip(!enabled, "set E2E_ADMIN_SSO=1 to run the CRM mobile audit");
 
+/**
+ * A TOUCH DEVICE, not merely a narrow window.
+ *
+ * The tap-target rules are keyed on `(hover: none) and (pointer: coarse)`,
+ * because what decides them is whether a finger or a cursor is pointing — a
+ * tablet at 900px is a thumb and a narrow desktop window is not. Playwright's
+ * desktop Chrome reports `pointer: fine` however small the viewport, so the
+ * first run of this rig resized the window, measured the same 34x34 controls
+ * it had measured before, and would have let me report a fix that was never
+ * exercised. `hasTouch` is what makes the media query match.
+ */
+test.use({ hasTouch: true });
+
 const OUT = path.resolve(__dirname, "../test-results/crm-mobile");
 
 /** iPhone 13/14/15 logical width, and the small-Android floor. */

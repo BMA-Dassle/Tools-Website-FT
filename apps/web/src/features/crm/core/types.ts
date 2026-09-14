@@ -510,6 +510,10 @@ export const JOB_KINDS = [
   // email until a planner owns the lead is right; holding them for ever is
   // silence, so this is the deadline that ends the wait.
   "guest-intro-backstop",
+  // Our status and the contract are written by different rails (a rep drags
+  // the board; the contract moves when the guest signs or pays), so a deal
+  // that progressed through the guest's own actions drifts. Forward only.
+  "lead-status-reconcile",
 ] as const;
 
 export type JobKind = (typeof JOB_KINDS)[number];

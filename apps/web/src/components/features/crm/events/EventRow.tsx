@@ -4,6 +4,8 @@ import { EVENT_TEST_IDS, type EventRowView } from "~/features/crm/events/contrac
 import { moneyExact, pct } from "~/features/crm/core/format";
 import { Chip } from "../primitives/Chip";
 import { Meter } from "../primitives/Meter";
+import { Pill } from "../primitives/Pill";
+import { centreShort } from "../leads/LeadCard";
 import { PILL_TITLE, contractJumpTitle, eventMetaParts, rowTint } from "./model";
 
 /**
@@ -42,9 +44,22 @@ export interface EventRowProps {
   onOpenEvent: (row: EventRowView) => void;
   /** Opens the same deal on the Contract tab. Only called when `row.contract`. */
   onOpenContract: (row: EventRowView) => void;
+  /**
+   * Print the row's centre. True only on the "All" board — on a board already
+   * filtered to one centre, repeating its name down every row is noise.
+   * Owner, 2026-09-14: "Do we add a small pill with the lcoation when in 'all'
+   * mode?"
+   */
+  showCentre?: boolean;
 }
 
-export function EventRow({ row, todayYmd, onOpenEvent, onOpenContract }: EventRowProps) {
+export function EventRow({
+  row,
+  todayYmd,
+  onOpenEvent,
+  onOpenContract,
+  showCentre,
+}: EventRowProps) {
   const tint = rowTint(row, todayYmd);
   const meta = eventMetaParts(row);
   const collectedPct = pct(row.collectedCents, row.totalCents);
@@ -88,6 +103,9 @@ export function EventRow({ row, todayYmd, onOpenEvent, onOpenContract }: EventRo
           {row.cancelled ? <Chip kind="lost">Cancelled</Chip> : null}
         </div>
         <div className="meta">
+          {/* First on the line, because on a mixed board "where" is the thing
+              that sorts one row from the next. */}
+          {showCentre ? <Pill centre={row.centre}>{centreShort(row.centre)}</Pill> : null}
           {meta.map((m, i) => (
             <span key={i}>{m}</span>
           ))}

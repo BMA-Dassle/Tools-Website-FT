@@ -13,9 +13,16 @@ const Ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
 
 const Bool = z.enum(["1", "0", "true", "false"]).optional();
 
-/** GET /events?centre=&view=&date=&cancelled= */
+/**
+ * GET /events?centre=&view=&date=&cancelled=
+ *
+ * `centre` accepts "all" HERE ONLY — the board fans out across the three
+ * locations and merges the days (owner, 2026-09-14: "I'd like an 'all' in top
+ * right"). Every other events route still takes exactly one centre, because
+ * they address a single Office project and "all" would be meaningless.
+ */
 export const EventsBoardQuerySchema = z.object({
-  centre: z.enum(CENTRE_CODES),
+  centre: z.union([z.enum(CENTRE_CODES), z.literal("all")]),
   view: z.enum(EVENTS_VIEWS).optional(),
   date: Ymd.optional(),
   cancelled: Bool,

@@ -102,6 +102,11 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
     const m = await import("~/features/crm/leads");
     return { ok: true, result: await m.runGuestIntroBackstop() };
   },
+  // Daily: advance any lead whose contract has already moved past it.
+  "lead-status-reconcile": async () => {
+    const m = await import("~/features/crm/leads");
+    return { ok: true, result: await m.runStatusReconcile() };
+  },
 };
 
 /** Kinds a director may run from the Statuses screen — everything registered. */

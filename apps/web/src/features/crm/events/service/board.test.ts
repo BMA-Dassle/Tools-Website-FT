@@ -285,3 +285,90 @@ describe("leadLink / resolveBoardDate", () => {
     expect(typeof d.listFoodOut).toBe("function");
   });
 });
+
+describe('eventsBoard — centre "all"', () => {
+  /**
+   * Owner, 2026-09-14: "I'd like an 'all' in top right." Each centre is its own
+   * Office `locationId` (Fort Myers and FastTrax share a TENANT but not a
+   * location), so All is a fan-out and a merge, not a different read.
+   */
+  const LOCATIONS: Record<number, string> = {
+    332160: "HPFM",
+    467486: "FT",
+    332145: "HPN",
+  };
+
+  function allDeps(perLocation: Record<number, Reservation[] | Error>) {
+    const seen: number[] = [];
+    return {
+      deps: {
+        listDailyEvents: async (locationId: number, _date: string) => {
+          seen.push(locationId);
+          const day = perLocation[locationId];
+          if (day instanceof Error) throw day;
+          return { reservations: day ?? [] };
+        },
+        listQuotes: async () => [],
+        listLeads: async () => [],
+        listFoodOut: async () => new Map<string, EventFoodOut>(),
+        now: () => new Date("2026-09-16T16:00:00.000Z"),
+      },
+      seen,
+    };
+  }
+
+  it("reads every centre and merges the day, sorted by start time", async () => {
+    const { deps: d, seen } = allDeps({
+      332160: [res({ id: "10", number: "H10", when: "2026-09-16T18:00:00" })],
+      467486: [res({ id: "20", number: "F20", when: "2026-09-16T12:00:00" })],
+      332145: [res({ id: "30", number: "N30", when: "2026-09-16T15:00:00" })],
+    });
+    const board = await eventsBoard(
+      { centre: "all", view: "day", date: "2026-09-16", includeCancelled: false },
+      d,
+    );
+
+    expect([...new Set(seen)].map((l) => LOCATIONS[l]).sort()).toEqual(["FT", "HPFM", "HPN"]);
+    // One day, one board — not three centres stacked.
+    expect(board.days[0].events.map((e) => e.number)).toEqual(["F20", "N30", "H10"]);
+    expect(board.centre).toBe("all");
+  });
+
+  it("carries each row's OWN centre, which is what the pill prints", async () => {
+    const { deps: d } = allDeps({
+      332160: [res({ id: "10" })],
+      467486: [],
+      332145: [res({ id: "30", when: "2026-09-16T20:00:00" })],
+    });
+    const board = await eventsBoard(
+      { centre: "all", view: "day", date: "2026-09-16", includeCancelled: false },
+      d,
+    );
+    expect(board.days[0].events.map((e) => e.centre)).toEqual(["HPFM", "HPN"]);
+  });
+
+  it("ONE centre failing does not blank the day for the others, and says which", async () => {
+    const { deps: d } = allDeps({
+      332160: [res({ id: "10" })],
+      467486: new Error("Office 503"),
+      332145: [],
+    });
+    const board = await eventsBoard(
+      { centre: "all", view: "day", date: "2026-09-16", includeCancelled: false },
+      d,
+    );
+    expect(board.days[0].events).toHaveLength(1);
+    expect(board.days[0].error).toContain("FT");
+    expect(board.days[0].error).toContain("Office 503");
+  });
+
+  it("a single centre is unchanged — same path, one code, and no centre prefix on an error", async () => {
+    const { deps: d, seen } = allDeps({ 332160: new Error("Office 500") });
+    const board = await eventsBoard(
+      { centre: "HPFM", view: "day", date: "2026-09-16", includeCancelled: false },
+      d,
+    );
+    expect([...new Set(seen)]).toEqual([332160]);
+    expect(board.days[0].error).toBe("Office 500");
+  });
+});

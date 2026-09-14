@@ -24,9 +24,11 @@ export interface DayBandProps {
   onOpenEvent: (row: EventRowView) => void;
   /** Opens the same deal on the Contract tab, from the row's money pill. */
   onOpenContract: (row: EventRowView) => void;
+  /** Passed straight through: only the "All" board prints a centre. */
+  showCentre?: boolean;
 }
 
-export function DayBand({ band, todayYmd, onOpenEvent, onOpenContract }: DayBandProps) {
+export function DayBand({ band, todayYmd, onOpenEvent, onOpenContract, showCentre }: DayBandProps) {
   return (
     <div className="card" data-testid={EVENT_TEST_IDS.band(band.date)}>
       <div className="card-h" style={{ padding: "10px 16px" }}>
@@ -57,6 +59,7 @@ export function DayBand({ band, todayYmd, onOpenEvent, onOpenContract }: DayBand
               todayYmd={todayYmd}
               onOpenEvent={onOpenEvent}
               onOpenContract={onOpenContract}
+              showCentre={showCentre}
             />
           ))}
         </div>

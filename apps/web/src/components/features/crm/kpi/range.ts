@@ -16,6 +16,8 @@ export interface RangeOption {
   label: string;
   key: string;
   kind: "month" | "quarter";
+  /** THIS ET month — what the picker falls back to. */
+  current?: true;
 }
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -37,32 +39,54 @@ function shift(year: number, month: number, by: number): { year: number; month: 
   return { year: Math.floor(total / 12), month: (total % 12) + 1 };
 }
 
-function monthOption(year: number, month: number, showYear: boolean): RangeOption {
+function monthOption(year: number, month: number, showYear: boolean, current = false): RangeOption {
   const key = `${year}-${String(month).padStart(2, "0")}`;
   return {
     value: key,
     label: showYear ? `${MON[month - 1]} ${String(year).slice(2)}` : MON[month - 1],
     key,
     kind: "month",
+    ...(current ? { current: true as const } : {}),
   };
 }
 
-/** Three months back, this month, next month, then this quarter. */
+/**
+ * Two months back, this month, THREE forward, then this quarter and the next.
+ *
+ * It was three back and ONE forward, which is the shape of a window for a
+ * business that sells today for today. Group events are not that: a September
+ * board is mostly November and December, and the owner could not reach either
+ * — "I should be able to select dates in q4 like nov and dec" (2026-09-14).
+ *
+ * So the window leans FORWARD, which is where the money being worked actually
+ * sits, and the next quarter joins this one so "how is Q4 shaping up" is one
+ * press rather than three months compared by hand. One month of hindsight is
+ * given up for it; the month just gone is still there, and anything older is a
+ * `?month=` URL away.
+ */
 export function rangeOptions(now: Date): RangeOption[] {
   const { year, month } = etParts(now);
   const months: RangeOption[] = [];
-  for (let by = -3; by <= 1; by++) {
+  for (let by = -2; by <= 3; by++) {
     const s = shift(year, month, by);
-    months.push(monthOption(s.year, s.month, s.year !== year));
+    months.push(monthOption(s.year, s.month, s.year !== year, by === 0));
   }
   const quarter = Math.floor((month - 1) / 3) + 1;
-  months.push({
-    value: `${year}-Q${quarter}`,
-    label: `Q${quarter}`,
-    key: `${year}-Q${quarter}`,
-    kind: "quarter",
-  });
+  for (const [qy, q] of quarterPair(year, quarter)) {
+    months.push({
+      value: `${qy}-Q${q}`,
+      label: `Q${q}`,
+      key: `${qy}-Q${q}`,
+      kind: "quarter",
+    });
+  }
   return months;
+}
+
+/** This quarter and the next, rolling into next year after Q4. */
+function quarterPair(year: number, quarter: number): Array<[number, number]> {
+  const next = quarter === 4 ? ([year + 1, 1] as [number, number]) : [year, quarter + 1];
+  return [[year, quarter], next as [number, number]];
 }
 
 /**
@@ -80,5 +104,10 @@ export function windowKeyOf(
   for (const candidate of [resolved, quarter, month]) {
     if (candidate && options.some((o) => o.value === candidate)) return candidate;
   }
-  return options[3]?.value ?? options[0]?.value ?? "";
+  // The CURRENT month, found by its flag rather than by position. This was
+  // `options[3]`, which silently became the wrong month the moment the window
+  // was widened for Q4 — an index into a list somebody else may re-shape is a
+  // bug waiting for its edit.
+  const current = options.find((o) => o.current);
+  return current?.value ?? options[0]?.value ?? "";
 }

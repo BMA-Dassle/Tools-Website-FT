@@ -156,6 +156,18 @@ export {
   type BackstopResult,
 } from "./service/guest-intro-backstop";
 export {
+  runStatusReconcile,
+  defaultReconcileDeps,
+  statusReconcileKey,
+  movesFor,
+  OUR_RANK,
+  FROM_CONTRACT,
+  type ReconcileCandidate,
+  type ReconcileMove,
+  type ReconcileDeps,
+  type ReconcileResult,
+} from "./service/status-reconcile";
+export {
   suggestFor,
   toEngineLead,
   NO_SUGGESTION,

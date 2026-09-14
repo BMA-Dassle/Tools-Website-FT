@@ -6,16 +6,28 @@ const SAT_EVENING = new Date("2026-09-12T23:30:00Z");
 const SAT_LATE = new Date("2026-09-13T01:00:00Z");
 
 describe("rangeOptions", () => {
-  it("offers three months back, this month, next month and this quarter", () => {
+  /**
+   * LEANS FORWARD, because group events are sold months ahead: a September
+   * board is mostly November and December, and neither was reachable. Owner,
+   * 2026-09-14: "I should be able to select dates in q4 like nov and dec."
+   */
+  it("offers two months back, this month, three forward, this quarter and the next", () => {
     const o = rangeOptions(SAT_EVENING);
     expect(o.map((r) => r.key)).toEqual([
-      "2026-06",
       "2026-07",
       "2026-08",
       "2026-09",
       "2026-10",
+      "2026-11",
+      "2026-12",
       "2026-Q3",
+      "2026-Q4",
     ]);
+  });
+
+  it("marks exactly one option as the current month", () => {
+    const current = rangeOptions(SAT_EVENING).filter((r) => r.current);
+    expect(current.map((r) => r.key)).toEqual(["2026-09"]);
   });
 
   it("is derived in ET, so a late Eastern evening is still September", () => {
@@ -27,21 +39,25 @@ describe("rangeOptions", () => {
   it("rolls the year backwards and names it when it differs", () => {
     const o = rangeOptions(new Date("2026-01-15T17:00:00Z"));
     expect(o.map((r) => r.key)).toEqual([
-      "2025-10",
       "2025-11",
       "2025-12",
       "2026-01",
       "2026-02",
+      "2026-03",
+      "2026-04",
       "2026-Q1",
+      "2026-Q2",
     ]);
-    expect(o[0].label).toBe("Oct 25");
-    expect(o[3].label).toBe("Jan");
+    expect(o[0].label).toBe("Nov 25");
+    expect(o[2].label).toBe("Jan");
   });
 
   it("rolls forward across December", () => {
     const o = rangeOptions(new Date("2026-12-15T17:00:00Z"));
     expect(o.map((r) => r.key)).toContain("2027-01");
-    expect(o.at(-1)!.key).toBe("2026-Q4");
+    expect(o.map((r) => r.key)).toContain("2027-03");
+    // Q4 then Q1 of the NEXT year — the pair rolls over with the months.
+    expect(o.filter((r) => r.kind === "quarter").map((r) => r.key)).toEqual(["2026-Q4", "2027-Q1"]);
   });
 
   it("uses the same string for the value and the URL key, so a choice is shareable", () => {

@@ -19,6 +19,7 @@
 
 import { reconcileIdempotencyKey } from "~/features/crm/calls";
 import { guestIntroBackstopKey } from "~/features/crm/leads/service/guest-intro-backstop";
+import { statusReconcileKey } from "~/features/crm/leads/service/status-reconcile";
 import { mirrorIdempotencyKey, sweepIdempotencyKey } from "~/features/crm/rules";
 import { enqueueDeltaTicks } from "~/features/crm/bmi/service/delta";
 import { neonJobStore, type JobStore } from "./data/jobs-db";
@@ -54,6 +55,9 @@ export const SCHEDULED_KINDS: readonly ScheduledKind[] = [
   // One row per ET hour: the deadline on a welcome held for a planner who
   // never arrived.
   { kind: "guest-intro-backstop", key: guestIntroBackstopKey },
+  // One row per ET day: our status against the contract's. It was a script run
+  // by hand, and the drift starts again the next morning.
+  { kind: "lead-status-reconcile", key: statusReconcileKey },
 ];
 
 export interface ScheduledEnqueue {

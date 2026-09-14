@@ -87,7 +87,42 @@ export function BoardArrows({ scroller, step = DEFAULT_STEP, unit = "column" }: 
       el.scrollBy({ left: e.deltaY, behavior: "auto" });
     };
 
+    /**
+     * ARROW KEYS PAN THE BOARD — always, not only once something has focus.
+     *
+     * Owner, 2026-09-14: "Keyboard arrrows should always work on this screen."
+     * The header above this file already claimed they did; nothing implemented
+     * it, and a board only responds to arrows natively when the scroller itself
+     * is focused, which it never is after a page load.
+     *
+     * THREE THINGS IT REFUSES TO STEAL:
+     *   - a field. Arrow keys move a caret, and taking them mid-sentence in a
+     *     note is the worst possible trade for a scroll.
+     *   - the deal drawer. When one is open the same keys step deal to deal
+     *     (`DealStepper`), which is the more specific meaning and belongs to
+     *     the thing on top. Checked by the drawer's presence rather than by
+     *     listener order, which depends on mount order and would flip the day
+     *     a screen renders them the other way round.
+     *   - a modifier combination: ⌥← is browser history.
+     */
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      if (el.scrollWidth <= el.clientWidth) return;
+      if (document.querySelector('[data-testid="crm-deal-drawer"]')) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active) {
+        const tag = active.tagName.toLowerCase();
+        if (tag === "input" || tag === "textarea" || tag === "select" || active.isContentEditable) {
+          return;
+        }
+      }
+      e.preventDefault();
+      el.scrollBy({ left: e.key === "ArrowLeft" ? -step : step, behavior: "smooth" });
+    };
+
     el.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("keydown", onKey);
     // Not passive: translating the gesture requires preventDefault.
     el.addEventListener("wheel", onWheel, { passive: false });
     // `observe` fires the callback once for the element straight away, which
@@ -98,11 +133,12 @@ export function BoardArrows({ scroller, step = DEFAULT_STEP, unit = "column" }: 
     ro.observe(el);
     return () => {
       el.removeEventListener("scroll", onScroll);
+      window.removeEventListener("keydown", onKey);
       el.removeEventListener("wheel", onWheel);
       ro.disconnect();
       if (frame.current !== null) cancelAnimationFrame(frame.current);
     };
-  }, [scroller]);
+  }, [scroller, step]);
 
   const go = (dir: -1 | 1) => {
     const el = scroller.current;

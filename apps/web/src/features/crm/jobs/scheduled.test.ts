@@ -67,6 +67,13 @@ describe("enqueueScheduled", () => {
         idempotencyKey: "guest-intro-backstop:2026-09-12T19",
         created: true,
       },
+      // Our status against the contract's, once an ET DAY — the drift it fixes
+      // accumulates over days, not minutes, and it reads every live contract.
+      {
+        kind: "lead-status-reconcile",
+        idempotencyKey: "lead-status-reconcile:2026-09-12",
+        created: true,
+      },
     ]);
     expect(s.inserts.every((i) => i.createdBy === "cron")).toBe(true);
   });
@@ -80,10 +87,10 @@ describe("enqueueScheduled", () => {
       SCHEDULED_KINDS,
       noDelta,
     );
-    expect(second.map((r) => r.created)).toEqual([false, false, false, false]);
-    expect(s.rows.size).toBe(4);
+    expect(second.map((r) => r.created)).toEqual([false, false, false, false, false]);
+    expect(s.rows.size).toBe(5);
     // The INSERT is still attempted — the unique index is what de-duplicates.
-    expect(s.inserts).toHaveLength(8);
+    expect(s.inserts).toHaveLength(10);
   });
 
   it("the next ET hour is a new sweep bucket; the mirror stays on the same ET day", async () => {
@@ -111,6 +118,12 @@ describe("enqueueScheduled", () => {
         kind: "guest-intro-backstop",
         idempotencyKey: "guest-intro-backstop:2026-09-12T20",
         created: true,
+      },
+      // Same ET DAY as the 19:00 tick, so this one creates nothing.
+      {
+        kind: "lead-status-reconcile",
+        idempotencyKey: "lead-status-reconcile:2026-09-12",
+        created: false,
       },
     ]);
   });

@@ -53,7 +53,22 @@ const numberFrom = (value: string | undefined): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-const BMI_RESOURCES_TOAST = "BMI resources tab — coming later (needs product keys)";
+/**
+ * THE BMI RESOURCES TAB IS REAL NOW.
+ *
+ * It was a stub that fired a toast — "coming later (needs product keys)" —
+ * while the reader underneath it had been generic all along: `heats.ts` asks
+ * `getResourceIdsForLocation(clientKey, locationId)` and reads Office's
+ * `dayPlanner`, with nothing FastTrax-specific about it. What actually hid it
+ * was `isHeats`, which is true only where there is no QAMF bowling grid — so
+ * HeadPinz, which HAS one, never reached the panel even though the Arena and
+ * Shuffly live in exactly the same place. Owner, 2026-09-14: "When you try to
+ * swtich to BMI board says not available yet. But yet we have it working on
+ * Fasttrax. FOr headpinz we just need hte arena, shuffly, etc."
+ *
+ * No product keys were ever needed to READ. They are needed to BOOK, which is
+ * C5's job and still is.
+ */
 
 export default function AvailabilityScreen({ view, query }: ScreenProps) {
   // ---- hooks above every early return (react-hooks/rules-of-hooks) ----
@@ -82,6 +97,8 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
   });
 
   const isHeats = gridQ.data?.source === "heats";
+  /** The heat grid is on screen when the engine picked it OR the rep asked. */
+  const showHeats = isHeats || tab === "bmi";
   const heatsParams = {
     centre: gridQ.data?.request.centre,
     date: gridQ.data?.request.date,
@@ -92,7 +109,10 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
   const heatsQ = useQuery({
     queryKey: availabilityKeys.heats(heatsParams),
     queryFn: () => fetchHeats(crmFetch, heatsParams),
-    enabled: isHeats,
+    // Either the engine chose heats (FastTrax has no lane grid) or the rep
+    // asked for them (HeadPinz: the Arena, Shuffly, anything else Office
+    // schedules by block).
+    enabled: isHeats || tab === "bmi",
     placeholderData: keepPreviousData,
   });
 
@@ -166,13 +186,7 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
                   { value: "bmi", label: "BMI resources" },
                 ]}
                 value={tab}
-                onChange={(v) => {
-                  if (v === "bmi") {
-                    toast(BMI_RESOURCES_TOAST);
-                    return;
-                  }
-                  setTab(v);
-                }}
+                onChange={(v) => setTab(v)}
               />
               <button
                 type="button"
@@ -302,14 +316,14 @@ export default function AvailabilityScreen({ view, query }: ScreenProps) {
         </div>
       ) : null}
 
-      {isHeats && heatsQ.data ? (
+      {showHeats && heatsQ.data ? (
         <HeatsPanel
           data={heatsQ.data}
           onSelectResource={(resourceId) => setUrlQuery({ resource: resourceId })}
         />
       ) : null}
-      {isHeats && heatsQ.isPending ? <LoadingState label="Reading the heat grid…" /> : null}
-      {isHeats && heatsQ.isError ? (
+      {showHeats && heatsQ.isPending ? <LoadingState label="Reading the heat grid…" /> : null}
+      {showHeats && heatsQ.isError ? (
         <div className="pad" data-testid={AVAILABILITY_TEST_IDS.heats}>
           <ErrorState message={errorMessage(heatsQ.error)} onRetry={() => void heatsQ.refetch()} />
         </div>
