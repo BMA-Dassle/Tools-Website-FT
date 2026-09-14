@@ -43,6 +43,7 @@ import {
   withWeekHeaders,
 } from "./model";
 import { fetchContracts } from "./queries";
+import { live, LIVE_LIST_MS } from "../lib/live";
 
 /**
  * `/admin/crm/contracts` — the prototype's `contracts` screen (crm-events.js:209).
@@ -98,6 +99,7 @@ export default function ContractsScreen({ query }: ScreenProps) {
         cursor,
         limit: CONTRACTS_PAGE_SIZE,
       }),
+    ...live(LIVE_LIST_MS),
   });
 
   // The rep dropdown's names. `/roster` is the roster every role may read; it

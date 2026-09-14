@@ -142,6 +142,15 @@ export interface LeadRowRaw {
   mint_error: string | null;
   mint_attempts: number;
   gf_short_id: string | null;
+  gf_status: string | null;
+  gf_total_cents: string | null;
+  gf_deposit_due_cents: string | null;
+  gf_balance_cents: string | null;
+  gf_collected_cents: string | null;
+  gf_deposit_paid_at: string | null;
+  gf_balance_paid_at: string | null;
+  gf_signed_at: string | null;
+  gf_sent_at: string | null;
   last_year_bmi_project_id: string | null;
   cold_row_id: string | null;
   created_by: string | null;
@@ -209,6 +218,20 @@ export function mapLeadRow(r: LeadRowRaw): LeadView {
     mintError: r.mint_error ?? null,
     mintAttempts: Number(r.mint_attempts) || 0,
     gfShortId: r.gf_short_id ?? null,
+    contract: r.gf_short_id
+      ? {
+          shortId: r.gf_short_id,
+          status: r.gf_status ?? "draft",
+          totalCents: Number(r.gf_total_cents) || 0,
+          depositDueCents: Number(r.gf_deposit_due_cents) || 0,
+          balanceCents: Number(r.gf_balance_cents) || 0,
+          collectedCents: Number(r.gf_collected_cents) || 0,
+          sentAt: r.gf_sent_at ?? null,
+          signedAt: r.gf_signed_at ?? null,
+          depositPaidAt: r.gf_deposit_paid_at ?? null,
+          balancePaidAt: r.gf_balance_paid_at ?? null,
+        }
+      : null,
     lastYearBmiProjectId: r.last_year_bmi_project_id ?? null,
     coldRowId: r.cold_row_id ? String(r.cold_row_id) : null,
     createdBy: r.created_by ?? null,
@@ -249,7 +272,16 @@ export const LEAD_SELECT = `
   l.value_cents::text AS value_cents, l.lost_reason, l.notes,
   l.bmi_project_id, l.bmi_project_number, l.bmi_state_id, l.bmi_state_name, l.bmi_person_id,
   ${ISO("l.bmi_synced_at")} AS bmi_synced_at,
-  l.mint_status, l.mint_error, l.mint_attempts, l.gf_short_id, l.last_year_bmi_project_id,
+  l.mint_status, l.mint_error, l.mint_attempts, l.last_year_bmi_project_id,
+  COALESCE(l.gf_short_id, gfq.contract_short_id) AS gf_short_id,
+  gfq.status AS gf_status, gfq.total_cents::text AS gf_total_cents,
+  gfq.deposit_due_cents::text AS gf_deposit_due_cents,
+  gfq.balance_cents::text AS gf_balance_cents,
+  gfq.collected_cents::text AS gf_collected_cents,
+  ${ISO("gfq.deposit_paid_at")} AS gf_deposit_paid_at,
+  ${ISO("gfq.balance_paid_at")} AS gf_balance_paid_at,
+  ${ISO("gfq.signed_at")} AS gf_signed_at,
+  ${ISO("gfq.sent_at")} AS gf_sent_at,
   l.cold_row_id::text AS cold_row_id, l.created_by,
   ${ISO("l.created_at")} AS created_at, ${ISO("l.updated_at")} AS updated_at, ${ISO("l.archived_at")} AS archived_at,
   c.first_name AS c_first_name, c.last_name AS c_last_name, c.phone_e164 AS c_phone_e164,
@@ -259,12 +291,33 @@ export const LEAD_SELECT = `
   rq.slug AS rq_slug, rq.first_name AS rq_first_name, rq.display_name AS rq_display_name
 `;
 
+/**
+ * THE CONTRACT JOIN IS PROJECT-FIRST, NEVER `gf_short_id`.
+ *
+ * `crm_leads.gf_short_id` is NULL on all 189 rows and nothing has ever
+ * populated it. Every screen that gated on it — the deal drawer's Contract
+ * tab, its Payments tab, its History tab — therefore reported "no quote yet"
+ * over a paid deposit. Owner, on Juniper Landscaping / H2892: "this one has
+ * contract payments everyting but not seeing that stuff in CRM."
+ *
+ * Both sides already carry the BMI project id, so the join is on the thing
+ * that is actually there. Measured 2026-09-13: 152 of 187 live leads have a
+ * contract reachable this way and NONE of them through `gf_short_id`, and no
+ * project has more than one quote (so the row is unambiguous; `bmi_project_id`
+ * is indexed by `crm_leads_bmi`).
+ *
+ * `gf_short_id` is COALESCEd rather than dropped: if anything ever does write
+ * it, an explicit link beats an inferred one. No backfill — a column nobody
+ * writes does not need repairing, it needs not being depended on.
+ */
 export const LEAD_FROM = `
   FROM crm_leads l
   LEFT JOIN crm_contacts c ON c.id = l.contact_id
   LEFT JOIN crm_accounts a ON a.id = l.account_id
   LEFT JOIN crm_reps r ON r.id = l.assigned_rep_id
   LEFT JOIN crm_reps rq ON rq.id = l.requested_rep_id
+  LEFT JOIN group_function_quotes gfq
+    ON l.bmi_project_id IS NOT NULL AND gfq.bmi_reservation_id = l.bmi_project_id
 `;
 
 /** `L-123` or `123` → `123`; anything else → null. */

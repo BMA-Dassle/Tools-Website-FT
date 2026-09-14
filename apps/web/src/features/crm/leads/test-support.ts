@@ -129,6 +129,7 @@ export function makeLead(overrides: Partial<LeadView> & Pick<LeadView, "id">): L
     heldForRep: null,
     firstTouchAt: null,
     guestIntroAt: null,
+    contract: null,
     nextAction: null,
     valueCents: 0,
     lostReason: null,

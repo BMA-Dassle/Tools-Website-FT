@@ -79,6 +79,21 @@ export const UNASSIGNED_CHAT_ENV_FALLBACK = "CRM_JACOB_TEAMS_CHAT_ID";
 export const UNASSIGNED_CHAT_ID_DEFAULT = "19:0c8d8c8667274428a5a81c33a66eff72@thread.v2";
 
 /**
+ * Where a Teams card sends somebody who taps it. `NEXT_PUBLIC_SITE_URL` is the
+ * repo's convention for an absolute public link (`lib/healthnet-almost-here`,
+ * `lib/portal-format`); `CRM_PUBLIC_BASE_URL` overrides it so a preview
+ * deployment's cards point at the preview rather than production.
+ */
+export function crmDealUrl(publicId: string): string {
+  const base = (
+    process.env.CRM_PUBLIC_BASE_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "https://headpinz.com"
+  ).replace(/\/+$/, "");
+  return `${base}/admin/crm/deal/${encodeURIComponent(publicId)}`;
+}
+
+/**
  * Who the Assignment Pending card @-mentions. AAD object ids (not `29:`
  * prefixed) — Eric's is the `userObjectId` his own Graph token reports, and
  * Jacob's is the other half of their 1:1 chat id
@@ -412,14 +427,18 @@ async function run(input: NotifyInput, deps: NotifyDeps): Promise<NotifyOutcome>
     !planner
       ? Promise.resolve(SKIP("nobody owns this lead — the Assignment Pending card is the one"))
       : minted
-        ? postCard(planner.teamsChatId, state, deps)
+        ? postCard(planner.teamsChatId, state, deps, {
+            open: { url: crmDealUrl(lead.publicId), title: "Open in CRM" },
+          })
         : Promise.resolve(SKIP("no BMI project yet")),
     unassignedSkip
       ? Promise.resolve(SKIP(unassignedSkip))
       : postCard(unassignedChatId!, state, deps, {
           readOnly: !minted,
-          // Nobody owns it — say so to the two people who can fix that.
+          // Nobody owns it — say so to the two people who can fix that, and
+          // give them one tap to the screen where they fix it.
           mentions: UNASSIGNED_MENTIONS,
+          open: { url: crmDealUrl(lead.publicId), title: "Assign in CRM" },
         }),
   ]);
   const intro: GuestIntroOutcome =
@@ -548,6 +567,76 @@ export async function sendGuestIntro(
   return { sms, email };
 }
 
+/**
+ * The planner's Teams card for a lead that was HELD and has now been handed to
+ * somebody.
+ *
+ * At capture, `run` posts this card — but only if the lead already had an
+ * owner. A held lead has none, so nobody's chat hears about it until a
+ * director assigns it, and until 2026-09-14 nothing posted it then either:
+ * the owner assigned a parked 500-guest lead to Kelsea, got the guest email,
+ * and Kelsea's channel stayed silent. A hand-off has to tell the person it
+ * hands to.
+ *
+ * The card's buttons resolve against `salescard:{projectID}`, which capture
+ * already wrote — so the state is READ back and its planner swapped rather
+ * than rebuilt, keeping the guest details the form collected. If it has
+ * expired (90 days) the lead itself is enough to rebuild a usable card.
+ *
+ * A reassign posts too: the new owner needs the card as much as the first one
+ * did, and the old owner's card is already stale in their chat.
+ */
+export async function sendPlannerCardForAssignment(
+  input: { lead: LeadView; planner: Planner; center: CenterConfig },
+  deps: NotifyDeps = defaultNotifyDeps(),
+): Promise<ChannelOutcome> {
+  const { lead, planner, center } = input;
+  const projectID = lead.bmi.projectId;
+  const projectNumber = lead.bmi.projectNumber;
+  if (!projectID || !projectNumber) return SKIP("no BMI project yet");
+
+  const stateKey = salesCardKey(projectID);
+  let state: SalesLeadState | null = null;
+  try {
+    const raw = await deps.redisGet(stateKey);
+    if (raw) state = parseWithRawIds<SalesLeadState>(raw, [...BMI_ID_FIELDS, "projectID"]);
+  } catch (err) {
+    console.error("[crm] could not read the card state for a hand-off", {
+      lead_id: lead.id,
+      project_id: projectID,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  const next: SalesLeadState = state
+    ? { ...state, planner }
+    : stateFor(
+        { lead, mint: { status: "none", error: "rebuilt" }, source: lead.source },
+        planner,
+        center,
+        projectID,
+        projectNumber,
+        deps.now(),
+      );
+
+  const card = await postCard(planner.teamsChatId, next, deps, {
+    open: { url: crmDealUrl(lead.publicId), title: "Open in CRM" },
+  });
+  if (card.ok && card.activityId) {
+    next.cardActivityId = card.activityId;
+    await deps.redisSet(stateKey, JSON.stringify(next), STATE_TTL_SECONDS).catch(() => undefined);
+  }
+  await auditLine(
+    deps,
+    projectID,
+    "teams",
+    card,
+    planner.displayName,
+    `${planner.displayName}'s chat`,
+  ).catch(() => undefined);
+  return card;
+}
+
 async function sendGuestSms(
   lead: LeadView,
   ctx: SalesLeadCopyContext,
@@ -628,16 +717,52 @@ export function mentionBanner(
   };
 }
 
+/**
+ * Add an "open this in the CRM" button.
+ *
+ * Owner, 2026-09-14: "This needs link that opens CRM to this lead for
+ * assignment." The card's other two buttons are `Action.Execute` verbs that
+ * mark the lead acknowledged or contacted in place; neither takes anybody to
+ * the deal, so a director reading the card had to go and find it by hand.
+ *
+ * `Action.OpenUrl` goes into the SAME ActionSet as those verbs when there is
+ * one, so it sits on the same row rather than starting a second bank of
+ * buttons; a read-only card (no project yet, so no verbs) gets its own set.
+ */
+export function withOpenInCrm(
+  card: Record<string, unknown>,
+  url: string,
+  title: string,
+): Record<string, unknown> {
+  const open = { type: "Action.OpenUrl", title, url };
+  const body = Array.isArray(card.body) ? [...(card.body as Array<Record<string, unknown>>)] : [];
+  const i = body.findIndex((b) => b?.type === "ActionSet");
+  if (i >= 0) {
+    const set = body[i]!;
+    const actions = Array.isArray(set.actions) ? set.actions : [];
+    body[i] = { ...set, actions: [...actions, open] };
+  } else {
+    body.push({ type: "ActionSet", actions: [open] });
+  }
+  return { ...card, body };
+}
+
 async function postCard(
   chatId: string,
   state: SalesLeadState,
   deps: NotifyDeps,
-  opts: { readOnly?: boolean; mentions?: ReadonlyArray<{ id: string; name: string }> } = {},
+  opts: {
+    readOnly?: boolean;
+    mentions?: ReadonlyArray<{ id: string; name: string }>;
+    /** `{url, title}` for the "open in the CRM" button. */
+    open?: { url: string; title: string };
+  } = {},
 ): Promise<ChannelOutcome> {
   try {
     let card = buildSalesLeadCardForState(state);
     if (opts.readOnly) card = withoutCardActions(card);
     if (opts.mentions?.length) card = mentionBanner(card, opts.mentions);
+    if (opts.open) card = withOpenInCrm(card, opts.open.url, opts.open.title);
     const resp = await deps.sendCard(chatId, card, {
       summaryText: buildSalesLeadSummary(state),
       ...(opts.mentions?.length ? { mentions: [...opts.mentions] } : {}),

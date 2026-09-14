@@ -299,7 +299,7 @@ describe("the Assignment Pending card's buttons", () => {
     expect(stripped.type).toBe("AdaptiveCard");
   });
 
-  it("an un-minted lead gets a READ-ONLY card: its verbs read salescard:{projectID}, which is never written", async () => {
+  it("an un-minted lead loses its VERBS but keeps the link: the verbs read salescard:{projectID}, which is never written, and a URL reads nothing", async () => {
     const { deps, calls } = fakes();
     await notifyNewLead(
       { lead, mint: { status: "failed", error: "boom", httpStatus: 502 }, source: "web" },
@@ -308,7 +308,13 @@ describe("the Assignment Pending card's buttons", () => {
     expect(calls.redis).toHaveLength(0);
     expect(calls.card).toHaveLength(1);
     const card = calls.card![0]![1] as Record<string, unknown>;
-    expect(actionSets(card)).toHaveLength(0);
+    // One ActionSet, holding ONLY the link. `Action.Execute` verbs resolve
+    // against Redis state that does not exist for an un-minted lead;
+    // `Action.OpenUrl` resolves against nothing and is always safe.
+    const sets = actionSets(card) as Array<{ actions: Array<{ type: string; url?: string }> }>;
+    expect(sets).toHaveLength(1);
+    expect(sets[0]!.actions.map((a) => a.type)).toEqual(["Action.OpenUrl"]);
+    expect(sets[0]!.actions[0]!.url).toContain(`/admin/crm/deal/${lead.publicId}`);
   });
 
   it("a minted lead keeps them — the state they read exists", async () => {

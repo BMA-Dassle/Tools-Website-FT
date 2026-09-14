@@ -19,7 +19,7 @@ import {
   type QueueRepColumn,
 } from "~/features/crm/leads/contracts";
 import { requestedPlannerLabel } from "~/features/crm/leads/planners";
-import { QUEUE_POLL_MS, leadsKeys } from "~/features/crm/leads/queries";
+import { leadsKeys } from "~/features/crm/leads/queries";
 import { responseBadge } from "~/features/crm/leads/response-badge";
 import { errorMessage } from "../lib/crm-fetch";
 import {
@@ -47,6 +47,7 @@ import { NewLeadSheet } from "../leads/NewLeadSheet";
 import { assignToastText, leadTitle, relativeAge } from "../leads/model";
 import { fetchQueue, postAssign } from "../leads/queries";
 import { AssignSheet } from "./AssignSheet";
+import { live, LIVE_BOARD_MS } from "../lib/live";
 
 /**
  * `/admin/crm/queue` (direction-b.html `queue`) — director only: the Parked
@@ -83,8 +84,7 @@ export default function QueueScreen({ query }: ScreenProps) {
   const q = useQuery({
     queryKey: leadsKeys.queue(),
     queryFn: () => fetchQueue(crmFetch),
-    refetchInterval: QUEUE_POLL_MS,
-    refetchIntervalInBackground: false,
+    ...live(LIVE_BOARD_MS),
   });
 
   const autoAll = useMutation({

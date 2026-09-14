@@ -56,7 +56,9 @@ import {
   centerConfigFor,
   plannerForOwner,
   sendGuestIntro,
+  sendPlannerCardForAssignment,
   summarizeGuestIntro,
+  type ChannelOutcome,
   type GuestIntroOutcome,
 } from "./notify";
 
@@ -117,6 +119,8 @@ export interface AssignDeps {
   getSettingValue: typeof getSettingValue;
   /** The guest's welcome — sent here only when the lead was held at capture. */
   sendGuestIntro: typeof sendGuestIntro;
+  /** The new owner's Teams card. A hand-off has to tell the person it hands to. */
+  sendPlannerCard: typeof sendPlannerCardForAssignment;
   jobs: Pick<JobStore, "enqueue">;
   now: () => Date;
 }
@@ -132,6 +136,7 @@ export function defaultAssignDeps(): AssignDeps {
     putProjectFields,
     getSettingValue,
     sendGuestIntro,
+    sendPlannerCard: sendPlannerCardForAssignment,
     jobs: neonJobStore,
     now: () => new Date(),
   };
@@ -257,6 +262,7 @@ export async function assignLead(
   //    the real planner's name and direct number. `sendGuestIntro` is
   //    once-only on `guest_intro_at`, so a reassign does not introduce a
   //    second planner to the same guest.
+  if (owner) await tellTheNewOwner(after, owner, input.actor, deps);
   if (owner && input.introduceGuest !== false)
     await introduceIfHeld(after, owner, input.actor, deps);
 
@@ -269,6 +275,57 @@ export async function assignLead(
     },
     bmi,
   };
+}
+
+/**
+ * Post the new owner's Teams card.
+ *
+ * At capture only a lead that ALREADY had an owner got one; a held lead's card
+ * went to the Assignment Pending chat instead. So without this, handing a
+ * parked lead to a planner told the guest and told nobody else — the owner
+ * assigned a 500-guest lead to Kelsea on 2026-09-14, got the guest email, and
+ * Kelsea's channel stayed silent.
+ *
+ * Unlike the welcome this fires on EVERY hand-off, reassignments included: the
+ * card is how a planner learns a deal is theirs, and the previous owner's copy
+ * is already stale in their chat. Never fatal — the assignment stands whatever
+ * Teams does, and the failure is written to the deal's timeline.
+ */
+export async function tellTheNewOwner(
+  lead: LeadView,
+  owner: CrmRep,
+  actor: string,
+  deps: AssignDeps = defaultAssignDeps(),
+): Promise<ChannelOutcome | null> {
+  if (!lead.bmi.projectId) return null;
+  const center = centerConfigFor(lead.centre);
+  const planner = plannerForOwner(owner.slug, center);
+  // A bucket or a hold has no Teams chat of its own in `PLANNERS`; the
+  // Assignment Pending card already covered those.
+  if (!planner) return null;
+
+  try {
+    const card = await deps.sendPlannerCard({ lead, planner, center });
+    if (!card.ok)
+      await deps.recordActivity({
+        leadId: lead.id,
+        contactId: lead.contactId,
+        repId: owner.id,
+        actorEmail: actor,
+        kind: "system",
+        occurredAt: deps.now(),
+        body: `Teams card to ${planner.displayName} FAILED — ${card.error ?? "unknown"}`,
+        meta: { plannerCard: card as unknown as Record<string, unknown> },
+      });
+    return card;
+  } catch (err) {
+    console.error("[crm] planner card failed after assignment", {
+      lead_id: lead.id,
+      actor_email: actor,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }
 
 /**

@@ -34,30 +34,33 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       attention list so it stops burying real work, but the underlying rail
       needs looking at. Possibly money.
 
-- [ ] **The deal shows none of the contract or payment state it already holds,
+- [~] **The deal shows none of the contract or payment state it already holds,
       and none of the links a planner needs.** Owner, on Juniper Landscaping
       (H2892): "this one has contract payments everyting but not seeing that
       stuff in CRM. History could have been pulled in from notes. We should
       have links to customer confirmation page, waiver page for customer,
       latest contract, contract history, etc."
-      Measured — the data is ALL there and simply never joined:
-      - `group_function_quotes`: e41b6fdf, balance_link_sent, total $4,648.79,
-        deposit $2,397.24 PAID 28 Aug, balance $2,251.55 outstanding.
-      - `crm_leads` L-225 exists, status confirmed.
-      - **`gf_short_id` is NULL on all 187 leads.** Nothing has ever populated
-        it, which is why the drawer says "no quote yet" over a paid deposit.
-        Do NOT backfill it — both sides already carry the BMI project id, so
-        the project-first join resolves this with no data repair.
-      - LINKS to add: customer confirmation page, guest waiver page, latest
-        contract, contract history (`contract_versions` +
-        `contract_audit_log`).
+      **THE JOIN IS FIXED (2026-09-14).** `crm_leads.gf_short_id` is NULL on
+      all 189 rows and nothing has ever written it, so every screen that gated
+      on it said "no quote yet" over a paid deposit. `LEAD_FROM` now joins
+      `group_function_quotes` on the BMI PROJECT id, which both sides already
+      carry, and `gf_short_id` is COALESCEd over it. No backfill. Proven
+      against live data: 152 of 187 live leads now carry a contract where ZERO
+      did before, the join does not fan out (189 rows in, 189 out), and L-225 /
+      H2892 resolves to contract e41b6fdf, $4,648.79 total, deposit $2,397.24
+      paid, $2,251.55 outstanding. The Contract and Payments tabs were already
+      built and were only ever starved of a short id, so they light up as-is.
+      STILL OPEN on this item:
+      - LINKS: customer confirmation page, guest waiver page, latest contract,
+        contract history (`contract_versions` + `contract_audit_log`).
       - HISTORY FROM THE MEMO: Preferred Contact, Preferred Time, Event Type,
         Special Requests, Interests, the free-text brief, the
-        `----- Portal Staff -----` block (Food Out, staffing) and the
-        `— FastTrax Web —` dated delivery log, which on this deal records a
-        card-declined notice from 13 Sep. B6's Notes tab already parses these
-        sections — reuse `events/notes/office-notes.ts`, do not write a second
-        parser.
+        `----- Portal Staff -----` block and the `── FastTrax Web ──` dated
+        delivery log (on H2892 that carries a card-declined notice from 13
+        Sep). B6's Notes tab already parses these — reuse
+        `events/notes/office-notes.ts`, do not write a second parser.
+      - Re-run the mirror so stored rows carry `logs`, then project the dated
+        entries into `crm_activities`.
 
 - [x] ~~**The BMI memo is never mirrored**~~ — FIXED. It lives in
       `logs[].memo`, one entry per note with its own `created` stamp and a
@@ -96,6 +99,12 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       drawer is addressable today — what is missing is a visible "copy link"
       and a link that survives being opened by somebody whose default view
       differs (a rep opening a director's link, a different centre filter).
+
+- [ ] **The un-owned card still says "Guest Services" as the planner.** The
+      Assignment Pending card's subtitle reads "FastTrax Fort Myers · Guest
+      Services" on a lead the banner above it says nobody owns. Guest Services
+      is the generic fallback used to build the card, not the owner. It should
+      read "Unassigned".
 
 ## Open — presentation
 
@@ -226,6 +235,41 @@ exactly that kind of patch; they carry real assignment data so they are not
 being deleted yet, but the new read must not depend on them.
 
 ---
+
+## Done 2026-09-14
+
+- [x] **Every planner covers every centre** — owner: "they all do all". Kelsea
+      was `["HPFM","FT"]`, Lori `["HPFM"]`, Stephanie `["HPN"]`, so the
+      FastTrax form offered exactly one name and "first available" for 500
+      people could only ever be Kelsea. Fixed in `crm_reps` AND in `REP_SEED`.
+- [x] **The success screen lied about the planner.** L-228 was correctly held
+      for the Marketing Director and the screen and the guest's text both said
+      "Kelsea", because the planner was read off Pandora's `assignedAgent` —
+      a round robin we do not control. Now resolved from OUR assignment; the
+      two engines disagreeing is logged until Pandora stops minting.
+- [x] **The guest's welcome is HELD until a planner owns the lead** — owner:
+      "Do we just hold the emails, texts and who owns it till it gets
+      assigned?" One message, from the person who will run the event.
+      `assignLead` sends it on hand-off, `guest_intro_at` makes it once-only,
+      and an hourly backstop sends the un-named Guest Services version after
+      two hours so holding never becomes silence.
+- [x] **The Assignment Pending chat id is a default, not a deploy step.** The
+      first held lead reached nobody because the env var was never pasted into
+      Vercel. The card now also @-mentions Jacob and Eric.
+- [x] **The card links into the CRM** — owner: "This needs link that opens CRM
+      to this lead for assignment." "Assign in CRM" on the pending card,
+      "Open in CRM" on a planner's. An un-minted card keeps the link and loses
+      only its Execute verbs.
+- [x] **A hand-off now tells the person it hands to** — owner: "I assigned but
+      teams didn't fire to kelsea's channel. I did get test email." At capture
+      only an already-owned lead got a planner card, and nothing posted one
+      when a held lead was later assigned. Fires on reassign too.
+- [x] **The boards update live** — owner: "Lead board and other pages should
+      update live." `refetchOnWindowFocus` is false app-wide (right for
+      booking, wrong for a board somebody is watching), so the CRM opts in per
+      query through one `live()` helper: queue and pipeline 15s, contracts
+      (which had NO polling) and the open deal 30s, none of them in a
+      background tab.
 
 ## Done tonight
 

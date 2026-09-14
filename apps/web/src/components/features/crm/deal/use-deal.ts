@@ -7,6 +7,7 @@ import { leadsKeys } from "~/features/crm/leads/queries";
 import { useCrmFetch } from "../lib/use-crm-user";
 import { fetchLead, statusIndex } from "../leads/queries";
 import { fetchStatuses, statusesKeys } from "../statuses/queries";
+import { live, LIVE_RECORD_MS } from "../lib/live";
 
 /** The deal in one read (`GET /leads/[id]`), keyed by public id. */
 export function useLeadDetail(publicId: string | null) {
@@ -16,6 +17,7 @@ export function useLeadDetail(publicId: string | null) {
     queryKey: leadsKeys.detail(publicId ?? ""),
     queryFn: () => fetchLead(crmFetch, publicId!),
     enabled: !!publicId,
+    ...live(LIVE_RECORD_MS),
   });
   const refresh = useCallback(() => {
     void qc.invalidateQueries({ queryKey: leadsKeys.all });

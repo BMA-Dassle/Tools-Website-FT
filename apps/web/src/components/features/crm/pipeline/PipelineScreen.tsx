@@ -11,7 +11,7 @@ import type { CentreCode } from "~/features/crm/core/types";
 import { LEAD_TEST_IDS, type LeadView } from "~/features/crm/leads/contracts";
 import { leadsKeys } from "~/features/crm/leads/queries";
 import { BOARD_DRAG_HINT, PIPELINE_TEST_IDS } from "~/features/crm/statuses/contracts";
-import { PIPELINE_POLL_MS, pipelineKeys } from "~/features/crm/statuses/queries";
+import { pipelineKeys } from "~/features/crm/statuses/queries";
 import { transitionToastFor } from "~/features/crm/statuses/service/bmi-state";
 import { errorMessage } from "../lib/crm-fetch";
 import { useDebouncedValue } from "../lib/use-debounced";
@@ -34,6 +34,7 @@ import { NewLeadSheet } from "../leads/NewLeadSheet";
 import { Board } from "./Board";
 import { SHOW_ALL_COLUMNS, boardSubtitle } from "./model";
 import { fetchPipeline } from "./queries";
+import { live, LIVE_BOARD_MS } from "../lib/live";
 
 /**
  * `/admin/crm/pipeline` (direction-b.html `leads`) — our statuses as columns,
@@ -83,8 +84,7 @@ export default function PipelineScreen({ query }: ScreenProps) {
   const q = useQuery({
     queryKey: pipelineKeys.board(params),
     queryFn: () => fetchPipeline(crmFetch, params),
-    refetchInterval: PIPELINE_POLL_MS,
-    refetchIntervalInBackground: false,
+    ...live(LIVE_BOARD_MS),
   });
 
   // The FULL roster the response carries (`publicRoster()`), never narrowed by

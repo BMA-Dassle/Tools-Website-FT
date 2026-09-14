@@ -34,6 +34,8 @@ const state = vi.hoisted(() => ({
   lead: null as unknown,
   /** Every guest welcome this run tried to send — nothing leaves the process. */
   intros: [] as Array<{ planner: { displayName: string }; projectNumber: string }>,
+  /** Every planner Teams card this run tried to post. */
+  plannerCards: [] as Array<{ planner: { displayName: string; teamsChatId: string } }>,
 }));
 
 vi.mock("https", () => ({
@@ -167,6 +169,12 @@ vi.mock("./notify", async (orig) => {
       state.intros.push(input);
       return { sms: { ok: true }, email: { ok: true } };
     },
+    sendPlannerCardForAssignment: async (input: {
+      planner: { displayName: string; teamsChatId: string };
+    }) => {
+      state.plannerCards.push(input);
+      return { ok: true, activityId: "act-1" };
+    },
   };
 });
 
@@ -245,6 +253,7 @@ beforeEach(() => {
   state.activities = [];
   state.enqueued = [];
   state.intros = [];
+  state.plannerCards = [];
   state.redis.clear();
   state.setting = undefined;
   state.lead = minted();
@@ -322,6 +331,9 @@ describe("assignLead", () => {
     expect(state.activities.map((a) => a.kind)).toEqual(["assign", "bmi", "system"]);
     expect(state.intros).toHaveLength(1);
     expect(state.intros[0]!.planner.displayName).toBe("Kelsea");
+    // A hand-off has to tell the person it hands to (owner, 2026-09-14).
+    expect(state.plannerCards).toHaveLength(1);
+    expect(state.plannerCards[0]!.planner.displayName).toBe("Kelsea");
     expect(state.enqueued).toHaveLength(0);
   });
 

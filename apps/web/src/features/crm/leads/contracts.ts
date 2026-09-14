@@ -88,6 +88,31 @@ export interface LeadView extends CrmLead {
   repSlug: string | null;
   repName: string | null;
   requestedRep: LeadRequestedRep | null;
+  /**
+   * What the money is doing, joined from `group_function_quotes` on the BMI
+   * PROJECT id - never on `crm_leads.gf_short_id`, which is NULL on all 189
+   * rows because nothing has ever written it. Null now means there genuinely
+   * is no contract; it used to mean "we could not find the one that exists".
+   */
+  contract: LeadContractSummary | null;
+}
+
+/**
+ * The contract in the few numbers a deal header and a card need. The full
+ * article - versions, audit, guest messages, line items - is
+ * `contractDetail(shortId)`; this is what every lead read can afford to carry.
+ */
+export interface LeadContractSummary {
+  shortId: string;
+  status: string;
+  totalCents: number;
+  depositDueCents: number;
+  balanceCents: number;
+  collectedCents: number;
+  sentAt: string | null;
+  signedAt: string | null;
+  depositPaidAt: string | null;
+  balancePaidAt: string | null;
 }
 
 export type AssignmentReason = "manual" | "auto" | "reassign" | "rule" | "release";

@@ -58,7 +58,9 @@ describe("seed content", () => {
       bmiUsername: "Kelsea Kosco",
       phoneE164: PLANNERS.kelsea.phone,
       teamsChatId: PLANNERS.kelsea.teamsChatId,
-      centres: ["HPFM", "FT"],
+      // Owner, 2026-09-13: "they all do all". The FastTrax form offered one
+      // name because Kelsea was the only planner who carried the centre.
+      centres: ["HPFM", "FT", "HPN"],
     });
     expect(REP_SEED.find((r) => r.slug === "lori")?.bmiUserId).toBe("465247");
     expect(REP_SEED.find((r) => r.slug === "stephanie")?.bmiUserId).toBe("465242");
