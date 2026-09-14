@@ -34,6 +34,31 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       attention list so it stops burying real work, but the underlying rail
       needs looking at. Possibly money.
 
+- [ ] **The deal shows none of the contract or payment state it already holds,
+      and none of the links a planner needs.** Owner, on Juniper Landscaping
+      (H2892): "this one has contract payments everyting but not seeing that
+      stuff in CRM. History could have been pulled in from notes. We should
+      have links to customer confirmation page, waiver page for customer,
+      latest contract, contract history, etc."
+      Measured — the data is ALL there and simply never joined:
+      - `group_function_quotes`: e41b6fdf, balance_link_sent, total $4,648.79,
+        deposit $2,397.24 PAID 28 Aug, balance $2,251.55 outstanding.
+      - `crm_leads` L-225 exists, status confirmed.
+      - **`gf_short_id` is NULL on all 187 leads.** Nothing has ever populated
+        it, which is why the drawer says "no quote yet" over a paid deposit.
+        Do NOT backfill it — both sides already carry the BMI project id, so
+        the project-first join resolves this with no data repair.
+      - LINKS to add: customer confirmation page, guest waiver page, latest
+        contract, contract history (`contract_versions` +
+        `contract_audit_log`).
+      - HISTORY FROM THE MEMO: Preferred Contact, Preferred Time, Event Type,
+        Special Requests, Interests, the free-text brief, the
+        `----- Portal Staff -----` block (Food Out, staffing) and the
+        `— FastTrax Web —` dated delivery log, which on this deal records a
+        card-declined notice from 13 Sep. B6's Notes tab already parses these
+        sections — reuse `events/notes/office-notes.ts`, do not write a second
+        parser.
+
 ## Open — presentation
 
 - [ ] **Collapse consecutive lanes into ranges** ("Lanes 1-24") on the Event
