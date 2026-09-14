@@ -69,6 +69,44 @@ export const ADOPTABLE_STATES: Readonly<Record<string, Readonly<Record<string, s
 };
 
 /**
+ * WON states, adopted too — into the board's Booked column.
+ *
+ * Owner: "I see contracts that ae not on the pipeline why?" Because only deals
+ * still being SOLD were adopted. Of 177 open contracts just 71 had a lead, so
+ * 106 were invisible on the board and Booked read zero. A signed, deposit-paid
+ * event is not sales work any more, but it is absolutely something a planner
+ * expects to see on their pipeline — the prototype gives it a column.
+ *
+ * Confirmation and its variants are the booked state; Deposit Paid is its own.
+ * Cancellation stays out: a dead event belongs in History, not on a board.
+ * Still future-only, like everything else here.
+ */
+export const WON_STATES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  headpinzftmyers: {
+    "-3": "confirmed", // Confirmation
+    "3274635": "confirmed", // Confirmation + Waiver
+    "55397028": "confirmed", // Confirmation - Express Lane
+    "55466363": "confirmed", // Confirmation - VIP
+    "-106": "deposit", // Deposit Paid
+  },
+  headpinznaples: {
+    "-3": "confirmed", // Confirmation
+    "1191926": "confirmed", // Confirmation + Waiver
+    "8489113": "confirmed", // Confirmation - Kiosk
+    "-106": "deposit", // Deposite Paid (Office's spelling)
+  },
+};
+
+/** Every state we will adopt, open and won, flattened per tenant. */
+export const ALL_ADOPTABLE: Readonly<Record<string, Readonly<Record<string, string>>>> =
+  Object.fromEntries(
+    [...new Set([...Object.keys(ADOPTABLE_STATES), ...Object.keys(WON_STATES)])].map((ck) => [
+      ck,
+      { ...(ADOPTABLE_STATES[ck] ?? {}), ...(WON_STATES[ck] ?? {}) },
+    ]),
+  );
+
+/**
  * OFFICE USER IDS ARE PER TENANT, and `crm_reps.bmi_user_id` holds only one.
  *
  * The same person is a different id at each centre. Probed from live Office
@@ -287,7 +325,7 @@ export async function adoptOpenBmiDeals({ dryRun = false } = {}): Promise<AdoptR
     }
   }
 
-  const states = Object.entries(ADOPTABLE_STATES).flatMap(([ck, m]) =>
+  const states = Object.entries(ALL_ADOPTABLE).flatMap(([ck, m]) =>
     Object.keys(m).map((s) => `${ck}|${s}`),
   );
 
@@ -334,7 +372,7 @@ export async function adoptOpenBmiDeals({ dryRun = false } = {}): Promise<AdoptR
       continue;
     }
 
-    const statusId = ADOPTABLE_STATES[r.client_key]?.[String(r.state_id)] ?? "new";
+    const statusId = ALL_ADOPTABLE[r.client_key]?.[String(r.state_id)] ?? "new";
     const aliasSlug =
       (r.responsible_user_id ? OFFICE_ID_ALIASES[r.responsible_user_id] : undefined) ??
       (r.responsible_name
@@ -351,6 +389,8 @@ export async function adoptOpenBmiDeals({ dryRun = false } = {}): Promise<AdoptR
     // working it, and leaving it `new` would put it back in the unassigned
     // queue as though nobody had touched it.
     const effectiveStatus = statusId === "new" && repId ? "assigned" : statusId;
+    // A booked event keeps its won status; only a brand-new enquiry gets
+    // promoted to `assigned` by having an owner.
     out.byStatus[effectiveStatus] = (out.byStatus[effectiveStatus] ?? 0) + 1;
     if (repId) out.assigned += 1;
     else out.unassigned += 1;
