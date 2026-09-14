@@ -137,11 +137,24 @@ export function buildContractWhere(
   now: Date,
 ): WhereBuild {
   const b = binder();
-  b.add(todayYmd); // $1
-  b.add(new Date(now.getTime() - UNSIGNED_AGE_MINUTES * 60_000).toISOString()); // $2
-
   const where: string[] = [];
   const win = filter.win ?? "attention";
+
+  // $1 (today, ET) is named by every window. $2 (the unsigned cut-off) is named
+  // ONLY by ATTENTION_SQL, so it is bound only when that predicate is in play.
+  //
+  // Binding it unconditionally is what made every window except the default
+  // return a server error: Postgres refuses a statement that carries a
+  // parameter nothing references — "could not determine data type of parameter
+  // $2" — so "Next 7 days" 500'd while "Needs attention" worked, which is
+  // exactly the shape the owner reported. Everything after these is numbered by
+  // `b.add()` itself, so the later clauses renumber on their own.
+  // "All dates" names NEITHER: it has no date clause and no attention
+  // predicate, so binding $1 for it failed the same way ($1 this time).
+  if (win !== "all") b.add(todayYmd); // $1
+  if (win === "attention") {
+    b.add(new Date(now.getTime() - UNSIGNED_AGE_MINUTES * 60_000).toISOString()); // $2
+  }
 
   if (win === "attention") where.push(ATTENTION_SQL);
   else if (win === "past") where.push(`q.event_date < $1::date`);

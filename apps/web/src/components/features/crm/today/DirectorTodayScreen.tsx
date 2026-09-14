@@ -5,6 +5,7 @@ import { CRM_BASE } from "~/features/crm/core/contracts";
 import type { CrmStatus } from "~/features/crm/core/types";
 import { LEAD_TEST_IDS, type DirectorMyDay } from "~/features/crm/leads/contracts";
 import { Avatar } from "../primitives/Avatar";
+import { useRouter } from "next/navigation";
 import { Tile } from "../primitives/Tile";
 import { LeadCard } from "../leads/LeadCard";
 
@@ -28,6 +29,7 @@ export interface DirectorTodayScreenProps {
 }
 
 export function DirectorTodayScreen({ view, now, statuses, onOpen }: DirectorTodayScreenProps) {
+  const router = useRouter();
   return (
     <div className="stack" style={{ gap: 16 }} data-testid={LEAD_TEST_IDS.myDay}>
       <div>
@@ -48,13 +50,29 @@ export function DirectorTodayScreen({ view, now, statuses, onOpen }: DirectorTod
             {view.tiles.unassigned ? "waiting for a decision" : "nothing parked"}
           </span>
         </Link>
-        <Tile label="Overdue across team" value={view.tiles.overdueTeam} />
-        <Tile label="Contracts out" value={view.tiles.contractsOut} />
-        <div className="tile" data-testid={LEAD_TEST_IDS.directorBookedVsLy}>
-          <span className="label">Booked vs LY</span>
-          <span className="value muted">—</span>
-          <span className="xs muted">{BOOKED_VS_LY_PENDING}</span>
-        </div>
+        {/* Every tile goes somewhere. A figure a director cannot follow to the
+            rows behind it is a dead end (owner: "why can't I click contracts
+            out and other tiles"). */}
+        <Tile
+          label="Overdue across team"
+          value={view.tiles.overdueTeam}
+          actionLabel="Open the pipeline, overdue first"
+          onClick={() => router.push(`${CRM_BASE}/pipeline?overdue=1`)}
+        />
+        <Tile
+          label="Contracts out"
+          value={view.tiles.contractsOut}
+          actionLabel="Open contracts that are out and unsigned"
+          onClick={() => router.push(`${CRM_BASE}/contracts?status=contract_sent&win=90`)}
+        />
+        <Tile
+          label="Booked vs LY"
+          value="—"
+          sub={BOOKED_VS_LY_PENDING}
+          className="tile-muted-value"
+          actionLabel="Open the KPI dashboard"
+          onClick={() => router.push(`${CRM_BASE}/kpi`)}
+        />
       </div>
       <div className="swim">
         {view.lanes.map((lane) => (

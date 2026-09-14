@@ -131,6 +131,13 @@
   height: 100vh;
   height: 100dvh;
   padding-inline: 0;
+  /* THE PAGE NEVER SCROLLS, IN EITHER DIRECTION. The root is a definite size,
+     so anything that does not fit is the job of an inner scroller — `.content`
+     vertically, and a table or board wrapper horizontally. Without this a
+     single over-wide row (a filter strip that would not wrap, a table with too
+     many columns) scrolled the WHOLE document sideways and took the sidebar
+     off the left edge with it, which is what the owner was looking at. */
+  overflow: hidden;
 }
 .crm-root a {
   color: inherit;
@@ -320,11 +327,33 @@
 }
 .crm-root .content {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+/* A flex child refuses to shrink below its content unless told to, which is how
+   one wide row used to widen the whole column. Anything that genuinely needs
+   more room scrolls inside itself (`.table-wrap`, `.board`), never by pushing
+   the page. */
+.crm-root .content > * {
+  min-width: 0;
+  max-width: 100%;
+}
+/* Filter strips, tool rows and chip rails wrap rather than overflow. */
+.crm-root .content .hstack,
+.crm-root .content .filters,
+.crm-root .content .chips {
+  flex-wrap: wrap;
+}
+/* A table is the one thing allowed to be wider than the screen — inside its own
+   scroller, so the page itself still does not move sideways. */
+.crm-root .table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
 }
 .crm-root .tabs-bottom {
   display: none;

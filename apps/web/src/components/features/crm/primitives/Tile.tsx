@@ -22,6 +22,18 @@ export interface TileProps {
   /** Rendered top-right (e.g. a Chip). */
   corner?: ReactNode;
   className?: string;
+  /**
+   * Makes the whole tile a button. Owner, 2026-09-13: "on my day why can't I
+   * click contracts out and other tiles". A tile states a number a planner then
+   * wants to see the rows behind — Contracts out should land on Contracts,
+   * Overdue on the overdue list. A figure you cannot follow is a dead end.
+   *
+   * Rendered as a real <button> rather than a div with a handler, so it is
+   * reachable by keyboard and announced as actionable.
+   */
+  onClick?: () => void;
+  /** Tooltip and accessible name for the click, e.g. "Open contracts out". */
+  actionLabel?: string;
 }
 
 export function Tile({
@@ -35,9 +47,12 @@ export function Tile({
   meter,
   corner,
   className,
+  onClick,
+  actionLabel,
 }: TileProps) {
-  return (
-    <div className={["tile", className ?? ""].filter(Boolean).join(" ")}>
+  const cls = ["tile", onClick ? "tile-click" : "", className ?? ""].filter(Boolean).join(" ");
+  const inner = (
+    <>
       {ico ? <span className={["tico", icoCls].filter(Boolean).join(" ")}>{ico}</span> : null}
       {corner ? <span className="corner">{corner}</span> : null}
       <span className="label">{label}</span>
@@ -48,6 +63,18 @@ export function Tile({
       {meter ? <Meter pct={meter.p} tone={meter.tone} /> : null}
       {delta ?? null}
       {sub !== undefined && sub !== null ? <span className="xs muted">{sub}</span> : null}
-    </div>
+    </>
+  );
+  if (!onClick) return <div className={cls}>{inner}</div>;
+  return (
+    <button
+      type="button"
+      className={cls}
+      onClick={onClick}
+      title={actionLabel}
+      aria-label={actionLabel}
+    >
+      {inner}
+    </button>
   );
 }
