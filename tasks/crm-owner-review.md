@@ -59,6 +59,27 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
         sections — reuse `events/notes/office-notes.ts`, do not write a second
         parser.
 
+- [ ] **The BMI memo is never mirrored, so no timeline can be built from it.**
+      Owner, on 3492 Select Specialty Hospital: "missing timeline history etc.
+      You should be able to pull it from the notes."
+      Verified: `crm_bmi_projects.raw` for 3492 has no `memo` key at all — the
+      stored keys are id, date, name, bills, tasks, closed, kindId, number,
+      userId, balance, confirm, created, persons, publish, stateId, styleId,
+      updated, payments, personId, priority, products, companyId, invoiceId,
+      partyInfo, schedules, resellerId, templateId, displayName, userAgentId,
+      validityDate. The Notes tab reads the memo LIVE from Office, so the data
+      is reachable, but nothing indexes it and the timeline has nothing to show.
+      That memo is where the history lives. On 3492 it carries the contract
+      link, "[08/18/2026, 1:03 PM] Contract sent to rblanchard@selectmedical.com"
+      and "[09/11/2026, 11:00 PM] Final-headcount reminder sent". On H2892 it
+      carries a card-declined notice.
+      To do: mirror the memo, then feed the dated `— FastTrax Web —` lines into
+      `crm_activities` so they appear on the deal's timeline. A parser already
+      exists (`events/notes/sections.ts`) — CHECK ITS MARKERS FIRST: it looks
+      for `── FastTrax Web ──` in box-drawing dashes while Office appears to
+      write `— FastTrax Web —` in em dashes, which would make it match nothing.
+      Could not confirm that because no memo is stored to test against.
+
 ## Open — presentation
 
 - [ ] **Collapse consecutive lanes into ranges** ("Lanes 1-24") on the Event

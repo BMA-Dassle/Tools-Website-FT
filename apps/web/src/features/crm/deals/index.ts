@@ -10,6 +10,7 @@
  */
 
 export * from "./contracts";
+export * from "./schemas";
 export {
   ALL_STATE_STATUS,
   LOST_STATE_STATUS,

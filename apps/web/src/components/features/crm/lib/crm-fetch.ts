@@ -102,6 +102,7 @@ export const KNOWN_ROUTES = [
   "/targets",
   "/cold",
   "/builder",
+  "/deals",
 ] as const;
 
 export function isKnownRoute(path: string): boolean {
