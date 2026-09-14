@@ -289,6 +289,20 @@
   background: var(--card);
   flex: none;
   min-height: 58px;
+  /* WRAP RATHER THAN OVERFLOW. With neither of these the row could not shrink
+     or wrap, so the screen's own controls were cut off by the right edge — the
+     owner saw "New lead" clipped and the button beside it reduced to "Dia".
+     The page body must never scroll sideways. */
+  flex-wrap: wrap;
+  row-gap: 8px;
+  max-width: 100%;
+}
+/* The heading is the thing that must give way: without `min-width: 0` a long
+   screen title refuses to shrink and pushes the actions off the edge. */
+.crm-root .topbar > h1,
+.crm-root .topbar > .topbar-head {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .crm-root .topbar h1 {
   font-size: 18px;
@@ -1221,9 +1235,14 @@
   grid-auto-columns: 272px;
   gap: 12px;
   overflow-x: auto;
+  /* Never vertically: the columns scroll, not the board. Without this the
+     board stretches to its tallest column and takes the horizontal bar out of
+     reach. */
+  overflow-y: hidden;
   padding-bottom: 8px;
   height: 100%;
-  align-items: start;
+  min-height: 0;
+  align-items: stretch;
 }
 .crm-root .col {
   background: var(--card2);
@@ -1232,6 +1251,9 @@
   display: flex;
   flex-direction: column;
   max-height: 100%;
+  /* A flex child will not shrink below its content without this, which is what
+     lets a long column push the board taller than its track. */
+  min-height: 0;
   scroll-snap-align: start;
 }
 .crm-root .col-h {
@@ -1259,7 +1281,10 @@
   flex-direction: column;
   gap: 8px;
   padding: 0 8px 8px;
-  overflow: auto;
+  /* The ONE vertical scroller on this screen. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 }
 .crm-root .kcard {
   background: var(--card);
@@ -2689,9 +2714,17 @@
   background: var(--card);
   flex-wrap: wrap;
 }
+/* SCROLL OWNERSHIP, and there is only one owner per axis.
+   This wrapper used to be `overflow: auto` while `.board` inside it was also
+   `overflow-x: auto`, so the board grew taller than the window and its
+   horizontal scrollbar went with it — the owner had to "scroll all the way
+   down on pipeline to scroll right". The wrapper now clips, the board owns the
+   horizontal axis at a height that always fits, and each column body owns its
+   own vertical scroll. The bar stays where the hand is. */
 .crm-root .board-scroll {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
   padding: 16px 20px;
 }
 .crm-root .drawer {
@@ -3344,10 +3377,15 @@
 .crm-root .shell {
   height: 100%;
 }
+/* The shell is ALREADY exactly one viewport tall, so the sidebar fills it
+   rather than re-pinning itself. It used to carry `position: sticky; top: 0;
+   height: 100dvh`, which made a SECOND full-viewport box inside the first —
+   the same shape as the two-scrollbar bug of 2026-09-13. Its own `.nav` is the
+   scroller when the nav is longer than the screen. */
 .crm-root .side {
-  position: sticky;
-  top: 0;
-  height: 100dvh;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 .crm-root .backdrop {
   position: fixed;
@@ -3363,8 +3401,21 @@
   flex: 1;
   overflow: auto;
 }
-.crm-root .overlay-root:empty {
-  display: none;
+/* TAKES NO FLOW SPACE, EVER. `.overlay-root` is a sibling of `.shell` inside a
+   root that is exactly one viewport tall, so a portalled child that was not
+   itself `position: fixed` stacked BELOW the shell and made the document
+   taller than the window — a real scrollbar beside `.content`'s own, which is
+   what the owner hit on /admin/crm/rules. A zero-size fixed box cannot add
+   height. Fixed children still anchor to the VIEWPORT: only transform, filter
+   or contain create a containing block for them, and none is set here. */
+.crm-root .overlay-root {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  z-index: 40;
 }
 
 /* Shell pieces the port did not have: nav groups are wrappers inside the flex

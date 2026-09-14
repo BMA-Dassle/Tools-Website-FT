@@ -54,7 +54,10 @@ function ageMinutes(iso: string | null, now: Date): number {
 
 /** The prototype's `pastUnpaidDayof`, derived from the real columns. */
 export function pastUnpaidDayof(row: AttentionInput, now: Date): boolean {
-  return Boolean(row.dayofOrderId) && !row.settledOrderId && daysOut(row.eventDate, now) < 0;
+  const days = daysOut(row.eventDate, now);
+  return (
+    Boolean(row.dayofOrderId) && !row.settledOrderId && days < 0 && days >= -DAYOF_ATTENTION_DAYS
+  );
 }
 
 /**
@@ -130,6 +133,22 @@ type AttentionKindOrNull = "warn" | "crit" | null;
  *
  * Branch for branch with `attentionReasons` above, in the same order.
  */
+/**
+ * How long an unsettled day-of order stays actionable.
+ *
+ * On 2026-09-13 this ONE branch was producing 229 of the 312 rows in "needs
+ * attention" — every past event whose Square day-of order had no settled id,
+ * back to 28 May. That is not 229 jobs a planner can do today; it is one
+ * systemic problem wearing 229 hats, and it was burying the 8 approvals and 74
+ * unsigned contracts that ARE work. (Only 44 quotes in the whole table carry a
+ * settled id, so the settle rail itself is worth a look — recorded here so the
+ * next reader does not rediscover it from scratch.)
+ *
+ * Two weeks is the window where chasing one is realistic. Older than that and
+ * it belongs in a backlog report, not in a daily list.
+ */
+export const DAYOF_ATTENTION_DAYS = 14;
+
 export const ATTENTION_SQL = `(
   -- A PAST EVENT WITH NOTHING OUTSTANDING IS FINISHED, whatever its status says.
   -- Mirrors pastAndSettled(): stated ONCE, as a gate over every branch below,
@@ -156,7 +175,8 @@ export const ATTENTION_SQL = `(
   OR status = 'resign_required'
   OR status = 'balance_link_sent'
   OR (status = 'deposit_paid' AND event_date <= ($1::date + 3) AND balance_cents > 0)
-  OR (square_dayof_order_id IS NOT NULL AND square_settled_order_id IS NULL AND event_date < $1::date)
+  OR (square_dayof_order_id IS NOT NULL AND square_settled_order_id IS NULL
+      AND event_date < $1::date AND event_date >= ($1::date - 14))
   -- Reached only when the gate above let the row through, i.e. the event is
   -- past AND something is still outstanding.
   OR (event_date < $1::date AND status NOT IN ('completed','cancelled','denied'))

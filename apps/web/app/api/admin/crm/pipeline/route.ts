@@ -1,4 +1,5 @@
 import { isDirector } from "~/features/crm/core/identity";
+import { listReps } from "~/features/crm/reps";
 import { withCrmRoute } from "~/features/crm/core/http";
 import { PipelineQuerySchema } from "~/features/crm/statuses";
 // By path, not through the barrel: `service/pipeline` imports the leads sub,
@@ -27,11 +28,19 @@ const truthy = (v: string | undefined) => v === "1" || v === "true";
 export const GET = withCrmRoute(PipelineQuerySchema, async ({ input, user }) => {
   const director = isDirector(user);
   const mine = truthy(input.mine) || !director;
-  const repId = mine ? (user.rep?.id ?? null) : null;
-  const byRep = director && !mine && input.by === "rep";
+  // A director may narrow the team board to one salesperson. A rep cannot —
+  // `mine` is already forced on for them above, so `?rep=` can only ever
+  // NARROW a director's view, never widen anybody's.
+  const pickedRep =
+    director && !mine && input.rep
+      ? ((await listReps()).find((r) => r.slug === input.rep && r.active) ?? null)
+      : null;
+  const repId = mine ? (user.rep?.id ?? null) : (pickedRep?.id ?? null);
+  // Swimlanes and a one-person filter answer the same question; the filter wins.
+  const byRep = director && !mine && !pickedRep && input.by === "rep";
 
   const data = await loadPipeline({
-    scope: mine ? "mine" : "team",
+    scope: mine || pickedRep ? "mine" : "team",
     repId,
     byRep,
     centre: input.centre,

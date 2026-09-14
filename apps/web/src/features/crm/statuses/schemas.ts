@@ -28,6 +28,16 @@ export const PipelineQuerySchema = z.object({
   q: z.string().trim().max(80).optional(),
   /** "1" = only the signed-in rep's leads; the board defaults to that for reps. */
   mine: z.enum(["1", "0", "true", "false"]).optional(),
+  /**
+   * A director narrowing the board to ONE salesperson (`crm_reps.slug`).
+   * Owner, 2026-09-13: "need person filter too". Ignored for a rep, whose board
+   * is already their own — the route never lets one widen its own scope.
+   */
+  rep: z
+    .string()
+    .trim()
+    .regex(/^[a-z][a-z0-9_-]{1,31}$/)
+    .optional(),
 });
 
 export type PipelineQuery = z.infer<typeof PipelineQuerySchema>;

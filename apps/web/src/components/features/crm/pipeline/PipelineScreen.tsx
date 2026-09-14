@@ -62,10 +62,15 @@ export default function PipelineScreen({ query }: ScreenProps) {
   const [pendingLeadId, setPendingLeadId] = useState<string | null>(null);
   const debouncedSearch = useDebouncedValue(search, 300, search);
 
-  const byRep = isDirector && urlQuery.by === "rep";
+  const repSlug = (urlQuery.rep as string | undefined) || null;
+  // Swimlanes and a one-person filter answer the same question, so picking a
+  // person collapses the lanes rather than drawing one lane with everything in
+  // it. The route makes the same call.
+  const byRep = isDirector && urlQuery.by === "rep" && !repSlug;
   const centre = (urlQuery.centre as CentreCode | undefined) ?? undefined;
   const params: Record<string, string> = {};
   if (byRep) params.by = "rep";
+  if (repSlug) params.rep = repSlug;
   if (centre) params.centre = centre;
   if (debouncedSearch.trim()) params.q = debouncedSearch.trim();
 
@@ -75,6 +80,10 @@ export default function PipelineScreen({ query }: ScreenProps) {
     refetchInterval: PIPELINE_POLL_MS,
     refetchIntervalInBackground: false,
   });
+
+  // The FULL roster the response carries (`publicRoster()`), never narrowed by
+  // the rep filter — options must not come from the thing they filter.
+  const reps = q.data?.reps ?? [];
 
   const move = useMutation({
     mutationFn: (v: { lead: LeadView; statusId: string }) =>
@@ -191,6 +200,32 @@ export default function PipelineScreen({ query }: ScreenProps) {
               </option>
             ))}
           </select>
+          {/* PERSON FILTER (owner: "need person filter too"). Options come from
+              `data.reps`, which is the full roster from `publicRoster()` and is
+              NOT narrowed by this filter — the same mistake made the KPI picker
+              delete itself once a person was chosen. Directors only: a rep's
+              board is already their own. */}
+          {isDirector && reps.length > 1 ? (
+            <>
+              <label className="sr-only" htmlFor="crm-pipeline-rep">
+                Filter by salesperson
+              </label>
+              <select
+                id="crm-pipeline-rep"
+                className="select"
+                style={{ flex: "0 0 auto", width: "auto", minWidth: 168 }}
+                value={repSlug ?? ""}
+                onChange={(e) => setUrlQuery({ rep: e.target.value || null })}
+              >
+                <option value="">Everyone</option>
+                {reps.map((r) => (
+                  <option key={r.slug} value={r.slug}>
+                    {r.displayName}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : null}
           <span className="xs muted" style={{ marginLeft: "auto" }}>
             <IconFilter {...ICON} /> {BOARD_DRAG_HINT}
           </span>
