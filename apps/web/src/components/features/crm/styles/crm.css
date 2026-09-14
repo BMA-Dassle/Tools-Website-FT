@@ -3467,6 +3467,49 @@
   z-index: 40;
 }
 
+/* THE WHOLE CARD OPENS THE DEAL, not just its title.
+   Owner, 2026-09-13: "Doesn't it feel more naturual to click on tiles than the
+   title? doesn't show anything about clicking ontitle I wouldn't even know."
+   Both halves of that are right — the target was a few words wide, and nothing
+   said it was a target at all.
+
+   Done as a STRETCHED OVERLAY rather than by wrapping the card in a button,
+   because a card contains Assign, Call, Text and Change status, and a button
+   inside a button is invalid HTML that the a11y gate rejects outright. The
+   title stays the one real control, named and reachable by Tab; its ::after
+   simply covers the card. Everything interactive sits above that layer, so the
+   inner buttons keep working and do not need a click-eating handler.
+
+   The board's drag now has its own handle, so a click on the body is
+   unambiguous — it could not have been while the body itself was the drag
+   surface. */
+.crm-root .kcard {
+  position: relative;
+}
+.crm-root .kcard .card-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+}
+.crm-root .kcard .rail,
+.crm-root .kcard .chip,
+.crm-root .kcard button:not(.card-open),
+.crm-root .kcard a:not(.card-open) {
+  position: relative;
+  z-index: 1;
+}
+/* Say it is clickable before anyone clicks it. */
+.crm-root .kcard:hover {
+  cursor: pointer;
+  border-color: var(--accent, var(--border));
+}
+.crm-root .kcard:has(.card-open:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Shell pieces the port did not have: nav groups are wrappers inside the flex
    column; the sheet's backdrop is closed through an invisible full-size button
    (a click handler on a <div> fails jsx-a11y); screen-reader-only captions. */
