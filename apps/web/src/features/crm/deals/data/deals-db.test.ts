@@ -142,7 +142,11 @@ describe("the joins cannot double a deal", () => {
   });
 
   it("the quote joins on bmi_reservation_id when the key is a project", () => {
-    expect(text).toContain("qq.bmi_reservation_id = k.key_project_id");
+    // CAST THE QUOTE'S SIDE, never ours. `bmi_reservation_id` is numeric in
+    // that table and `key_project_id` is TEXT; casting our side to a number
+    // would round a 17-digit BMI id past Number.MAX_SAFE_INTEGER, which is the
+    // production off-by-one this codebase has a hard rule about.
+    expect(text).toContain("qq.bmi_reservation_id::text = k.key_project_id");
   });
 
   it("the quote lateral re-labels event_date to the DEAL's date", () => {
