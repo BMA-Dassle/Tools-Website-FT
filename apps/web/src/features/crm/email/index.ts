@@ -74,6 +74,7 @@ export {
 } from "./service/graph-client";
 
 export {
+  CRM_EMAIL_NOT_CONFIGURED_REASON,
   CRM_EMAIL_OFF_REASON,
   GUEST_SERVICES_SLUG,
   MERGE_TOKENS,

@@ -47,6 +47,24 @@ export class NoSenderMailboxError extends Error {
 export const CRM_EMAIL_OFF_REASON =
   "Graph sending is switched off by the CRM_EMAIL kill switch — messages go out through SendGrid.";
 
+/**
+ * Switched ON, but the tenant credentials are not in this deployment.
+ *
+ * The fallback chip said only that SendGrid was carrying the message and gave
+ * no reason, because `graphReason` was set for the kill switch and nothing
+ * else — so a director looking at it could not tell "somebody turned this off"
+ * from "nobody has finished setting it up". Owner, 2026-09-14: "why doesn't
+ * email work for me?" The Entra app is registered and consented (Mail.Read and
+ * Mail.Send, verified against the live tenant); the three values simply live
+ * in `.env.local` and were never pasted into Vercel.
+ *
+ * Names the variables, because that is the whole fix.
+ */
+export const CRM_EMAIL_NOT_CONFIGURED_REASON =
+  "Not connected to Outlook in this deployment — CRM_GRAPH_TENANT_ID, " +
+  "CRM_GRAPH_CLIENT_ID and CRM_GRAPH_CLIENT_SECRET are unset, so messages go " +
+  "out through SendGrid instead.";
+
 export function resolveSender(user: CrmUser): EmailSenderView {
   const rep = user.rep;
   if (!rep) throw new NoSenderMailboxError("no_rep");
@@ -64,7 +82,11 @@ export function resolveSender(user: CrmUser): EmailSenderView {
     // Env-only, and therefore optimistic: `applyReadiness` is what turns this
     // into the truth once the tenant's consent has been read.
     graph: enabled && graphConfigured(),
-    graphReason: enabled ? null : CRM_EMAIL_OFF_REASON,
+    graphReason: !enabled
+      ? CRM_EMAIL_OFF_REASON
+      : graphConfigured()
+        ? null
+        : CRM_EMAIL_NOT_CONFIGURED_REASON,
   };
 }
 

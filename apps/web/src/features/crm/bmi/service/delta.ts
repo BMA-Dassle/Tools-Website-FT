@@ -122,6 +122,34 @@ export interface DeltaRunOptions {
   concurrency?: number;
 }
 
+/**
+ * How far this run got, and whether that finishes the window.
+ *
+ * A SEPARATE FUNCTION BECAUSE THE ARITHMETIC RAN AWAY. On 2026-09-14 two
+ * pending jobs sat in `crm_jobs` keyed
+ * `bmi-mirror-delta:headpinzftmyers:…:oNaN` with `payload.offset` serialized
+ * to null — `cursor.offset + processed` had evaluated to NaN. That is not a
+ * cosmetic key: `NaN >= ids.length` is FALSE, so `complete` could never be
+ * true, so every run enqueued another continuation, whose offset parsed back
+ * to 0 and re-mirrored the same window from the start. A self-chaining job
+ * that can never finish is a runaway against somebody else's web server.
+ *
+ * Neither input can be non-finite in today's code (`parseDeltaPayload` floors
+ * `offset` to 0 and `processed` only ever takes `chunk.length`), so this is a
+ * guard against a payload shape we have not thought of rather than a fix for a
+ * line I can point at — the rows were written by an older deployment. It costs
+ * one comparison and it converts an infinite loop into a completed run.
+ */
+export function deltaProgress(
+  offset: number,
+  processed: number,
+  total: number,
+): { done: number; complete: boolean } {
+  const safe = (n: number) => (Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0);
+  const done = safe(offset) + safe(processed);
+  return { done, complete: done >= total };
+}
+
 export async function runDelta(
   cursor: DeltaCursor,
   deps: MirrorDeps,
@@ -285,13 +313,13 @@ export async function runDelta(
     }
   }
 
-  const complete = cursor.offset + processed >= ids.length;
+  const { done, complete } = deltaProgress(cursor.offset, processed, ids.length);
   const ok = complete && failed.length === 0;
   // `error` also carries the partial-row note on an ok run: the watermark may
   // advance (the retry above owns those ids), but the row says which projects
   // it could not read in full.
   const notes = [
-    complete ? null : `${cursor.offset + processed} of ${ids.length} mirrored; continued`,
+    complete ? null : `${done} of ${ids.length} mirrored; continued`,
     failed.length ? summarizeFailures(failed) : null,
     partialIds.length
       ? `${partialIds.length} stored from the live row only, retry ${partialRetry ?? "NOT enqueued"}: ${partialIds.join(", ")}`
@@ -307,7 +335,7 @@ export async function runDelta(
   let next: string | null = null;
   let nextCreated: boolean | null = null;
   if (!complete) {
-    const offset = cursor.offset + processed;
+    const offset = done;
     next = `${deltaJobKey(clientKey, window.until.toISOString())}:o${offset}`;
     const { created } = await deps.enqueue({
       kind: DELTA_KIND,

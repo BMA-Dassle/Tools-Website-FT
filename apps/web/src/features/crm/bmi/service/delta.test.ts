@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FIXTURE_ONLINE_PROJECT_ID, FIXTURE_PROJECT_ID, memoryDeps } from "../test-support";
 import {
+  deltaProgress,
   enqueueDeltaTicks,
   makeDeltaHandler,
   parseDeltaPayload,
@@ -285,5 +286,32 @@ describe("payload and handler", () => {
     ]);
     const again = await enqueueDeltaTicks(NOW, deps);
     expect(again.every((t) => t.created === false)).toBe(true);
+  });
+});
+
+describe("deltaProgress — the runaway guard", () => {
+  it("adds up and finishes when it reaches the total", () => {
+    expect(deltaProgress(0, 261, 261)).toEqual({ done: 261, complete: true });
+    expect(deltaProgress(100, 61, 261)).toEqual({ done: 161, complete: false });
+    expect(deltaProgress(0, 0, 0)).toEqual({ done: 0, complete: true });
+  });
+
+  /**
+   * The bug this exists for: two jobs sat pending keyed `…:oNaN` with
+   * `payload.offset` serialized to null. `NaN >= 261` is FALSE, so `complete`
+   * could never be true and the delta re-chained for ever, each continuation
+   * restarting from 0 and re-reading the same window off Office's server.
+   */
+  it("a non-finite offset can NEVER make the run un-completable", () => {
+    expect(deltaProgress(NaN, 261, 261)).toEqual({ done: 261, complete: true });
+    expect(deltaProgress(0, NaN, 0)).toEqual({ done: 0, complete: true });
+    expect(deltaProgress(NaN, NaN, 0)).toEqual({ done: 0, complete: true });
+    // And the key it would build is a number, not the string "NaN".
+    expect(`:o${deltaProgress(NaN, 7, 7).done}`).toBe(":o7");
+  });
+
+  it("negative and fractional offsets are floored rather than trusted", () => {
+    expect(deltaProgress(-5, 10, 10)).toEqual({ done: 10, complete: true });
+    expect(deltaProgress(2.7, 1, 3)).toEqual({ done: 3, complete: true });
   });
 });

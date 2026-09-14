@@ -50,7 +50,19 @@ export function AttentionTiles({ counts, onShowAttention }: AttentionTilesProps)
             icoCls={ICON_CLASS[spec.key]}
           />
         );
-        if (spec.key !== "attention") return <div key={spec.key}>{tile}</div>;
+        // `display: contents` — the wrapper exists only to carry the key, so
+        // it must NOT become the grid item. It was one, and a grid item
+        // stretches while the `.tile` inside it does not, so the three plain
+        // tiles sat short against the taller attention tile whose caption
+        // wraps to two lines (owner, 2026-09-14, on the Contracts header:
+        // "Formatting here"). With `contents` the `.tile` is the grid item and
+        // all four share a row height.
+        if (spec.key !== "attention")
+          return (
+            <div key={spec.key} style={{ display: "contents" }}>
+              {tile}
+            </div>
+          );
         return (
           <button
             key={spec.key}

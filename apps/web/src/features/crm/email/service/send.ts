@@ -72,7 +72,13 @@ import {
   setLinkGraphMessageId,
   type EmailLink,
 } from "../data/email-links-db";
-import { CRM_EMAIL_OFF_REASON, applyReadiness, crmMessageId, resolveSender } from "./compose";
+import {
+  CRM_EMAIL_NOT_CONFIGURED_REASON,
+  CRM_EMAIL_OFF_REASON,
+  applyReadiness,
+  crmMessageId,
+  resolveSender,
+} from "./compose";
 import {
   GraphError,
   X_HP_LEAD_HEADER,
@@ -238,7 +244,17 @@ export async function sendCrmEmail(
   let fellBack = false;
   if (!sender.graph) {
     fellBack = true;
-    graphError = deps.emailEnabled() ? sender.graphReason : CRM_EMAIL_OFF_REASON;
+    // `graphError` is for a Graph attempt that FAILED, and a deployment with no
+    // credentials never made one — recording "not configured" here would make
+    // every SendGrid send in an unconfigured environment look like an incident
+    // and would count configuration as failures on any error view. The reason
+    // still reaches the person who needs it: `sender.graphReason` is what the
+    // composer's fallback chip renders.
+    graphError = !deps.emailEnabled()
+      ? CRM_EMAIL_OFF_REASON
+      : sender.graphReason === CRM_EMAIL_NOT_CONFIGURED_REASON
+        ? null
+        : sender.graphReason;
   } else {
     // ── 2a. The draft. NOTHING has been handed to Exchange yet, so this is the
     //        only failure the other rail may answer.

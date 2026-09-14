@@ -20,7 +20,14 @@
 import { reconcileIdempotencyKey } from "~/features/crm/calls";
 import { guestIntroBackstopKey } from "~/features/crm/leads/service/guest-intro-backstop";
 import { mirrorIdempotencyKey, sweepIdempotencyKey } from "~/features/crm/rules";
+import { enqueueDeltaTicks } from "~/features/crm/bmi/service/delta";
 import { neonJobStore, type JobStore } from "./data/jobs-db";
+
+/** `enqueueDeltaTicks` — one entry per Office tenant. */
+export type DeltaTicks = (
+  now: Date,
+  deps: Pick<JobStore, "enqueue">,
+) => Promise<Array<{ key: string; created: boolean }>>;
 import type { JobKind } from "../core/types";
 
 export interface ScheduledKind {
@@ -30,20 +37,14 @@ export interface ScheduledKind {
 }
 
 /**
- * Every scheduled kind that existed on `feat/crm` when this branch was cut.
+ * Every scheduled kind whose bucket is ONE key per tick.
  *
- * TODO(release): `bmi-mirror-delta` landed with B1 AFTER this branch's rebase
- * point (`feat/crm` 224eaf875). It does NOT fit the one-key-per-tick shape
- * below — its bucket is per TENANT (`deltaIdempotencyKey(now, clientKey)`, one
- * row per Office client key) and it defers the row to the next 5-minute bucket
- * with a `{clientKey, chain: true}` payload. B1 already exports the exact
- * entry point a central scheduler wants: `enqueueDeltaTicks(now, { enqueue })`
- * from `~/features/crm/bmi` (`bmi/service/delta.ts`, "what a central scheduler
- * would call"). Wire it as its own step in `enqueueScheduled` rather than
- * bending `ScheduledKind` around it — duplicating the bucket maths here would
- * be a second writer of B1's key.
- *
- * C2 (`graph-renew:<day>`) is the simple shape and is one line.
+ * `bmi-mirror-delta` deliberately is not here: its bucket is per TENANT
+ * (`deltaIdempotencyKey(now, clientKey)` — one row per Office client key) and
+ * it chains itself forward with a `{clientKey, chain: true}` payload. Bending
+ * `ScheduledKind` around that would mean duplicating B1's bucket maths here
+ * and becoming a second writer of its key, so `enqueueScheduled` calls B1's
+ * own entry point as a separate step instead. See `enqueueDeltaTicks` below.
  */
 export const SCHEDULED_KINDS: readonly ScheduledKind[] = [
   { kind: "assign-sweep", key: sweepIdempotencyKey },
@@ -72,6 +73,8 @@ export async function enqueueScheduled(
   now: Date,
   store: Pick<JobStore, "enqueue"> = neonJobStore,
   kinds: readonly ScheduledKind[] = SCHEDULED_KINDS,
+  /** Injected by its test; the live rail is B1's own `enqueueDeltaTicks`. */
+  deltaTicks: DeltaTicks = enqueueDeltaTicks,
 ): Promise<ScheduledEnqueue[]> {
   const out: ScheduledEnqueue[] = [];
   for (const s of kinds) {
@@ -93,6 +96,34 @@ export async function enqueueScheduled(
       });
       out.push({ kind: s.kind, idempotencyKey, created: false, error });
     }
+  }
+
+  // THE BMI MIRROR'S DELTA, one row per tenant.
+  //
+  // Nothing scheduled this before, so the incremental sync ran only when
+  // somebody pressed Run by hand — and nobody ever had for Fort Myers. Naples
+  // had delta rows; Fort Myers had none, so our copy of that centre went stale
+  // the moment anything was booked, which is why H3447 (Edward Leslie,
+  // Sullivan State Farm) was missing from the CRM entirely.
+  //
+  // The backfill cannot cover for it: the backfill reads `dayPlanner`, which
+  // only returns projects that HAVE schedule blocks, so a New Lead can never
+  // appear in one. The delta reads `liveReservations`, which does.
+  //
+  // Failures are swallowed the same way the loop above swallows them — the
+  // drain that follows this is the more important half of the tick.
+  try {
+    for (const t of await deltaTicks(now, store))
+      out.push({ kind: "bmi-mirror-delta", idempotencyKey: t.key, created: t.created });
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    console.error("[crm-jobs] could not enqueue the BMI delta ticks", { error });
+    out.push({
+      kind: "bmi-mirror-delta",
+      idempotencyKey: "bmi-mirror-delta:(not enqueued)",
+      created: false,
+      error,
+    });
   }
   return out;
 }

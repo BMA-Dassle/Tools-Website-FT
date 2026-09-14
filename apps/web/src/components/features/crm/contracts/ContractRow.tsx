@@ -11,7 +11,7 @@ import { Avatar } from "../primitives/Avatar";
 import { Chip } from "../primitives/Chip";
 import { DateBlock } from "../primitives/DateBlock";
 import { ICON } from "../primitives/icon-props";
-import { depositCell, eventJumpTitle, rowMeta } from "./model";
+import { contractRowMeta, depositCell, eventJumpTitle } from "./model";
 
 /**
  * One `<tr>` of the contracts table (crm-events.js:222), plus the week band
@@ -65,7 +65,24 @@ export function ContractTableRow({
           <td colSpan={columns}>{weekHeader}</td>
         </tr>
       ) : null}
-      <tr data-testid={CONTRACT_TEST_IDS.row(key)}>
+      {/* The row forwards to the same button the Event cell carries, so the
+          pointer behaviour the prototype had is back WITHOUT making the row
+          itself the control — a `<tr onClick>` is invisible to a keyboard and
+          to a screen reader. Documented here since B5 and never actually
+          wired; owner, 2026-09-14: "whole row should be clickable".
+
+          A click that started on something interactive is left alone, or the
+          Event / View / Approve buttons and the guest's phone link would all
+          also open the contract. `closest` rather than a target check, because
+          the press usually lands on the icon or the label inside the button. */}
+      <tr
+        data-testid={CONTRACT_TEST_IDS.row(key)}
+        className="click"
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+          onOpen(row);
+        }}
+      >
         <td>
           <div className="hstack" style={{ gap: 8 }}>
             <DateBlock date={row.eventDate} daysOut={row.daysOut} />
@@ -73,7 +90,13 @@ export function ContractTableRow({
               <button type="button" className="link-cell strong" onClick={() => onOpen(row)}>
                 {row.title}
               </button>
-              <div className="xs muted">{rowMeta(row)}</div>
+              {/* The event DATE in words beside the block (owner, 2026-09-14:
+                  "Contracts page needs event date"). The `DateBlock` shows it
+                  as a stamp, which reads at a glance on a full-width table and
+                  disappears the moment the row is narrow; spelling it out here
+                  means the day survives every width and never has to be
+                  inferred from a three-letter month. */}
+              <div className="xs muted">{contractRowMeta(row)}</div>
             </div>
           </div>
         </td>

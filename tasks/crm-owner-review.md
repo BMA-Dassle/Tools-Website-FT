@@ -10,6 +10,50 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 
 ## Open — functional
 
+- [ ] **Events needs a date / range filter and quick months.** Owner,
+      2026-09-14: "Add date and range filter for events page. Plus ability to
+      quickly select certain months." Today it is Day / Week plus
+      back-forward-Today, so reaching November means ~10 presses of the arrow.
+      Wants: a date picker for the anchor day, an explicit range (Day / Week /
+      Month / a custom from-to), and month chips that jump straight there.
+      `EVENTS_POLL_MS` is 120s and the read is per-day — a month range must not
+      become 30 day-reads; widen the query instead. Keep the URL the state
+      (`?date=` already is), so a range stays shareable.
+
+- [ ] **Status filters on the Events page.** Owner, 2026-09-14: "filters based
+      on statues on events page?" The header already shows PAID / DEPOSIT /
+      UNSIGNED as legend pills and a "BMI state" control, but none of them
+      FILTER — they only describe. Make the money pills togglable filters, and
+      add our own pipeline status alongside the BMI state, so "show me every
+      unsigned event in October" is one click. Same URL-as-state rule as the
+      date range above, and it shares that work's query widening.
+
+- [ ] **A SALES POLICIES tab.** Owner, 2026-09-14: "Really would want a place
+      for sales policies, just a little tab where it lives. Don't want them to
+      say they don't have access to something or didn't know."
+      The point is ACCOUNTABILITY, not a document dump — "I didn't know" has to
+      stop being available. So it needs more than a page:
+      - policies authored by a director in the CRM (markdown), versioned, with
+        an effective date — `crm_policies` + `crm_policy_versions`;
+      - a rep sees unread/changed ones on My Day until they acknowledge, and
+        the acknowledgement is a row (`crm_policy_acks`: rep, version, at), so
+        a director can answer "who has read the deposit policy" with a list;
+      - searchable, because a policy nobody can find is a policy nobody has;
+      - lives beside Collateral in the nav (both are "things reps need to
+        reach"), director-only to edit.
+      Do NOT build it as a static file — the whole value is the ack trail.
+
+- [ ] **A PRE-SHIFT NOTE FROM THE OWNER on My Day.** Owner, 2026-09-14: "Would
+      be cool to have a little note for the day from me, something like a pre
+      shift that appears on their 'my day'."
+      Shape: one note per day per audience (all / a centre / one rep), written
+      by a director, shown at the TOP of My Day for that date and then gone —
+      it is a pre-shift, not a noticeboard. Keep it small: `crm_daily_notes`
+      (date, centre|null, rep|null, body, author, created_at), a compose box on
+      the director's own My Day, and a dismiss that is per-rep so it stops
+      nagging once read but still exists for the record. Reuse the Statuses
+      screen's editor pattern rather than inventing a second one.
+
 - [ ] **The builder ignores the lines already on the project.** Opening "Build
       in BMI" on project 2950 says "Nothing on this quote yet" while the banner
       above it lists 8 lines the project already carries (G/F 16" Pizza Cheese
@@ -112,6 +156,22 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       read "Unassigned".
 
 ## Open — presentation
+
+- [ ] **The mobile header needs a proper pass** — owner, 2026-09-14: "Mobile
+      layout of headers and such need lots of work." Seen on the Deal screen at
+      phone width, with the screenshot in hand:
+      - The app bar ("← Deal ☀") is a whole row that says nothing the card
+        beneath it does not. It should carry the guest's name once the card
+        scrolls, and otherwise give its height back.
+      - The header card is SEVEN stacked rows — name, meta, type+source,
+        status+BMI+number, timer+avatar+centre, money, actions, stepper — which
+        is most of a phone screen before any content. The prototype's phone
+        header is three.
+      - The money row reads "— no quote yet · 5 days out" where the em dash IS
+        the value: an empty number given the largest type on the screen.
+      - The tab strip overflows ("His…" clipped at the right edge) with no
+        affordance that it scrolls.
+      Reference `direction-b.html` at 390px rather than nudging values.
 
 - [~] **The board still scrolls sideways from the BOTTOM.** Owner, twice:
       "still had trouble scroll left and right on board I hate scrolling all

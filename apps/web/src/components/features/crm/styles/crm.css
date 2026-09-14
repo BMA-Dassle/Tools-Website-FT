@@ -4250,3 +4250,56 @@
     display: none;
   }
 }
+
+/* ── Contracts header: four tiles, one height ───────────────────────────────
+   Owner, 2026-09-14, on the Contracts header: "Formatting here".
+
+   The attention tile is a <button> so it can filter the board; the other three
+   are plain. A button is not a flex/grid container by default, so the `.tile`
+   inside it did not fill the stretched grid item, while the plain three (now
+   `display: contents`) do. Making the button stretch too is what squares the
+   row off — all four tiles share the tallest caption's height instead of three
+   short boxes beside one tall one. */
+.crm-root .tile-button {
+  display: flex;
+  align-items: stretch;
+}
+.crm-root .tile-button > .tile {
+  flex: 1;
+}
+/* A tile that only ever holds one line of caption still lines its number up
+   with the ones whose caption wraps. */
+.crm-root .tile .sub {
+  margin-top: auto;
+}
+
+/* ── THE PAGE BELOW THE SHELL WENT BLACK ────────────────────────────────────
+   Owner, 2026-09-14, on /admin/crm/statuses: "Scrolling all the way down goes
+   black."
+
+   `.crm-root` is a definite `100dvh` and never scrolls, which is right. What
+   it could not control is the DOCUMENT around it: the site's own
+   `body { background-color: var(--color-bg-deep) }` is a near-black, so the
+   moment anything made the document taller than the shell — an injected
+   preview toolbar, an accessibility widget, a stray margin — scrolling revealed
+   that near-black under a light CRM and it read as the page falling apart.
+
+   Two rules, because either alone leaves a gap:
+
+   1. The document cannot scroll while the shell is mounted. The shell is the
+      viewport by design; every real scroller is inside it (`.content`
+      vertically, a board or table wrapper horizontally).
+   2. The page wears the shell's own background anyway, so an overscroll
+      bounce — which rule 1 cannot prevent on iOS — shows the CRM's colour
+      rather than the site's.
+
+   `:has()` rather than a class on `<body>`: the shell is client-rendered
+   inside an App Router layout that other admin tools share, and adding a body
+   class from React means a flash of the wrong background on every load. */
+html:has(.crm-root),
+body:has(.crm-root) {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--ba-bg, #0b1220);
+}

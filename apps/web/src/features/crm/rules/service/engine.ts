@@ -292,6 +292,46 @@ export function decideByRules(lead: EngineLead, ctx: EngineContext): EngineDecis
     // An avail rule with neither flag, or an unknown kind: recorded, never decisive.
     trace.push({ ruleId: r.id, hit: false, note: "did not apply" });
   }
+  // NARROWED, BUT NOBODY PICKED.
+  //
+  // R5 narrows to whoever is on shift and leaves the choosing to the standard
+  // rule, whose own trace line says so ("… → standard rule picks between
+  // them"). That holds while the standard rule is enabled and sits below it —
+  // and a director can disable or reorder it on the Rules screen. Without this,
+  // a lead with two planners on shift would then fall past every rule into the
+  // queue rather than going to the quieter of the two. Owner, 2026-09-14, on
+  // R5: "This should also balance based on leads like the final rule."
+  //
+  // Same function the standard rule uses, so the answer is identical to the one
+  // that rule would have given.
+  //
+  // GATED ON A RULE HAVING HIT. With every rule disabled the director has
+  // turned the engine off, and assigning anyway would override that — so this
+  // fires only when some rule actually narrowed the field and then nothing
+  // finished the job.
+  const narrowedBy = trace.filter((t) => t.hit).pop();
+  if (narrowedBy && cands.length) {
+    const rep = standardPick(cands, lead, ctx);
+    if (rep) {
+      const v = volumeFor(ctx, rep.id, monthKey(lead.eventDate));
+      const mon = monthLabel(lead.eventDate);
+      // The narrowing rule owns this decision — it is the one that left these
+      // candidates standing — so the trace and `finalRuleId` name it rather
+      // than inventing a rule that is not on the director's screen.
+      trace.push({
+        ruleId: narrowedBy.ruleId,
+        hit: true,
+        note: `no later rule decided · ${rep.firstName} has the lowest ${mon} volume of those still eligible (${v.guests} guests in ${v.count} leads)`,
+      });
+      return {
+        rep,
+        reason: `lowest ${mon} volume`,
+        trace,
+        finalRuleId: narrowedBy.ruleId,
+        outcome: "assign",
+      };
+    }
+  }
   return { rep: null, reason: "no rule matched", trace, outcome: "none" };
 }
 

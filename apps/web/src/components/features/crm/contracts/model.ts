@@ -6,7 +6,7 @@ import {
   type ContractStatusFilter,
   type ContractWindow,
 } from "~/features/crm/contracts/contracts";
-import { fDate } from "~/features/crm/core/dates";
+import { fDate, fDateY } from "~/features/crm/core/dates";
 import { money, moneyK } from "~/features/crm/core/format";
 import { GF_STATUS_META, type GfStatus } from "~/features/crm/core/types";
 import { MON } from "../primitives/DateBlock";
@@ -73,6 +73,23 @@ export function depositCell(row: ContractRow): { text: string; paid: boolean } {
 }
 
 /** "HP Fort Myers · #H2879 · 42 guests" — the row's second line. */
+/**
+ * `rowMeta` with the event DATE in front of it.
+ *
+ * Owner, 2026-09-14: "Contracts page needs event date". The row already
+ * carried one as a `DateBlock` stamp, which reads well across a full-width
+ * table and is the first thing to go when the row narrows — and "SEP 16" on
+ * its own does not say which year a 2025 contract belongs to. Spelling it out
+ * in the meta line means the day survives every width.
+ *
+ * `rowMeta` itself is untouched: the Events board and the deal drawer both use
+ * it, and neither wants a date repeated beside a date.
+ */
+export function contractRowMeta(row: ContractRow): string {
+  const rest = rowMeta(row);
+  return rest ? `${fDateY(row.eventDate)} · ${rest}` : fDateY(row.eventDate);
+}
+
 export function rowMeta(row: ContractRow): string {
   const parts: string[] = [];
   const centre = CENTRE_LIST.find((c) => c.code === row.centre);
