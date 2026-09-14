@@ -8,6 +8,7 @@ import {
   DIRECTOR_ONLY_SCREENS,
   TEST_IDS,
 } from "../src/features/crm/core/contracts";
+import { MEASURE_TEST_IDS } from "../src/features/crm/kpi/contracts";
 import { LEAD_TEST_IDS } from "../src/features/crm/leads/contracts";
 import { PIPELINE_TEST_IDS } from "../src/features/crm/statuses/contracts";
 import {
@@ -381,6 +382,55 @@ test.describe.serial("eric — sales-director", () => {
     await shoot(page, "director-history");
   });
 
+  // ---- the three MEASURE screens (C7) ------------------------------------
+  // Each is shot at 1280 and 390, and `shoot()` asserts no horizontal scroll
+  // and a single vertical scroller at both widths.
+
+  test("/admin/crm/kpi — the tiles, both charts, and the sentence naming each money", async () => {
+    await page.goto("/admin/crm/kpi", { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    expect(new URL(page.url()).pathname).toBe("/admin/crm/kpi");
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.kpi))).toBeVisible();
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.kpiTiles))).toBeVisible();
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.pacing))).toBeVisible();
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.monthly))).toBeVisible();
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.funnel))).toBeVisible();
+    // THE THING THE OLD PORTAL GOT WRONG: revenue means three different things
+    // on this page, and the page has to say which is which in words the owner
+    // can read without hovering anything.
+    const footnote = page.locator(byTestId(MEASURE_TEST_IDS.footnote));
+    await expect(footnote).toBeVisible();
+    await expect(footnote).toContainText("BMI project value");
+    await expect(footnote).toContainText("Square");
+    expect(countOf(await documentBytes(page), TOKEN)).toBe(0);
+    await shoot(page, "director-kpi");
+  });
+
+  test("/admin/crm/accountability — a card per salesperson and the team table", async () => {
+    await page.goto("/admin/crm/accountability", { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    expect(new URL(page.url()).pathname).toBe("/admin/crm/accountability");
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.accountability))).toBeVisible();
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.accountabilityRange))).toBeVisible();
+    // The director sees the whole team — the table a rep must never be given.
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.teamTable))).toBeVisible();
+    expect(countOf(await documentBytes(page), TOKEN)).toBe(0);
+    await shoot(page, "director-accountability");
+  });
+
+  test("/admin/crm/goals — the editable grid, with last year beside each box", async () => {
+    await page.goto("/admin/crm/goals", { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    expect(new URL(page.url()).pathname).toBe("/admin/crm/goals");
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.goals))).toBeVisible();
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.goalsTable))).toBeVisible();
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.goalsSave))).toBeVisible();
+    // Nothing has been typed, so Save has nothing to do and says so.
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.goalsSave))).toBeDisabled();
+    expect(countOf(await documentBytes(page), TOKEN)).toBe(0);
+    await shoot(page, "director-goals");
+  });
+
   test("the CRM's own /api/admin/crm/* calls succeed with the minted credential", async () => {
     const adminCalls: { url: string; status: number }[] = [];
     page.on("response", (res) => {
@@ -438,6 +488,35 @@ test.describe.serial("rep — Kelsea, sales only", () => {
       if (screen === "queue") await shoot(page, "rep-queue");
     });
   }
+
+  // VISIBILITY, PROVEN IN A BROWSER (brief C7: "a rep sees their own
+  // accountability; the director sees everyone's… enforced server-side in the
+  // route, not by hiding UI"). The service tests pin the narrowing; these two
+  // pin that the rendered page obeys it, and that the one thing a rep must
+  // never be handed — the whole team's numbers — is not on the page at all.
+  test("/admin/crm/accountability — a rep gets at most their OWN card and no team table", async () => {
+    await page.goto("/admin/crm/accountability", { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.accountability))).toBeVisible();
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.teamTable))).toHaveCount(0);
+    // At most one — Kelsea's, or none at all if the roster has no login for
+    // this fixture, in which case the screen says so. Never a colleague's.
+    const cards = await page.locator('[data-testid^="crm-accountability-rep-"]').count();
+    expect(cards, "a rep was shown more than one salesperson's card").toBeLessThanOrEqual(1);
+    await shoot(page, "rep-accountability");
+  });
+
+  test("/admin/crm/kpi — a rep gets the page, and no salesperson filter to widen it with", async () => {
+    await page.goto("/admin/crm/kpi", { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    await expect(page.locator(byTestId(MEASURE_TEST_IDS.kpi))).toBeVisible();
+    await expect(page.locator('[role="group"][aria-label="Salesperson"]')).toHaveCount(0);
+    // And the by-salesperson table can never list somebody else: the server
+    // returns one row, so a hand-typed ?rep= changes nothing.
+    const rows = await page.locator(`${byTestId(MEASURE_TEST_IDS.byRep)} tbody tr`).count();
+    expect(rows, "a rep was shown more than their own row").toBeLessThanOrEqual(1);
+    await shoot(page, "rep-kpi");
+  });
 });
 
 test.describe("mgr — access only, no sales role", () => {

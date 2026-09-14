@@ -95,8 +95,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: "measure",
     label: "Measure",
     items: [
-      { id: "accountability", label: "Accountability", icon: "target", ready: false },
-      { id: "kpi", label: "KPI dashboard", icon: "chart", ready: false },
+      { id: "accountability", label: "Accountability", icon: "target", ready: true },
+      { id: "kpi", label: "KPI dashboard", icon: "chart", ready: true },
     ],
   },
   {
@@ -126,9 +126,9 @@ export const MORE_ITEMS: readonly NavItem[] = [
   { id: "history", label: "History & accounts", icon: "history", ready: true },
   { id: "cold", label: "Cold lists", icon: "list", ready: false },
   { id: "collateral", label: "Collateral & templates", icon: "file", ready: true },
-  { id: "accountability", label: "Accountability", icon: "target", ready: false },
-  { id: "kpi", label: "KPI dashboard", icon: "chart", ready: false },
-  { id: "goals", label: "Goals", icon: "target", director: true, ready: false },
+  { id: "accountability", label: "Accountability", icon: "target", ready: true },
+  { id: "kpi", label: "KPI dashboard", icon: "chart", ready: true },
+  { id: "goals", label: "Goals", icon: "target", director: true, ready: true },
   { id: "rules", label: "Assignment rules (admin)", icon: "bolt", director: true, ready: true },
   {
     id: "statuses",

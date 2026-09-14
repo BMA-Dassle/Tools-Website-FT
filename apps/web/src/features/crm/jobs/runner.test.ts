@@ -179,13 +179,16 @@ describe("noop and notImplemented", () => {
     const stub = notImplemented("noop").toString();
     const kinds = Object.keys(HANDLERS) as JobKind[];
     const pending = kinds.filter((k) => HANDLERS[k].toString() === stub);
-    expect(pending).not.toContain("noop");
-    expect(pending).not.toContain("seed");
-    expect(pending.length).toBeGreaterThan(0);
-    expect(pending.length).toBeLessThan(kinds.length - 1);
-    expect(pending).not.toContain("mint-bmi-project"); // B3 shipped it
-    expect(pending).not.toContain("assign-sweep"); // B3's assignment rules ship it
-    expect(pending).not.toContain("sevenshifts-mirror"); // B3's assignment rules ship it
+
+    // THE REGISTRY IS NOW COMPLETE — every kind has a real handler, so this set
+    // is empty and the loop below has nothing to walk. It used to assert
+    // `pending.length > 0`, which was right while the build was in flight and
+    // became wrong the moment the last sub landed (2026-09-13, when KPI's
+    // `pandora-goals-sync` took the final stub). Asserting emptiness is the
+    // stronger statement and it keeps this test honest: if a future kind is
+    // added to `JOB_KINDS` without a handler, this goes red rather than quietly
+    // passing because "at least one is still pending".
+    expect(pending).toEqual([]);
     for (const kind of pending) {
       const { job, result } = await runJobInline({ kind, actorEmail: "eric@headpinz.com" }, deps());
       expect(job.status, kind).toBe("failed");

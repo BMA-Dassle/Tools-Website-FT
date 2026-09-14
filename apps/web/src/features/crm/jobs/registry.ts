@@ -72,7 +72,11 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   "email-send-retry": (ctx) =>
     import("~/features/crm/email").then((m) => m.runEmailSendRetryJob(ctx)),
   "sms-send-retry": (ctx) => import("~/features/crm/sms").then((m) => m.runSmsSendRetryJob(ctx)),
-  "pandora-goals-sync": notImplemented("pandora-goals-sync"),
+  // Lazily imported, like `mint-bmi-project`: the measure sub imports this
+  // registry's `runJobInline` to mirror a save immediately, so a static import
+  // here would close the cycle.
+  "pandora-goals-sync": (ctx) =>
+    import("~/features/crm/kpi").then((m) => m.pandoraGoalsSyncHandler(ctx)),
   "contract-cancel-verify": (ctx) =>
     import("~/features/crm/contracts").then((m) => m.runCancelVerifyJob(ctx.payload)),
   // Director-only by construction: `/api/admin/crm/jobs/run` is the only way

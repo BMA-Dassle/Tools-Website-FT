@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { JobContext } from "~/features/crm/jobs";
-import { HANDLERS, NOT_IMPLEMENTED_ERROR } from "~/features/crm/jobs/registry";
+import { HANDLERS, NOT_IMPLEMENTED_ERROR, notImplemented } from "~/features/crm/jobs/registry";
 import { runThreecxReconcileJob, type ReconcileJobDeps } from "./jobs";
 
 /** The `threecx-reconcile` job and its registry line. */
@@ -53,12 +53,18 @@ describe("the registry line", () => {
     // `notImplemented` handlers answer `{ok:false, error:"not implemented"}` and
     // the runner records them as FAILED — this line must not do that any more.
     expect(HANDLERS["threecx-reconcile"]).toBeDefined();
-    // The control: this sub flipped its OWN line and no other. It used to read
-    // `share-link-expire`, which C4's collateral sub has since shipped for
-    // real — a neighbour's stub is not a stable control. `pandora-goals-sync`
-    // is the kind nobody has claimed yet.
-    const other = await HANDLERS["pandora-goals-sync"](ctx());
-    expect(other).toEqual({ ok: false, error: NOT_IMPLEMENTED_ERROR });
+
+    // THE CONTROL IS BUILT HERE, NOT BORROWED FROM A NEIGHBOUR.
+    // This assertion used to reach for whichever kind was still a stub — first
+    // `share-link-expire`, then `pandora-goals-sync` — and each time that
+    // neighbour's PR landed, this test broke for a reason that had nothing to
+    // do with 3CX. As of 2026-09-13 every kind has a real handler, so there is
+    // no borrowable stub left at all. Constructing one locally proves the same
+    // thing (a stub answers "not implemented"; our line does not) and can never
+    // be invalidated by somebody else shipping.
+    const control = notImplemented("threecx-reconcile");
+    expect(await control(ctx())).toEqual({ ok: false, error: NOT_IMPLEMENTED_ERROR });
+    expect(HANDLERS["threecx-reconcile"].toString()).not.toBe(control.toString());
   });
 });
 
