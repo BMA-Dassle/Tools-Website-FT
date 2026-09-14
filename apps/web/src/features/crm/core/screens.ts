@@ -48,5 +48,5 @@ export const SCREENS: Record<ScreenId, ScreenLoader> = {
   statuses: () => import("~/components/features/crm/statuses/StatusesScreen"),
   availability: () => import("~/components/features/crm/availability/AvailabilityScreen"),
   builder: () => import("~/components/features/crm/builder/BuilderScreen"),
-  more: () => import("~/components/features/crm/shell/NotBuiltYet"),
+  more: () => import("~/components/features/crm/shell/MoreScreen"),
 };

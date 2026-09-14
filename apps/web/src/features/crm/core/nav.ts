@@ -115,7 +115,7 @@ export const PHONE_TABS: readonly NavItem[] = [
   { id: "pipeline", label: "Pipeline", icon: "kanban", ready: true },
   { id: "contracts", label: "Contracts", icon: "file", ready: true },
   { id: "conversations", label: "Messages", icon: "message", ready: true },
-  { id: "more", label: "More", icon: "dots", ready: false },
+  { id: "more", label: "More", icon: "dots", ready: true },
 ];
 
 /** The phone "More" list (`direction-b.html:121`), director items flagged. */

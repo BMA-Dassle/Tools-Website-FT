@@ -37,7 +37,9 @@ export function Topbar({ title, sub, backHref, user, theme, onTheme, actionsRef 
           <IconArrowLeft {...ICON} />
         </Link>
       ) : null}
-      <div>
+      {/* `topbar-head` is not decoration: the phone rules need to tell the
+          title block apart from the person chip, and both are plain divs. */}
+      <div className="topbar-head">
         <h1>{title}</h1>
         {sub ? <div className="sub">{sub}</div> : null}
       </div>
