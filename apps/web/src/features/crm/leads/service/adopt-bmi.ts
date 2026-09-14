@@ -194,6 +194,13 @@ interface MirrorCandidate {
  *
  * Only ever FILLS a blank owner. It will not move a lead that already has one,
  * whether a director assigned it by hand or adoption got it right first time.
+ *
+ * NOT LIMITED TO ADOPTED ROWS. It used to filter on `created_by = 'crm-adopt'`,
+ * which missed the ones the owner then found sitting in the queue: leads made
+ * by CLICKING an event before that path learned to take the planner from the
+ * project. Any lead with a project and no owner is the same problem whatever
+ * made it, and the join to `crm_bmi_projects` already means a lead with no
+ * project cannot be touched.
  */
 export async function repairAdoptedAssignments({ dryRun = false } = {}): Promise<{
   candidates: number;
@@ -228,7 +235,6 @@ export async function repairAdoptedAssignments({ dryRun = false } = {}): Promise
       JOIN crm_bmi_projects p ON p.project_id = l.bmi_project_id
      WHERE l.assigned_rep_id IS NULL
        AND l.archived_at IS NULL
-       AND l.created_by = 'crm-adopt'
   `) as { lead_id: string; responsible_user_id: string | null; responsible_name: string | null }[];
 
   const unmatched = new Set<string>();

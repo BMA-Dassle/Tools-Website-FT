@@ -273,11 +273,70 @@ function firstString(...vals: unknown[]): string | null {
 }
 
 /** Drop the log arrays (staff memos) before the raw copy is stored. */
+/**
+ * One Office log entry, trimmed to what a timeline needs.
+ *
+ * Office keeps the memo in `logs[].memo`, one entry per note, each carrying its
+ * own `created` stamp and a `public` flag that separates what the guest sees on
+ * the contract page from the private staff log. That is the history — on
+ * project 3492 it holds the contract link, "Contract sent to
+ * rblanchard@selectmedical.com" dated 18 Aug and a final-headcount reminder
+ * dated 11 Sep; on H2892 a card-declined notice.
+ */
+export interface MirrorLogEntry {
+  id: string | null;
+  public: boolean;
+  kind: string | null;
+  action: string | null;
+  memo: string;
+  created: string | null;
+  updated: string | null;
+}
+
+export function trimLogs(detail: Record<string, unknown>): MirrorLogEntry[] {
+  const raw = detail.logs ?? detail.projectLogs;
+  if (!Array.isArray(raw)) return [];
+  const out: MirrorLogEntry[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const e = item as Record<string, unknown>;
+    const memo = typeof e.memo === "string" ? e.memo : "";
+    if (!memo.trim()) continue;
+    out.push({
+      // Office ids are 17 digits — string, never Number().
+      id: e.id === null || e.id === undefined ? null : String(e.id),
+      public: e.public === true,
+      kind: e.kind === null || e.kind === undefined ? null : String(e.kind),
+      action: e.action === null || e.action === undefined ? null : String(e.action),
+      memo,
+      created: typeof e.created === "string" ? e.created : null,
+      updated: typeof e.updated === "string" ? e.updated : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * THE LOGS ARE KEPT, TRIMMED — they were the history we were throwing away.
+ *
+ * This used to drop `logs` and `projectLogs` outright, which is why the deal's
+ * Timeline said "Nothing logged yet" over a project whose memo recorded a
+ * contract being sent, a reminder going out and a card being declined (owner,
+ * 2026-09-13: "missing timeline history etc. You should be able to pull it from
+ * the notes"). The Notes tab reads the memo live from Office, so the data was
+ * always reachable — nothing stored it, so nothing could build a history from
+ * it.
+ *
+ * Only the fields a timeline needs are kept, not the whole entry: an Office log
+ * carries device and user ids we have no use for, and the mirror is 5,000 rows
+ * wide.
+ */
 export function trimRaw(detail: Record<string, unknown>): Record<string, unknown> {
   const { logs: _logs, projectLogs: _projectLogs, ...rest } = detail;
   void _logs;
   void _projectLogs;
-  return rest;
+  const logs = trimLogs(detail);
+  return logs.length > 0 ? { ...rest, logs } : rest;
 }
 
 // ---------------------------------------------------------------------------

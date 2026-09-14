@@ -59,7 +59,17 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
         sections — reuse `events/notes/office-notes.ts`, do not write a second
         parser.
 
-- [ ] **The BMI memo is never mirrored, so no timeline can be built from it.**
+- [x] ~~**The BMI memo is never mirrored**~~ — FIXED. It lives in
+      `logs[].memo`, one entry per note with its own `created` stamp and a
+      `public` flag separating what the guest sees from the staff log.
+      `trimRaw` was explicitly dropping `logs` and `projectLogs`, which is the
+      single line that emptied the timeline. Now kept, trimmed to the fields a
+      history needs. ALSO CORRECTED: I warned the parser's `── FastTrax Web ──`
+      markers might not match Office's em dashes — they do match. Office writes
+      U+2500 box-drawing dashes, verified byte by byte against project 3492.
+      Still to do: re-run the mirror so stored rows carry logs, then project the
+      dated entries into `crm_activities`.
+- [ ] ~~The BMI memo is never mirrored, so no timeline can be built from it.~~
       Owner, on 3492 Select Specialty Hospital: "missing timeline history etc.
       You should be able to pull it from the notes."
       Verified: `crm_bmi_projects.raw` for 3492 has no `memo` key at all — the
@@ -79,6 +89,13 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       for `── FastTrax Web ──` in box-drawing dashes while Office appears to
       write `— FastTrax Web —` in em dashes, which would make it match nothing.
       Could not confirm that because no memo is stored to test against.
+
+- [ ] **Share a link to an event with another rep or the director.** Owner:
+      "I'd like to be able to share link to event in our CRM with other reps or
+      director." Every screen already keeps its state in the URL, so the deal
+      drawer is addressable today — what is missing is a visible "copy link"
+      and a link that survives being opened by somebody whose default view
+      differs (a rep opening a director's link, a different centre filter).
 
 ## Open — presentation
 
