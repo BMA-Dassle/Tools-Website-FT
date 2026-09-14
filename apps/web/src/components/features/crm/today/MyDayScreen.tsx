@@ -14,6 +14,7 @@ import { Chip } from "../primitives/Chip";
 import { ICON } from "../primitives/icon-props";
 import { ErrorState, LoadingState } from "../primitives/States";
 import { DealDrawer } from "../deal/DealDrawer";
+import { PreShiftNote } from "./PreShiftNote";
 import { useStatusIndex } from "../deal/use-deal";
 import { BoardColumn } from "../leads/BoardColumn";
 import { LeadCard } from "../leads/LeadCard";
@@ -108,6 +109,11 @@ export default function MyDayScreen({ query }: ScreenProps) {
             slot,
           )
         : null}
+
+      {/* ABOVE the work, because the point of a pre-shift is that it is seen
+          without being looked for. Before the loading state too: the note does
+          not depend on the board and should not wait for it. */}
+      <PreShiftNote />
 
       {q.isPending ? <LoadingState label="Loading your day…" /> : null}
       {q.isError ? (

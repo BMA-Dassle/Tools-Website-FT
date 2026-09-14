@@ -9,7 +9,9 @@ import {
   convFromLine,
   emptyThreadCopy,
   initialsFor,
+  oneLinePreview,
   sendStateChip,
+  splitQuoted,
   sortNewestFirst,
   whoLine,
 } from "./model";
@@ -114,5 +116,66 @@ describe("sendStateChip", () => {
       text: "Sending…",
       tone: "warn",
     });
+  });
+});
+
+describe("splitQuoted", () => {
+  /**
+   * Owner, 2026-09-14: "quoted trails folded behind a 'show quoted text'
+   * control." On the fifth reply the trail is four-fifths of the message and
+   * is the four messages already on screen above it.
+   */
+  it("folds at the first quote prefix", () => {
+    const r = splitQuoted("Yes, 6pm works.\n\n> Are you free at 6?\n> — Kelsea");
+    expect(r.visible).toBe("Yes, 6pm works.");
+    expect(r.quoted).toBe("> Are you free at 6?\n> — Kelsea");
+  });
+
+  it("folds at an attribution line", () => {
+    const r = splitQuoted(
+      "Sounds good.\n\nOn Fri, 12 Sep 2026, Kelsea Kosco wrote:\nHere is the quote",
+    );
+    expect(r.visible).toBe("Sounds good.");
+    expect(r.quoted).toContain("Kelsea Kosco wrote:");
+  });
+
+  it("leaves a message with no trail entirely alone", () => {
+    expect(splitQuoted("Just checking in.")).toEqual({
+      visible: "Just checking in.",
+      quoted: null,
+    });
+    expect(splitQuoted(null)).toEqual({ visible: "", quoted: null });
+  });
+
+  it("NEVER hides everything — a message that is only a quote stays whole", () => {
+    // Folding it would leave an empty card, which reads as a lost message.
+    const onlyQuote = "> the whole thing was a quote";
+    expect(splitQuoted(onlyQuote)).toEqual({ visible: onlyQuote, quoted: null });
+  });
+
+  it("discards nothing: visible + quoted still contains every line", () => {
+    const body = "Top line.\n\n> quoted one\n> quoted two";
+    const r = splitQuoted(body);
+    for (const line of ["Top line.", "> quoted one", "> quoted two"]) {
+      expect(`${r.visible}\n${r.quoted ?? ""}`).toContain(line);
+    }
+  });
+});
+
+describe("oneLinePreview", () => {
+  it("is the first thing they actually wrote, not a blank line or a quote", () => {
+    expect(oneLinePreview("\n\n  Thanks!  \n\n> old stuff")).toBe("Thanks!");
+  });
+
+  it("truncates with an ellipsis rather than wrapping a collapsed row", () => {
+    const long = "x".repeat(200);
+    const out = oneLinePreview(long, 40);
+    expect(out).toHaveLength(40);
+    expect(out.endsWith("…")).toBe(true);
+  });
+
+  it("is empty when there is nothing to show", () => {
+    expect(oneLinePreview(null)).toBe("");
+    expect(oneLinePreview("   \n  ")).toBe("");
   });
 });

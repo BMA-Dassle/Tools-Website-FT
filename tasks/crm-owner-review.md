@@ -159,7 +159,12 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       `TRACK_NAME = /track/i` currently picks the default resource, which is a
       FastTrax assumption — HeadPinz has no track and would default to nothing.
 
-- [ ] **FastTrax availability must know about the MEGA TRACK configuration.**
+- [x] **FastTrax availability knows about the MEGA TRACK configuration.** DONE
+      2026-09-14 — reads `features/racing/mega-calendar` (the single source; its
+      Thursday window closes 2026-11-01 by itself) and SAYS so on the screen
+      rather than re-computing, because Office already schedules the Mega
+      resource and that module warns ops can run split tracks on a Mega day.
+      ORIGINAL NOTE:
       Owner, 2026-09-14: "Fasttrax availability needs to take an account the
       websites mega track configuration which is tuesday and thursday right
       now. There is single place to get that."
@@ -169,7 +174,11 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       SINGLE SOURCE the owner refers to and read it — do NOT hardcode Tuesday
       and Thursday, which is a configuration that changes seasonally.
 
-- [ ] **Availability: let them choose the LANE TYPE, and start a lead from
+- [~] **Availability: choose the LANE TYPE (DONE), start a lead from here
+      (STILL OPEN).** The "Lanes" picker shipped 2026-09-14 — "Any" keeps the
+      old behaviour, and it hides itself where there is nothing to choose. The
+      "start a lead with a full BMI project from the verdict" half is NOT done.
+      ORIGINAL NOTE: Availability: let them choose the LANE TYPE, and start a lead from
       there.** Owner, 2026-09-14: "Need to be able to select what type of lanes
       they want. Also should be able to start a lead from here with full BMI
       project."
@@ -245,7 +254,12 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       NOT a data problem: `bmi_created_at` is present on all 56,032 mirrored
       rows and the query already excludes online (`kind_id <> '-10'`).
 
-- [ ] **Step through deals from inside the drawer.** Owner, 2026-09-14: "When
+- [x] **Step through deals from inside the drawer.** DONE 2026-09-14 — prev/next
+      beside Full page, stepping THE ORDER THE SCREEN IS SHOWING (the pipeline
+      column by column and lane by lane, the queue oldest-first, My Day left to
+      right, Events by day). No wrapping, left/right arrow keys, and it never
+      steps onto an Events row that has no CRM lead — an arrow key must not
+      mint an Office project on the way past. ORIGINAL NOTE: Owner, 2026-09-14: "When
       I open an event from the pipeline I should be able to hit right and left
       buttons to just keep going through each of them. something in top right
       I'd assume." Today closing and re-opening is the only way to reach the
@@ -318,7 +332,12 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       nagging once read but still exists for the record. Reuse the Statuses
       screen's editor pattern rather than inventing a second one.
 
-- [ ] **The builder ignores the lines already on the project.** Opening "Build
+- [x] **The builder ignores the lines already on the project.** DONE 2026-09-14
+      — they were COMPUTED, named in a warning banner, and then thrown away, so
+      a fully built event read "Nothing on this quote yet" above a banner
+      listing its contents. They are rows now, read-only (the CRM has no record
+      of what it did not write, so it must not offer to retry or delete them),
+      and the banner stopped repeating what the table shows. ORIGINAL NOTE: Opening "Build
       in BMI" on project 2950 says "Nothing on this quote yet" while the banner
       above it lists 8 lines the project already carries (G/F 16" Pizza Cheese
       qty 28, Soda Pitchers qty 28, two Nemos Wings lines, and four more by id).

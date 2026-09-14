@@ -65,7 +65,7 @@ export function DealDrawer({ publicId, onClose, query, setQuery, order }: DealDr
         <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />
       ) : null}
       {q.data ? (
-        <DealBody detail={q.data} query={query} setQuery={setQuery} refresh={q.refresh} />
+        <DealBody detail={q.data} query={query} setQuery={setQuery} refresh={q.refresh} compact />
       ) : null}
     </Drawer>
   );

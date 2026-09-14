@@ -89,6 +89,18 @@ const SCREENS = [
   "rules",
   "statuses",
   "more",
+  /**
+   * THE DEAL, which the sweep could not otherwise reach — it needs a lead id,
+   * so it is the one screen with no route of its own in `core/nav.ts` and the
+   * one a rep spends most of their day on. Owner, 2026-09-14: "Mobile layout of
+   * headers and such need lots of work", with the deal header as the example.
+   *
+   * A REAL lead from this tenant rather than a fixture: the complaint is about
+   * a header with seven stacked rows, and a seeded lead with no company, no
+   * requested planner and no contract would render four of them and prove
+   * nothing.
+   */
+  `deal/${process.env.CRM_MOBILE_DEAL ?? "L-225"}`,
 ] as const;
 
 interface WideEl {
@@ -316,6 +328,15 @@ test.describe("CRM on a phone", () => {
         await page.waitForTimeout(900);
 
         const r = await measure(page, screen || "today", w);
+        // The header's height IS the complaint on the deal: "most of a phone
+        // screen before any content". Recorded so a change can be compared
+        // rather than argued about.
+        const heroH = await page
+          .locator(".hero")
+          .first()
+          .evaluate((el) => Math.round(el.getBoundingClientRect().height))
+          .catch(() => 0);
+        if (heroH) console.log(`      ${w}px ${screen} hero height = ${heroH}px`);
         r.errors = [...new Set(consoleErrors)].slice(0, 5);
         report.push(r);
 

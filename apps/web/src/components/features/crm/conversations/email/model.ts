@@ -87,3 +87,66 @@ export function sendStateChip(msg: EmailMessageView): { text: string; tone: Send
   }
   return null;
 }
+
+/**
+ * Split a body into what is NEW and what is the quoted trail beneath it.
+ *
+ * Owner, 2026-09-14: "think there is a beter layout of this screen espcailly
+ * when you start getting alot of emails back and forth… quoted trails folded
+ * behind a 'show quoted text' control."
+ *
+ * On the fifth reply the quoted trail is four-fifths of the message and the
+ * only part nobody needs — it is the four messages already on screen above it,
+ * again. Folding it is what makes a long thread readable.
+ *
+ * TWO MARKERS, both conservative:
+ *   - the first line that begins with ">" (every client's quote prefix), or
+ *   - an attribution line: "On <date>, <somebody> wrote:", which Outlook,
+ *     Gmail and Apple Mail all emit in some form.
+ *
+ * Whichever comes FIRST wins, and everything from there down is the trail.
+ * Deliberately not clever: a false positive hides something somebody wrote, so
+ * the control says how much is hidden and one click brings it all back.
+ * Nothing is ever discarded.
+ */
+export interface SplitBody {
+  visible: string;
+  /** Null when there is no trail — the common case on a first message. */
+  quoted: string | null;
+}
+
+const QUOTE_ATTRIBUTION = /^\s*On\b.*\bwrote:\s*$/;
+
+export function splitQuoted(body: string | null | undefined): SplitBody {
+  if (!body) return { visible: "", quoted: null };
+  const lines = body.split(/\r?\n/);
+  let cut = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (line.trimStart().startsWith(">") || QUOTE_ATTRIBUTION.test(line)) {
+      cut = i;
+      break;
+    }
+  }
+  if (cut < 0) return { visible: body, quoted: null };
+  const visible = lines.slice(0, cut).join("\n").trimEnd();
+  const quoted = lines.slice(cut).join("\n").trimEnd();
+  // A message that is ONLY a quote has nothing to fold away — folding it would
+  // leave an empty card.
+  if (!visible) return { visible: body, quoted: null };
+  return { visible, quoted: quoted || null };
+}
+
+/**
+ * One line of a message, for a collapsed card: the first thing somebody wrote,
+ * with the quoted trail and blank lines gone.
+ */
+export function oneLinePreview(body: string | null | undefined, max = 120): string {
+  const { visible } = splitQuoted(body);
+  const line = visible
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  if (!line) return "";
+  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+}

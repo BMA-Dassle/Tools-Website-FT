@@ -43,9 +43,11 @@ export interface DealBodyProps {
   query: Record<string, string>;
   setQuery: (patch: UrlQueryPatch) => void;
   refresh: () => void;
+  /** Rendered inside the drawer, which carries its own title and close. */
+  compact?: boolean;
 }
 
-export function DealBody({ detail, query, setQuery, refresh }: DealBodyProps) {
+export function DealBody({ detail, query, setQuery, refresh, compact }: DealBodyProps) {
   const { isDirector } = useCrmUser();
   const crmFetch = useCrmFetch();
   const toast = useCrmToast();
@@ -133,6 +135,7 @@ export function DealBody({ detail, query, setQuery, refresh }: DealBodyProps) {
         onEdit={edit}
         onMint={() => mint.mutate()}
         minting={mint.isPending}
+        compact={compact}
       />
       <QuickActions lead={lead} onDone={refresh} />
       <div

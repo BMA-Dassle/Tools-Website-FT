@@ -24,6 +24,7 @@ import {
 } from "~/features/crm/leads/contracts";
 import { requestedPlannerLabel } from "~/features/crm/leads/planners";
 import { responseBadge } from "~/features/crm/leads/response-badge";
+import { initialsOf } from "../lib/use-crm-user";
 import { Avatar } from "../primitives/Avatar";
 import { Chip } from "../primitives/Chip";
 import { DateBlock } from "../primitives/DateBlock";
@@ -35,6 +36,7 @@ import { TypeGlyph } from "../leads/TypeGlyph";
 import {
   STEPS,
   bmiChip,
+  bmiChipIsRedundant,
   daysOutOf,
   leadName,
   leadTitle,
@@ -58,6 +60,11 @@ const CENTRE_NAME: Record<LeadView["centre"], string> = {
  * deal without going back to the board — and without a drag (R13).
  */
 export interface DealHeaderProps {
+  /**
+   * Drop what the surrounding chrome already says. True in the drawer, whose
+   * own header carries the guest's name.
+   */
+  compact?: boolean;
   lead: LeadView;
   status: CrmStatus | undefined;
   now: Date;
@@ -81,9 +88,10 @@ export function DealHeader({
   onEdit,
   onMint,
   minting,
+  compact,
 }: DealHeaderProps) {
   const d = daysOutOf(lead, now);
-  const chip = bmiChip(lead);
+  const chip = bmiChipIsRedundant(lead, status?.label) ? null : bmiChip(lead);
   const rb = responseBadge(lead, now);
   const ix = stepIndex(lead.status);
   const builder = `${CRM_BASE}/builder/${lead.publicId}`;
@@ -125,7 +133,13 @@ export function DealHeader({
     <div className="hero" data-testid={LEAD_TEST_IDS.dealHeader}>
       <DateBlock date={lead.eventDate} lg daysOut={d} />
       <div style={{ flex: 1, minWidth: 220 }}>
-        <h2>{leadTitle(lead)}</h2>
+        {/* The DRAWER already carries the guest's name in its own header, two
+            inches above this one. Printing it twice is a whole row of the
+            phone's screen spent saying nothing new — part of what the owner
+            meant by "Hate this layout" and by the header being seven stacked
+            rows where the prototype's is three. On the full page there is no
+            other title, so it stays. */}
+        {compact ? null : <h2>{leadTitle(lead)}</h2>}
         <div className="facts">
           {lead.guest.company ? (
             <span>
@@ -183,7 +197,12 @@ export function DealHeader({
             )}
             <IconChevronDown {...ICON} />
           </button>
-          {chip.kind === "bmi" ? (
+          {/* Only when Office DISAGREES with our status. "BMI · Pending Quote"
+              beside a status chip that already says Quote sent is a second
+              chip carrying no second fact, and it was one of seven competing
+              on this line. Owner, 2026-09-14: "Fix icons and such", "no
+              hierarchy — the eye has nowhere to land first." */}
+          {chip === null ? null : chip.kind === "bmi" ? (
             <Chip bmi title={chip.title}>
               {chip.label}
             </Chip>
@@ -192,7 +211,11 @@ export function DealHeader({
               {chip.label}
             </Chip>
           )}
-          {lead.bmi.projectNumber ? <Pill>{lead.bmi.projectNumber}</Pill> : null}
+          {lead.bmi.projectNumber ? (
+            <span className="ref-num" title="BMI Office reference">
+              {lead.bmi.projectNumber}
+            </span>
+          ) : null}
           {rb.kind === "waiting" ? (
             <Timer tone={rb.tone} icon={<IconClock {...ICON} />}>
               no touch · {formatMinutes(rb.minutes)}
@@ -202,30 +225,54 @@ export function DealHeader({
               first touch {formatMinutes(rb.minutes)}
             </Timer>
           ) : null}
-          <Avatar
-            initials={
-              lead.repName
-                ? lead.repName
-                    .split(/\s+/)
-                    .map((p) => p[0])
-                    .join("")
-                    .slice(0, 2)
-                    .toUpperCase()
-                : undefined
-            }
-            repSlug={lead.repSlug}
-            name={lead.repName ?? undefined}
-            sm
-          />
+          {/* WHO OWNS IT, in words. `Avatar` falls back to a bare "?" with no
+              initials, and on an unassigned deal that put an undecodable
+              question mark between the project number and the centre — owner,
+              2026-09-14: "A bare circular '?' avatar sits between the project
+              number and the centre chip". An unowned deal is a fact worth
+              stating plainly, and it is the one a director acts on. */}
+          {lead.repName ? (
+            <span className="owner-chip" title={`Owned by ${lead.repName}`}>
+              <Avatar
+                initials={initialsOf(lead.repName)}
+                repSlug={lead.repSlug}
+                name={lead.repName}
+                sm
+              />
+              <span>{lead.repName}</span>
+            </span>
+          ) : (
+            <Chip kind="warn" title="Nobody owns this deal yet">
+              Unassigned
+            </Chip>
+          )}
           <Pill centre={lead.centre}>{centreShort(lead.centre)}</Pill>
         </div>
       </div>
       <div className="val">
-        <div className="n">{lead.valueCents ? money(lead.valueCents) : "—"}</div>
-        <div className="s">
-          {lead.valueCents ? "quoted" : "no quote yet"} ·{" "}
-          <b style={{ color: d <= 14 ? "var(--warn-ink)" : "inherit" }}>{d} days out</b>
-        </div>
+        {/* THE HERO NUMBER IS NEVER AN EM DASH.
+            It used to read "—" in the largest type on the screen with "no quote
+            yet · 5 days out" beneath it — the biggest thing on the card
+            carrying no information at all (owner, 2026-09-14). When there is
+            money, the money leads. When there is not, the thing a planner
+            actually wants is how long they have, so the countdown leads and the
+            missing quote becomes the caption. */}
+        {lead.valueCents ? (
+          <>
+            <div className="n">{money(lead.valueCents)}</div>
+            <div className="s">
+              quoted ·{" "}
+              <b style={{ color: d <= 14 ? "var(--warn-ink)" : "inherit" }}>{d} days out</b>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="n" style={{ color: d <= 14 ? "var(--warn-ink)" : undefined }}>
+              {d} {d === 1 ? "day" : "days"}
+            </div>
+            <div className="s">out · no quote yet</div>
+          </>
+        )}
         <div className="hstack" style={{ justifyContent: "flex-end", marginTop: 8 }}>
           {isDirector ? (
             <button type="button" className="btn btn-sm" onClick={onReassign}>

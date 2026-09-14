@@ -9,6 +9,7 @@ import {
 import {
   assignToastText,
   bmiChip,
+  bmiChipIsRedundant,
   cardUrgency,
   contactHrefs,
   dueLabel,
@@ -138,5 +139,53 @@ describe("misc", () => {
         }),
       ),
     ).toEqual({ tel: null, sms: null, mailto: null });
+  });
+});
+
+describe("bmiChipIsRedundant", () => {
+  /**
+   * The chip earns its line only when Office DISAGREES with the column (on a
+   * board card) or with the status chip beside it (on the deal header).
+   * "BMI · Pending Quote" under a "Pending Quote" header is a second chip
+   * carrying no second fact — and it was repeated down twenty cards. Owner,
+   * 2026-09-14: "I still think you can do better with these tiles", and on the
+   * deal header: "No hierarchy — the eye has nowhere to land first."
+   */
+  const minted = (stateName: string | null) =>
+    makeLead({
+      id: "1",
+      bmi: {
+        projectId: "63000000009561437",
+        projectNumber: "H1",
+        stateId: "-2",
+        stateName,
+        personId: null,
+        syncedAt: null,
+      },
+    });
+
+  it("is redundant when Office says what the status already says", () => {
+    expect(bmiChipIsRedundant(minted("Pending Quote"), "Pending Quote")).toBe(true);
+    // Case and spacing do not make it a different fact.
+    expect(bmiChipIsRedundant(minted("pending  quote"), "Pending Quote")).toBe(true);
+    // Office's per-centre suffix is not a difference either.
+    expect(bmiChipIsRedundant(minted("Deposit Requested (HPFM)"), "Deposit Requested")).toBe(true);
+  });
+
+  it("is NOT redundant when they disagree — which is the case worth showing", () => {
+    expect(bmiChipIsRedundant(minted("New Lead"), "Contract sent")).toBe(false);
+  });
+
+  it("never suppresses a chip that is not about a real project", () => {
+    // "not minted", "creating…" and "needs email & time" are always worth
+    // saying, whatever the status chip reads.
+    const noProject = makeLead({ id: "2", mintStatus: "none" });
+    expect(bmiChipIsRedundant(noProject, "New")).toBe(false);
+    expect(bmiChipIsRedundant(minted(null), "New")).toBe(false);
+  });
+
+  it("with no status to compare against, the chip stands", () => {
+    expect(bmiChipIsRedundant(minted("Pending Quote"), null)).toBe(false);
+    expect(bmiChipIsRedundant(minted("Pending Quote"), undefined)).toBe(false);
   });
 });

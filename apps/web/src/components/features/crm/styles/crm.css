@@ -4733,3 +4733,284 @@ body:has(.crm-root) {
     justify-content: flex-start;
   }
 }
+
+/* ── The deal header, given a hierarchy ────────────────────────────────────
+   Owner, 2026-09-14: "Fix icons and such. Even worse on mobile", and before
+   that "mAKE THIS LOOK BETTER" — with the specifics: seven chips competing on
+   two lines with no hierarchy, a bare "?" avatar between the project number
+   and the centre, and the money greyed almost to the background while being
+   the largest thing on the card.
+
+   The components answered the first two (the BMI chip now appears only when
+   Office disagrees with our status; an unowned deal says "Unassigned" instead
+   of drawing a question mark). These are the three that are CSS:
+
+   1. The reference number is a REFERENCE, not a state. It wore the same pill
+      as the centre and the source, so "H2892" competed with things that mean
+      something. It is now quiet, monospaced and obviously an id.
+   2. The owner reads as one object — face and name together — rather than a
+      floating circle the reader has to decode.
+   3. The money is the answer to "how much", so it is INK, not muted. It was
+      greyed to the point of looking disabled. */
+.crm-root .hero .ref-num {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--muted2);
+  background: var(--card2);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.crm-root .hero .owner-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+  min-width: 0;
+}
+.crm-root .hero .owner-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 14ch;
+}
+.crm-root .hero .val .n {
+  color: var(--fg);
+}
+
+/* ── The stage bar's labels stopped fitting ────────────────────────────────
+   Owner: "The stage bar's labels (Assigned / Contacted / Quote / Contract /
+   Booked) are cramped under full-width segments and wrap badly at narrow
+   widths."
+
+   They are five equal grid columns, so each gets a fifth of the header no
+   matter how narrow that is, and a two-word label then breaks mid-phrase under
+   a 5px bar. `min-width: 0` lets a column actually shrink (a grid track will
+   not go below its content without it, which is why they overflowed instead of
+   truncating), and the label then ellipsises — a shortened stage still reads
+   as that stage, where "Contra / cted" reads as damage.
+
+   The BAR keeps its full width: it is the part that carries the progress, and
+   it is legible with no label at all. */
+.crm-root .stepper .st {
+  min-width: 0;
+}
+.crm-root .stepper .st span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* On a phone the five labels cannot all fit, and shrinking them to three
+   characters each helps nobody. The bar alone shows progress; the CURRENT
+   stage keeps its name, because that is the one a rep is looking for. */
+@media (max-width: 560px) {
+  .crm-root .stepper .st span {
+    display: none;
+  }
+  .crm-root .stepper .st.cur span {
+    display: block;
+  }
+}
+
+/* ── The meta icons matched nothing ────────────────────────────────────────
+   Owner, twice: "Icons look off" and "The meta icons (clock, people, building,
+   gift) are a different weight and size from the action row's."
+
+   They were: `.hero .facts .icon` forced 15px over a 16px glyph, so every
+   tabler stroke in that row was scaled down by a fraction and read thinner
+   than the identical glyphs in the buttons beside them. Every icon in the CRM
+   is drawn at 16 by `ICON`; the one rule that disagreed now agrees. */
+.crm-root .hero .facts .icon {
+  width: 16px;
+  height: 16px;
+  vertical-align: -3px;
+}
+
+/* ── The deal's tab strip gave no sign it scrolled ─────────────────────────
+   Owner, 2026-09-14: "The tab strip overflows ('His…' clipped at the right
+   edge) with no affordance that it scrolls."
+
+   It has always scrolled — `.deal-tabs` is `overflow-x: auto`. What it lacked
+   was any sign of that, and on touch there is not even a scrollbar to notice
+   (hidden deliberately, as every mobile OS does). A tab clipped mid-word with
+   nothing beside it reads as breakage, not as "there is more this way".
+
+   THE SHADOWS KNOW WHERE THE SCROLL IS. Four background layers, the classic
+   pure-CSS scroll-shadow: two opaque "covers" pinned to the CONTENT
+   (`background-attachment: local`, so they travel with it) sitting on top of
+   two shadows pinned to the ELEMENT (`scroll`, so they stay at the edges).
+   At the left end the left cover sits over the left shadow and hides it; scroll
+   right and the cover moves away, revealing it. So each edge fades only while
+   there is something past it — no JavaScript, no scroll listener, and it can
+   never lie about how far along the strip is. */
+.crm-root .deal-tabs {
+  background-image:
+    linear-gradient(to right, var(--card), var(--card)),
+    linear-gradient(to left, var(--card), var(--card)),
+    linear-gradient(to right, rgb(0 0 0 / 14%), rgb(0 0 0 / 0%)),
+    linear-gradient(to left, rgb(0 0 0 / 14%), rgb(0 0 0 / 0%));
+  background-position:
+    left center,
+    right center,
+    left center,
+    right center;
+  background-repeat: no-repeat;
+  background-size:
+    22px 100%,
+    22px 100%,
+    12px 100%,
+    12px 100%;
+  background-attachment: local, local, scroll, scroll;
+  /* The strip is a row of controls, so a thumb should be able to fling it and
+     land ON a tab rather than half-way across one. */
+  scroll-snap-type: x proximity;
+}
+.crm-root .deal-tabs button {
+  scroll-snap-align: start;
+}
+
+/* ── The owner's pre-shift note ────────────────────────────────────────────
+   Owner, 2026-09-14: "Would be cool to have a little note for the day from me,
+   something like a pre shift that appears on their 'my day'."
+
+   A NOTE, NOT AN ALERT. It is the first thing on My Day and it must read as
+   somebody talking, so it takes the accent's quietest tint rather than a
+   warning colour: nothing is wrong, somebody has something to say. A red
+   banner every morning is one people learn to scroll past, which would defeat
+   the whole thing. */
+.crm-root .preshift {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--accent-soft2);
+  background: var(--accent-soft);
+  flex: none;
+}
+.crm-root .preshift .ps-ico {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--card);
+  color: var(--accent-ink);
+  flex: none;
+}
+.crm-root .preshift .ps-body {
+  flex: 1;
+  min-width: 0;
+}
+.crm-root .preshift .ps-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+/* The owner's own words: wrapped, never reflowed, and line breaks kept —
+   somebody writing three short lines meant three short lines. */
+.crm-root .preshift .ps-text {
+  margin: 3px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.crm-root .preshift-compose .textarea {
+  width: 100%;
+}
+.crm-root .preshift-add {
+  display: flex;
+}
+/* On a phone the buttons cannot share the note's row without squeezing the
+   words down to a column — they take their own line underneath. */
+@media (max-width: 560px) {
+  .crm-root .preshift {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+  .crm-root .preshift .ps-body {
+    flex: 1 1 100%;
+    order: 2;
+  }
+  .crm-root .preshift .ps-ico {
+    order: 1;
+  }
+  .crm-root .preshift > .btn {
+    order: 3;
+  }
+}
+
+/* ── The email thread, once there are a dozen messages ─────────────────────
+   Owner, 2026-09-14: "think there is a beter layout of this screen espcailly
+   when you start getting alot of emails back and forth."
+
+   Every message rendered at full height, so the reply box was below the fold
+   and the thread was a wall. Cards collapse now; the newest stays open because
+   it is the one being replied to.
+
+   THE HEADER IS THE TOGGLE, so it has to stop looking like a paragraph and
+   start looking like a control — full width, a pointer, a hover, and a chevron
+   that turns. It is a real <button>, so the browser's own button styling is
+   reset here rather than the markup being a div with a click on it. */
+.crm-root .mailcard .mc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.crm-root .mailcard .mc-toggle:hover .mc-chev {
+  color: var(--fg);
+}
+.crm-root .mailcard .mc-chev {
+  flex: none;
+  color: var(--muted2);
+  transition: transform 0.15s;
+}
+.crm-root .mailcard .mc-chev.up {
+  transform: rotate(180deg);
+}
+/* The one line a closed card shows: what they actually wrote, never wrapped —
+   a collapsed row that grows to two lines is not collapsed. */
+.crm-root .mailcard .mc-peek {
+  font-size: 12.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+.crm-root .mailcard .mc-body {
+  margin-top: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.crm-root .mailcard .mc-quoted {
+  margin-top: 6px;
+}
+/* The trail, when somebody asks for it: visibly secondary, and ruled off so it
+   reads as "what was said before" rather than as more of this message. */
+.crm-root .mailcard .mc-trail {
+  color: var(--muted);
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+  margin-top: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .crm-root .mailcard .mc-chev {
+    transition: none;
+  }
+}
