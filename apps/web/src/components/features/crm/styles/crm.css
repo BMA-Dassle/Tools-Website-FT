@@ -840,14 +840,33 @@
      right rail did not drop below — it was crushed to about a character wide
      and "Guest messages" rendered one LETTER per line, which is what the owner
      was looking at. `auto-fit` with a floor means the browser fits two columns
-     when there is room for two and one when there is not. */
-  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+     when there is room for two and one when there is not.
+
+     THE FLOOR IS A PLAIN 300px, NOT `min(300px, 100%)`. That percentage was
+     meant to protect a phone, and it is exactly what let the crush survive:
+     `100%` resolves against the CONTAINER, so when an ancestor flex item
+     collapses — which it does without `min-width: 0` — the floor collapses
+     with it and a one-character track becomes legal again. A fixed floor can
+     only ever produce one column or two real ones. The stacking on a phone is
+     handled by the media queries below, which is where it belongs. */
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 16px;
   align-items: start;
 }
 /* Grid items refuse to shrink below their content without this, which is the
    other half of the same squeeze. */
 .crm-root .deal-grid > * {
+  min-width: 0;
+}
+/* The chain the grid hangs from. A flex item will not shrink below its content
+   without this, and a COLLAPSED ancestor is what made the percentage floor
+   above misbehave. Belt and braces: the fixed floor fixes the symptom, these
+   fix the cause. */
+.crm-root .sheet,
+.crm-root .sheet > *,
+.crm-root .drawer > *,
+.crm-root .tabwrap,
+.crm-root .tabbody {
   min-width: 0;
 }
 .crm-root .timeline {
