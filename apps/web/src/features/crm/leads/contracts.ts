@@ -105,6 +105,12 @@ export interface LeadView extends CrmLead {
 export interface LeadContractSummary {
   shortId: string;
   status: string;
+  /**
+   * The brand host the contract was issued on. FastTrax events live on
+   * fasttraxent.com and HeadPinz on headpinz.com, and a guest link that
+   * crosses brands looks like a phishing attempt to the person clicking it.
+   */
+  baseUrl: string | null;
   totalCents: number;
   depositDueCents: number;
   balanceCents: number;

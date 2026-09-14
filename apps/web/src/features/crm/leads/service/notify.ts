@@ -239,6 +239,19 @@ function sameHuman(pandoraName: string, ours: Planner | null): boolean {
   return pandoraName.toLowerCase().includes(ours.key.toLowerCase());
 }
 
+/**
+ * The same card state, but saying out loud that nobody owns the lead.
+ *
+ * Every card needs a planner to render its subtitle, and for a lead nobody
+ * owns that placeholder is Guest Services — which on the Assignment Pending
+ * card reads as an ANSWER ("Guest Services has it") directly beneath a banner
+ * saying the lead has nobody on it. Only the copy changes; the phone, email
+ * and chat id stay Guest Services' so nothing downstream is misaddressed.
+ */
+export function unownedState(state: SalesLeadState): SalesLeadState {
+  return { ...state, planner: { ...state.planner, displayName: "Unassigned" } };
+}
+
 /** Why the Assignment Pending card would be skipped, or null when it must be sent. */
 export function unassignedCardSkipReason(
   chatId: string | undefined,
@@ -433,7 +446,13 @@ async function run(input: NotifyInput, deps: NotifyDeps): Promise<NotifyOutcome>
         : Promise.resolve(SKIP("no BMI project yet")),
     unassignedSkip
       ? Promise.resolve(SKIP(unassignedSkip))
-      : postCard(unassignedChatId!, state, deps, {
+      : // NOT `state` — that carries `cardPlanner`, which is Guest Services
+        // when nobody owns the lead, so the card read "FastTrax Fort Myers ·
+        // Guest Services" directly under a banner saying the lead has nobody
+        // on it (owner, 2026-09-14). The card in this chat is ABOUT the
+        // absence of an owner; it has to say so. Redis is not written from
+        // here, so the buttons still read the real state.
+        postCard(unassignedChatId!, unownedState(state), deps, {
           readOnly: !minted,
           // Nobody owns it — say so to the two people who can fix that, and
           // give them one tap to the screen where they fix it.

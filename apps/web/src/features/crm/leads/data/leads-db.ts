@@ -143,6 +143,7 @@ export interface LeadRowRaw {
   mint_attempts: number;
   gf_short_id: string | null;
   gf_status: string | null;
+  gf_base_url: string | null;
   gf_total_cents: string | null;
   gf_deposit_due_cents: string | null;
   gf_balance_cents: string | null;
@@ -222,6 +223,7 @@ export function mapLeadRow(r: LeadRowRaw): LeadView {
       ? {
           shortId: r.gf_short_id,
           status: r.gf_status ?? "draft",
+          baseUrl: r.gf_base_url ?? null,
           totalCents: Number(r.gf_total_cents) || 0,
           depositDueCents: Number(r.gf_deposit_due_cents) || 0,
           balanceCents: Number(r.gf_balance_cents) || 0,
@@ -274,7 +276,7 @@ export const LEAD_SELECT = `
   ${ISO("l.bmi_synced_at")} AS bmi_synced_at,
   l.mint_status, l.mint_error, l.mint_attempts, l.last_year_bmi_project_id,
   COALESCE(l.gf_short_id, gfq.contract_short_id) AS gf_short_id,
-  gfq.status AS gf_status, gfq.total_cents::text AS gf_total_cents,
+  gfq.status AS gf_status, gfq.base_url AS gf_base_url, gfq.total_cents::text AS gf_total_cents,
   gfq.deposit_due_cents::text AS gf_deposit_due_cents,
   gfq.balance_cents::text AS gf_balance_cents,
   gfq.collected_cents::text AS gf_collected_cents,

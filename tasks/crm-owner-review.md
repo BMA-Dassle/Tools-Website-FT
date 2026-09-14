@@ -50,9 +50,14 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       H2892 resolves to contract e41b6fdf, $4,648.79 total, deposit $2,397.24
       paid, $2,251.55 outstanding. The Contract and Payments tabs were already
       built and were only ever starved of a short id, so they light up as-is.
+      **LINKS SHIPPED (2026-09-14)** — a "Links" card in the deal rail:
+      contract page (which is also the confirmation page — `ContractClient`
+      renders sign, pay and done from the one route), signed PDF, pay-balance
+      page (only while there is a balance left), the reservation-scoped guest
+      waiver, and contract history. The brand host comes from the QUOTE's own
+      `base_url`, falling back to the centre's brand, so a FastTrax event is
+      never handed to a guest as a headpinz.com link.
       STILL OPEN on this item:
-      - LINKS: customer confirmation page, guest waiver page, latest contract,
-        contract history (`contract_versions` + `contract_audit_log`).
       - HISTORY FROM THE MEMO: Preferred Contact, Preferred Time, Event Type,
         Special Requests, Interests, the free-text brief, the
         `----- Portal Staff -----` block and the `── FastTrax Web ──` dated
@@ -108,21 +113,27 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 
 ## Open — presentation
 
-- [ ] **The board still scrolls sideways from the BOTTOM.** Owner, twice now:
+- [~] **The board still scrolls sideways from the BOTTOM.** Owner, twice:
       "still had trouble scroll left and right on board I hate scrolling all
       the way to the bottom first. Can we use arrows or is there better way
-      with the template?" The lane rail owns the horizontal scrollbar, so the
-      only grab handle is at the very bottom of a long board. Options, in the
-      order worth trying:
-      1. **Arrow affordances** — a left/right chevron pinned to the rail's
-         vertical centre that scrolls one lane per press, shown only when there
-         is more board in that direction.
-      2. **Wheel-to-pan** on the rail so a trackpad or a shift-wheel moves it
-         without touching a scrollbar at all.
-      3. **A sticky lane-name strip** at the TOP of the rail that scrolls with
-         the board and can be dragged, so the handle is where the eye already is.
-      dnd-kit is already a dependency and does not fight any of these; check
-      what the Direction B prototype does before inventing a fourth option.
+      with the template?"
+      **ARROWS SHIPPED (2026-09-14)** — `BoardArrows`, pinned to the vertical
+      CENTRE of the queue and pipeline boards, one column per press, hidden at
+      each end and absent entirely when the board does not overflow. A plain
+      mouse wheel now pans the board too (it previously did nothing at all over
+      a horizontal scroller, which is most of why it felt stuck), and a wheel
+      aimed at a column's own vertical scroller is left alone. Hidden on touch,
+      where the board is swiped.
+      **STILL OPEN: WHY the bar is at the bottom.** The cascade reads correctly
+      — `.board-wrap` is `height:100%` flex-column, `.board-scroll` is `flex:1;
+      min-height:0; overflow:hidden`, `.board` is `overflow-x:auto;
+      overflow-y:hidden; height:100%` — so the bar should already sit at the
+      foot of a viewport-height board. It was NOT diagnosed, because it could
+      not be reproduced here. The arrows are deliberately additive and touch
+      none of that CSS. **Do not edit the overflow cascade until somebody has
+      reproduced the symptom in a browser** — the last attempt shipped on
+      theory from a rig that never reproduced it and made things worse
+      ("Scroll is f'ed up", "looks like shit").
 
 - [ ] **Install it as a PWA, and say so.** Owner: "We need to be able to add
       this as a PWA app and strongly recommend it. Design a logo for it too."
@@ -237,6 +248,12 @@ being deleted yet, but the new read must not depend on them.
 ---
 
 ## Done 2026-09-14
+
+- [x] **The pending card said "Guest Services" on a lead nobody owns.** It read
+      "FastTrax Fort Myers · Guest Services" directly under a banner saying the
+      lead has nobody on it, because Guest Services is the placeholder every
+      card needs to render its subtitle. That card now says "Unassigned"; only
+      the copy changes, so nothing downstream is misaddressed.
 
 - [x] **Every planner covers every centre** — owner: "they all do all". Kelsea
       was `["HPFM","FT"]`, Lori `["HPFM"]`, Stephanie `["HPN"]`, so the

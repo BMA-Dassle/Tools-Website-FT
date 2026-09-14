@@ -4,7 +4,7 @@ import { DndContext, useDraggable, useDroppable, type UniqueIdentifier } from "@
 import { IconBolt, IconClock, IconPlus, IconSettings, IconUsers } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import { fDate } from "~/features/crm/core/dates";
@@ -48,6 +48,7 @@ import { assignToastText, leadTitle, relativeAge } from "../leads/model";
 import { fetchQueue, postAssign } from "../leads/queries";
 import { AssignSheet } from "./AssignSheet";
 import { live, LIVE_BOARD_MS } from "../lib/live";
+import { BoardArrows } from "../primitives/BoardArrows";
 
 /**
  * `/admin/crm/queue` (direction-b.html `queue`) — director only: the Parked
@@ -78,6 +79,7 @@ export default function QueueScreen({ query }: ScreenProps) {
   const [urlQuery, setUrlQuery] = useUrlQuery(query);
   const sensors = useCrmDragSensors();
   /** The lead being written right now — its card goes quiet until it settles. */
+  const boardRef = useRef<HTMLDivElement>(null);
   const [pendingLeadId, setPendingLeadId] = useState<string | null>(null);
   const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
 
@@ -223,6 +225,7 @@ export default function QueueScreen({ query }: ScreenProps) {
 
       {q.data ? (
         <div className="board-wrap" data-testid={LEAD_TEST_IDS.queue}>
+          <BoardArrows scroller={boardRef} unit="rep" />
           <div className="board-scroll" style={{ padding: 0 }}>
             <DndContext
               sensors={sensors}
@@ -242,7 +245,7 @@ export default function QueueScreen({ query }: ScreenProps) {
                 assign.mutate({ lead, repId: String(over.id) });
               }}
             >
-              <div className="board queue-board">
+              <div className="board queue-board" ref={boardRef}>
                 <BoardColumn
                   testId={LEAD_TEST_IDS.queueUnassigned}
                   header={

@@ -65,6 +65,7 @@ const RAW = {
   mint_attempts: 1,
   gf_short_id: null,
   gf_status: null,
+  gf_base_url: null,
   gf_total_cents: null,
   gf_deposit_due_cents: null,
   gf_balance_cents: null,

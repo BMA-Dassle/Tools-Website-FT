@@ -1,10 +1,12 @@
 "use client";
 
-import { IconEdit, IconStack2 } from "@tabler/icons-react";
+import { IconEdit, IconExternalLink, IconLink, IconStack2 } from "@tabler/icons-react";
 import Link from "next/link";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import { fDate, fStamp } from "~/features/crm/core/dates";
-import { LEAD_SOURCE_LABEL } from "~/features/crm/leads/contracts";
+import { centreByCode } from "~/features/crm/core/centres";
+import { dealLinks } from "~/features/crm/deals/links";
+import { LEAD_SOURCE_LABEL, type LeadView } from "~/features/crm/leads/contracts";
 import { Avatar } from "../primitives/Avatar";
 import { Chip } from "../primitives/Chip";
 import { ICON } from "../primitives/icon-props";
@@ -88,6 +90,8 @@ export function DealRail({ detail, onEdit }: DealRailProps) {
           />
         </div>
       </div>
+
+      <DealLinksCard lead={lead} />
 
       <div className="card">
         <div className="card-h">
@@ -231,5 +235,52 @@ export function DealRail({ detail, onEdit }: DealRailProps) {
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * Every page a planner might need to open FOR a guest.
+ *
+ * Owner, 2026-09-13: "We should have links to customer confirmation page,
+ * waiver page for customer, latest contract, contract history, etc. etc."
+ * Each of these already existed and was already linked from some email; what
+ * was missing was anywhere in the CRM that gathered them.
+ *
+ * Copy, don't just open: a planner needs the URL to paste into a text far more
+ * often than they need to look at the page themselves. `navigator.clipboard`
+ * is not available on an insecure origin or in some embedded browsers, so the
+ * link stays an ordinary anchor and copying is the extra, not the only, way.
+ */
+function DealLinksCard({ lead }: { lead: LeadView }) {
+  const links = dealLinks({
+    publicId: lead.publicId,
+    centre: lead.centre,
+    contract: lead.contract,
+    bmiProjectId: lead.bmi.projectId,
+    locationId: centreByCode(lead.centre).locationId,
+  });
+  return (
+    <div className="card">
+      <div className="card-h">
+        <h2>Links</h2>
+      </div>
+      <div className="pad">
+        <ul className="link-list">
+          {links.map((l) => (
+            <li key={l.id}>
+              <Link
+                className="ll-a"
+                href={l.href}
+                {...(l.audience === "guest" ? { target: "_blank", rel: "noreferrer" } : {})}
+              >
+                {l.audience === "guest" ? <IconExternalLink {...ICON} /> : <IconLink {...ICON} />}
+                <span className="ll-t">{l.label}</span>
+              </Link>
+              <div className="ll-h">{l.hint}</div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }

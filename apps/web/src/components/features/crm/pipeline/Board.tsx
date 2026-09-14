@@ -1,7 +1,7 @@
 "use client";
 
 import { DndContext, type UniqueIdentifier } from "@dnd-kit/core";
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, useRef } from "react";
 import type { CrmStatus } from "~/features/crm/core/types";
 import type { LeadView } from "~/features/crm/leads/contracts";
 import { PIPELINE_TEST_IDS, type BoardColumnView } from "~/features/crm/statuses/contracts";
@@ -17,6 +17,7 @@ import { KanbanCard } from "./KanbanCard";
 import { boardTracks, leadIndex, railColumnIds } from "./model";
 import { DragGhost } from "../leads/DragGhost";
 import { leadTitle } from "../leads/model";
+import { BoardArrows } from "../primitives/BoardArrows";
 
 /**
  * The board itself (direction-b.html:70-72). Columns left to right; cards
@@ -65,6 +66,7 @@ export function Board({
   onChangeStatus,
   onMove,
 }: BoardProps) {
+  const boardRef = useRef<HTMLDivElement>(null);
   const index = leadIndex(leads);
   const sensors = useCrmDragSensors();
   const [drag, setDrag] = useState<{ leadId: string; fromColumnId: string } | null>(null);
@@ -127,6 +129,7 @@ export function Board({
       }}
     >
       <div
+        ref={boardRef}
         className={boardClass(byRep, !!tracks)}
         data-testid={PIPELINE_TEST_IDS.board}
         style={tracks ? ({ "--board-tracks": tracks } as CSSProperties) : undefined}
@@ -173,6 +176,7 @@ export function Board({
         ))}
       </div>
       <DragGhost testId={PIPELINE_TEST_IDS.dragGhost} lead={dragged} />
+      <BoardArrows scroller={boardRef} unit="stage" />
     </DndContext>
   );
 }
