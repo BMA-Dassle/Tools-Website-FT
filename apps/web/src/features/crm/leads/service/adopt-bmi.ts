@@ -17,6 +17,16 @@
  * planner's queue. It is idempotent on `bmi_project_id`, so running it twice
  * adopts nothing the second time.
  *
+ * FUTURE EVENTS ONLY. Owner caught this before a single row was written: "These
+ * are all for future events?" They were not. Of the 230 the first pass would
+ * have taken, 145 were in the PAST — back to November 2023, with 36 from 2023
+ * and 73 from 2024 — dead quotes nobody ever closed out in Office. Adopting
+ * those would have put three years of junk on a planner's board on day one,
+ * which is the same mistake the Contracts "needs attention" rule was making an
+ * hour earlier. A past event sitting in an open state is an unfinished tidy-up
+ * in BMI, not a live deal; it stays in History where it belongs. That leaves
+ * 85 real ones.
+ *
  * ASSIGNMENT is taken from BMI's own `responsible`, not from our rules engine.
  * These deals already have an owner and re-running assignment would hand one
  * planner's live work to another. The Office user id is matched first and the
@@ -163,11 +173,16 @@ export async function adoptOpenBmiDeals({ dryRun = false } = {}): Promise<AdoptR
   const rows = (await q`
     SELECT p.project_id, p.client_key, p.location_id, p.number, p.name, p.state_id, p.state_name,
            p.responsible_user_id, p.responsible_name, p.event_date::text AS event_date,
-           p.event_start::text AS event_start, p.persons, p.total_value_cents::text AS total_value_cents,
+           -- event_start is a full timestamp; crm_leads.event_time is a TIME, so
+           -- the cast happens HERE rather than by slicing the text (a slice took
+           -- "2027-08-" off "2027-08-24 14:00:00" and Postgres rejected it).
+           to_char(p.event_start, 'HH24:MI:SS') AS event_start,
+           p.persons, p.total_value_cents::text AS total_value_cents,
            p.person_id, p.account_id::text AS account_id, p.contact_id::text AS contact_id
       FROM crm_bmi_projects p
      WHERE p.kind_id IS DISTINCT FROM '-10'
        AND (p.client_key || '|' || COALESCE(p.state_id, '')) = ANY(${states}::text[])
+       AND p.event_date >= CURRENT_DATE
        AND NOT EXISTS (SELECT 1 FROM crm_leads l WHERE l.bmi_project_id = p.project_id)
      ORDER BY p.event_date DESC NULLS LAST
   `) as MirrorCandidate[];

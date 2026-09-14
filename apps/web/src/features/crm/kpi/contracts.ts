@@ -189,6 +189,18 @@ export type KpiResponse = ApiOk<{
   repSlug: string | null;
   /** Per-salesperson rows (one row when a rep filter is on). */
   reps: RepKpi[];
+  /**
+   * EVERY selectable salesperson, whatever the current filter — the options the
+   * picker is built from.
+   *
+   * `reps` narrows to one row the moment a rep filter is on, and the screen was
+   * deriving its picker from it: choose Stephanie and the list had a single
+   * entry, the `reps.length > 1` guard hid the control, and a director was
+   * stuck on one person with no way back to the team (owner, 2026-09-13: "after
+   * selecting person and range I loose the ability to switch people"). A
+   * control's options must never come from the thing it filters.
+   */
+  roster: { slug: string; firstName: string; displayName: string }[];
   /** The same fields summed across `reps`. */
   team: RepKpi;
   pacing: PacingSeries;

@@ -326,6 +326,13 @@ export async function kpiDashboard(
     centre,
     repSlug,
     reps,
+    // The picker's options. Built from the ROSTER, never from `reps`, which
+    // narrows to the filtered person — see `roster` in contracts.ts.
+    roster: (blind ? [] : roster).map((r) => ({
+      slug: r.slug,
+      firstName: r.firstName,
+      displayName: r.displayName,
+    })),
     team,
     pacing,
     funnel: toFunnel(funnelRaw),

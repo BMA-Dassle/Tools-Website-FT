@@ -160,12 +160,15 @@ export default function KpiScreen({ query }: ScreenProps) {
           value={centre ?? ""}
           onChange={(v) => setUrlQuery({ centre: v || null })}
         />
-        {isDirector && data.reps.length > 1 ? (
+        {/* Options come from `roster`, which ignores the filter. Deriving them
+            from `data.reps` meant picking a person left one option, tripped the
+            length guard, and removed the only way back to the team. */}
+        {isDirector && data.roster.length > 1 ? (
           <Seg
             label="Salesperson"
             options={[
               { value: "", label: "Team" },
-              ...data.reps.map((r) => ({ value: r.slug, label: r.firstName })),
+              ...data.roster.map((r) => ({ value: r.slug, label: r.firstName })),
             ]}
             value={rep ?? ""}
             onChange={(v) => setUrlQuery({ rep: v || null })}
