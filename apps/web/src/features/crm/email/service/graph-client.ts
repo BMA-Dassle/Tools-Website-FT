@@ -138,23 +138,38 @@ export async function getGraphToken(
 // ---------------------------------------------------------------------------
 
 /**
- * PROBED LIVE 2026-09-13: the app registration "HeadPinz Sales CRM" holds
- * `["Mail.Read","Mail.Send"]`, and `POST /users/{mailbox}/messages` — the
- * DRAFT CREATE the whole rail is built on — answered
- * `403 ErrorAccessDenied`. That is not a policy problem and not a bug: in
- * Graph, `Mail.Send` authorises only `POST /users/{id}/sendMail` and
- * `POST /messages/{id}/send`. CREATING a message in a mailbox is a WRITE, and
- * writes need `Mail.ReadWrite`.
+ * GRANTED 2026-09-14 — this rail is live.
  *
- * We will not switch to `sendMail` to fit the permission we happen to have:
+ * The history matters, because it explains why the rail is shaped this way.
+ * Probed live on 2026-09-13 the app registration "HeadPinz Sales CRM" held
+ * only `["Mail.Read","Mail.Send"]`, and `POST /users/{mailbox}/messages` — the
+ * DRAFT CREATE the whole rail is built on — answered `403 ErrorAccessDenied`.
+ * That was neither a policy problem nor a bug: in Graph, `Mail.Send`
+ * authorises only `POST /users/{id}/sendMail` and `POST /messages/{id}/send`.
+ * CREATING a message in a mailbox is a WRITE, and writes need
+ * `Mail.ReadWrite`.
+ *
+ * We did not switch to `sendMail` to fit the permission we happened to have:
  * `sendMail` returns 202 with no body, so there is no id to store and the Sent
- * Items copy can never be reconciled with the lead (§1.11). The right fix is
- * one line of tenant admin — add `Mail.ReadWrite` (application) and consent —
- * and until it lands the CRM sends through SendGrid and SAYS SO.
+ * Items copy could never be reconciled with the lead (§1.11).
  *
- * `graphSendReadiness` reads the roles out of the app token we already fetch,
- * so it costs nothing, is definitive rather than a guess, and flips itself the
- * moment the owner grants the permission.
+ * The owner added `Mail.ReadWrite` (application) and consented on 2026-09-14.
+ * Verified end to end against the live tenant the same day: the app token
+ * carries `Mail.Read, Mail.ReadWrite, Mail.Send`, a draft created in a real
+ * mailbox came back with its `internetMessageId`, and it was deleted again.
+ *
+ * DO NOT take that as permission to stop checking. `graphSendReadiness` reads
+ * the roles out of the app token we already fetch, so it costs nothing and is
+ * definitive rather than a guess — and a consent can be revoked, a secret can
+ * expire, and a tenant can gain an application access policy that excludes a
+ * mailbox. When any of that happens the CRM sends through SendGrid and SAYS
+ * SO, which is the whole point of reading the roles rather than assuming them.
+ *
+ * NOTE the blast radius: `Mail.ReadWrite` as an APPLICATION permission is
+ * tenant-wide — draft/write access to every mailbox, not just the five sales
+ * ones. An Exchange `ApplicationAccessPolicy` scoping this app id to a group
+ * of the sales mailboxes is the correction and was recommended to the owner;
+ * it is not in place as of 2026-09-14.
  */
 export const GRAPH_DRAFT_ROLE = "Mail.ReadWrite";
 export const GRAPH_SEND_ROLE = "Mail.Send";

@@ -253,6 +253,16 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 
 ## Open — decisions the owner owes
 
+- [ ] **Scope Graph to the sales mailboxes.** `Mail.ReadWrite` and `Mail.Read`
+      are APPLICATION permissions, so today the CRM can read and draft in EVERY
+      mailbox in the tenant, not just the five sales ones. An Exchange
+      `ApplicationAccessPolicy` on app id
+      `751067ca-308b-4c26-bf62-e8d1ed36f469`, scoped to a mail-enabled group of
+      kelsea / lori / stephanie / guestservices / eric, narrows both at once:
+      `New-ApplicationAccessPolicy -AppId <id> -PolicyScopeGroupId <group>
+      -AccessRight RestrictAccess`. Not in place. Recommended 2026-09-14; the
+      owner has not said either way.
+
 - [ ] **Lost / No response → BMI Cancellation?** Deliberately left unmapped. BMI
       Cancellation drains the funding gift card, refunds Square and emails the
       guest, so a rep marking a dead deal "Lost" would fire a refund.
@@ -328,6 +338,22 @@ being deleted yet, but the new read must not depend on them.
 ---
 
 ## Done 2026-09-14
+
+- [x] **Microsoft Graph can send as a planner** — owner granted and consented
+      `Mail.ReadWrite` (application) on the "HeadPinz Sales CRM" registration,
+      2026-09-14. Verified end to end against the live tenant: the app token
+      carries Mail.Read + Mail.ReadWrite + Mail.Send, a draft created in a real
+      mailbox came back with its `internetMessageId` (the id the CRM uses to
+      tie a Sent Items copy to a lead), and the draft was deleted again.
+      The 403 was never a bug: `Mail.Send` authorises only `sendMail` and
+      `messages/{id}/send`, and creating a message is a write. We kept the
+      draft-then-send shape rather than dropping to `sendMail`, which returns
+      202 with no body and so can never be reconciled to a lead.
+      **STILL NEEDED FROM THE OWNER — the three env values in Vercel.** Graph
+      is ready; the deployment is not, because CRM_GRAPH_TENANT_ID /
+      CRM_GRAPH_CLIENT_ID / CRM_GRAPH_CLIENT_SECRET live only in `.env.local`.
+      Until they are pasted in (Production + Preview) every send still goes
+      through SendGrid — the composer now says exactly that and names them.
 
 - [x] **Lost and No response now map to BMI Cancellation** (owner decision,
       2026-09-14: "Map these to cancellation"). SAFE BY CONSTRUCTION: `-4` is a
