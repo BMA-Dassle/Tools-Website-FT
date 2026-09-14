@@ -20,11 +20,11 @@ import { bandMoney, bandSummary, bandTitle } from "./model";
 export interface DayBandProps {
   band: EventDayBand;
   todayYmd: string;
-  onOpenDeal: (publicId: string) => void;
-  onCreateLead: (row: EventRowView) => void;
+  /** Opens the event; the screen creates the lead behind the scenes. */
+  onOpenEvent: (row: EventRowView) => void;
 }
 
-export function DayBand({ band, todayYmd, onOpenDeal, onCreateLead }: DayBandProps) {
+export function DayBand({ band, todayYmd, onOpenEvent }: DayBandProps) {
   return (
     <div className="card" data-testid={EVENT_TEST_IDS.band(band.date)}>
       <div className="card-h" style={{ padding: "10px 16px" }}>
@@ -49,13 +49,7 @@ export function DayBand({ band, todayYmd, onOpenDeal, onCreateLead }: DayBandPro
       {band.events.length > 0 ? (
         <div className="list">
           {band.events.map((row) => (
-            <EventRow
-              key={row.projectId}
-              row={row}
-              todayYmd={todayYmd}
-              onOpenDeal={onOpenDeal}
-              onCreateLead={onCreateLead}
-            />
+            <EventRow key={row.projectId} row={row} todayYmd={todayYmd} onOpenEvent={onOpenEvent} />
           ))}
         </div>
       ) : null}

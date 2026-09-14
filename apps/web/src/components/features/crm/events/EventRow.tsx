@@ -1,6 +1,5 @@
 "use client";
 
-import { IconPlus } from "@tabler/icons-react";
 import { EVENT_TEST_IDS, type EventRowView } from "~/features/crm/events/contracts";
 import { moneyExact, pct } from "~/features/crm/core/format";
 import { Chip } from "../primitives/Chip";
@@ -13,16 +12,22 @@ import { PILL_TITLE, eventMetaParts, rowTint } from "./model";
  * the title and host, the meta line, then the money pill, the BMI state chip
  * and the collected/booked meter.
  *
- * A row with a CRM lead opens the deal drawer on the EVENT tab — the same
- * drawer the pipeline and the queue open. A row without one is a legacy
- * booking: it stays read-only and offers "Create lead from event" instead of
- * pretending there is a deal behind it.
+ * EVERY row opens the deal drawer on the EVENT tab — the same drawer the
+ * pipeline and the queue open — whether or not a `crm_leads` row exists yet.
+ *
+ * It used to have two shapes: clickable when a lead existed, and otherwise a
+ * dead row with a "Create lead from event" button. That was backwards. No BMI
+ * event has a lead until it is adopted, and the Event tab reads BMI directly,
+ * so the row can show the booking perfectly well with no lead anywhere. Asking
+ * a planner to create a sales lead in order to look at an event that already
+ * exists is a question the screen should answer for itself, which is what
+ * `onOpenEvent` now does.
  */
 export interface EventRowProps {
   row: EventRowView;
   todayYmd: string;
-  onOpenDeal: (publicId: string) => void;
-  onCreateLead: (row: EventRowView) => void;
+  /** Opens the event. Creates the lead behind the scenes when there is none. */
+  onOpenEvent: (row: EventRowView) => void;
 }
 
 /** `.row` is a grid; a <button> needs the UA's own chrome taken off it. */
@@ -36,7 +41,7 @@ const ROW_BUTTON: React.CSSProperties = {
   display: "grid",
 };
 
-export function EventRow({ row, todayYmd, onOpenDeal, onCreateLead }: EventRowProps) {
+export function EventRow({ row, todayYmd, onOpenEvent }: EventRowProps) {
   const tint = rowTint(row, todayYmd);
   const meta = eventMetaParts(row);
   const collectedPct = pct(row.collectedCents, row.totalCents);
@@ -87,32 +92,19 @@ export function EventRow({ row, todayYmd, onOpenDeal, onCreateLead }: EventRowPr
     </>
   );
 
-  if (row.lead) {
-    return (
-      <button
-        type="button"
-        className={["row", "evrow", tint].filter(Boolean).join(" ")}
-        style={ROW_BUTTON}
-        data-testid={EVENT_TEST_IDS.row(row.projectId)}
-        onClick={() => onOpenDeal(row.lead!.publicId)}
-      >
-        {body}
-      </button>
-    );
-  }
-
+  // EVERY row is clickable and every row opens the event. There is no second
+  // shape for "no lead yet" — the screen creates one behind the scenes. See the
+  // comment on `openEvent` in EventsScreen.tsx for why.
   return (
-    <div
+    <button
+      type="button"
       className={["row", "evrow", tint].filter(Boolean).join(" ")}
-      style={{ cursor: "default" }}
+      style={ROW_BUTTON}
       data-testid={EVENT_TEST_IDS.row(row.projectId)}
+      onClick={() => onOpenEvent(row)}
+      title={`Open ${row.number || "this event"}`}
     >
       {body}
-      <div className="right" style={{ gridColumn: "1 / -1" }}>
-        <button type="button" className="btn btn-sm" onClick={() => onCreateLead(row)}>
-          <IconPlus {...ICON} /> Create lead from event
-        </button>
-      </div>
-    </div>
+    </button>
   );
 }

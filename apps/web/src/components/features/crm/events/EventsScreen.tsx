@@ -1,7 +1,7 @@
 "use client";
 
 import { IconArrowLeft, IconArrowRight, IconCalendarPlus } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { CENTRE_CODES, CENTRES } from "~/features/crm/core/centres";
 import type { ScreenProps } from "~/features/crm/core/screens";
@@ -17,7 +17,7 @@ import { dayRange, stepDate } from "~/features/crm/events/projection";
 import { todayEasternYmd } from "~/features/crm/core/dates";
 import { errorMessage } from "../lib/crm-fetch";
 import { useUrlQuery } from "../lib/use-url-query";
-import { useCrmFetch, useCrmSheet, useTopbarSlot } from "../lib/use-crm-user";
+import { useCrmFetch, useCrmSheet, useCrmToast, useTopbarSlot } from "../lib/use-crm-user";
 import { Chip } from "../primitives/Chip";
 import { ICON } from "../primitives/icon-props";
 import { Seg } from "../primitives/Seg";
@@ -25,7 +25,7 @@ import { EmptyState, ErrorState, LoadingState } from "../primitives/States";
 import { DealDrawer } from "../deal/DealDrawer";
 import { CreateLeadFromEventSheet } from "./CreateLeadFromEventSheet";
 import { DayBand } from "./DayBand";
-import { fetchEventsBoard } from "./queries";
+import { createLeadFromEventRow, fetchEventsBoard } from "./queries";
 import { rangeLabel } from "./model";
 
 /**
@@ -57,6 +57,8 @@ export default function EventsScreen({ query }: ScreenProps) {
   const crmFetch = useCrmFetch();
   const slot = useTopbarSlot();
   const { openSheet, closeSheet } = useCrmSheet();
+  const qc = useQueryClient();
+  const toast = useCrmToast();
   const [urlQuery, setUrlQuery] = useUrlQuery(query);
 
   const centre: CentreCode = isCentre(urlQuery.centre) ? urlQuery.centre : "HPFM";
@@ -75,6 +77,51 @@ export default function EventsScreen({ query }: ScreenProps) {
 
   const today = q.data?.today ?? todayEasternYmd();
   const openDeal = (publicId: string) => setUrlQuery({ deal: publicId, tab: "event" });
+
+  /**
+   * CLICKING AN EVENT OPENS THE EVENT. Always.
+   *
+   * Owner, three times: "Why doesn't it open the event?", "still can't click on
+   * event either and it says create lead", "Anywhere in all this stuff I should
+   * be able to click anywhere on the lead tile to bring up event."
+   *
+   * The row used to open only when a `crm_leads` row already existed, and no
+   * BMI event has one until it is adopted, so the board offered to manufacture
+   * a sales lead instead. That is backwards: the Event tab reads BMI, so it can
+   * show Paseo perfectly well with no lead anywhere. Nobody should be asked to
+   * create a sales record in order to look at a booking that already exists.
+   *
+   * So the lead is created SILENTLY from the row's own fields — the same call
+   * the sheet made, with the same values it would have pre-filled — and the
+   * drawer opens on the Event tab. The sheet stays for the one case that needs
+   * a human: a host whose name Office never recorded.
+   */
+  const openEvent = async (row: EventRowView) => {
+    if (row.lead) return openDeal(row.lead.publicId);
+    const name = (row.personName || "").trim();
+    if (!name) return createLead(row); // nothing to seed from — ask.
+    const cut = name.lastIndexOf(" ");
+    try {
+      const r = await createLeadFromEventRow(crmFetch, row.projectId, {
+        centre: row.centre,
+        firstName: cut > 0 ? name.slice(0, cut) : name,
+        lastName: cut > 0 ? name.slice(cut + 1) : "",
+        phone: "",
+        email: null,
+        eventDate: row.when.slice(0, 10),
+        eventTime: row.when.slice(11, 16) || null,
+        guests: row.persons || 1,
+        type: "group",
+      });
+      void qc.invalidateQueries({ queryKey: eventsKeys.all });
+      openDeal(r.lead.publicId);
+    } catch (err) {
+      // Never swallow it into a dead click: fall back to the sheet, which can
+      // show the guest what went wrong and let them correct it.
+      toast(errorMessage(err), "crit");
+      createLead(row);
+    }
+  };
 
   const createLead = (row: EventRowView) =>
     openSheet({
@@ -169,13 +216,7 @@ export default function EventsScreen({ query }: ScreenProps) {
             <EmptyState>No group events at {CENTRES[centre].short} in this window.</EmptyState>
           ) : null}
           {days.map((band) => (
-            <DayBand
-              key={band.date}
-              band={band}
-              todayYmd={today}
-              onOpenDeal={openDeal}
-              onCreateLead={createLead}
-            />
+            <DayBand key={band.date} band={band} todayYmd={today} onOpenEvent={openEvent} />
           ))}
         </div>
       ) : null}
