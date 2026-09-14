@@ -49,16 +49,19 @@ export function folderOptions(
 }
 
 /**
- * `all` and `texts` are the same list today — every conversation we have IS a
- * text conversation until C2 lands the Email tab. They are kept apart rather
- * than merged so the folder a rep picked survives that PR.
+ * `email` returned an empty array unconditionally — a placeholder from before
+ * the email rail existed, left in place after it shipped. So the tab was empty
+ * even once emails were being sent and recorded, and `texts` showed email-only
+ * people because it did not filter at all. Both now read `channels`, which the
+ * list carries per person.
  */
 export function filterConversations(
   list: readonly ConversationSummary[],
   folder: ConversationFolder,
 ): ConversationSummary[] {
   if (folder === "unread") return list.filter((c) => c.unread > 0);
-  if (folder === "email") return [];
+  if (folder === "email") return list.filter((c) => c.channels.includes("email"));
+  if (folder === "texts") return list.filter((c) => c.channels.includes("sms"));
   return [...list];
 }
 

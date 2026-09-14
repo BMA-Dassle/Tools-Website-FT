@@ -335,12 +335,21 @@
      stops the group refusing to shrink in the first place. */
   flex-wrap: wrap;
   justify-content: flex-end;
-  min-width: 0;
 }
-/* Buttons of different content ("Rules" vs "Auto-assign all", icon vs no icon)
-   otherwise sit at different heights on a wrapped row. */
+/* NO `min-width: 0` HERE. It was added with the wrap and it undid it: with the
+   group allowed to shrink below its content, the row squeezed the buttons
+   instead of wrapping them, and each button broke its own label under its icon
+   — "New lead" and "Auto-assign all" became two-line boxes beside a one-line
+   "Rules" (owner, 2026-09-14: "TOns of fomratting issues"). `.topbar` already
+   wraps, so the group moves to its own line when it does not fit, which is the
+   behaviour that was wanted. */
 .crm-root .topbar .actions > * {
   flex: none;
+}
+/* And a button's label never breaks. A control that wraps mid-phrase reads as
+   two controls. */
+.crm-root .topbar .actions .btn {
+  white-space: nowrap;
 }
 .crm-root .content {
   flex: 1;

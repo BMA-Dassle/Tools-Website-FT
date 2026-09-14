@@ -48,7 +48,11 @@ export function ruleThenLabel(then: RuleThen, reps: readonly PublicRep[]): strin
   if (then.hold) return `hold for ${name(then.hold)}`;
   if (then.route) return `route to ${name(then.route)}`;
   if (then.skipOff) return "exclude reps marked off";
-  if (then.onShift) return "prefer on shift → next shift";
+  // ONE rule, stated as one thing (owner, 2026-09-14: "I need this prefer with
+  // balance combined"). The engine has always narrowed by shift and then picked
+  // the lowest party-month volume among whoever is left — the card said only
+  // the first half, so it read as a rule that ignored balance.
+  if (then.onShift) return "on shift → next shift → lowest volume";
   if (then.standard) return "lowest party-month volume";
   return "leave in queue";
 }
@@ -87,7 +91,7 @@ export const ACTION_OPTIONS: { value: RuleAction; label: string }[] = [
   { value: "standard", label: "Use the standard volume rule" },
   { value: "queue", label: "Leave in the queue" },
   { value: "skipOff", label: "Exclude reps marked off" },
-  { value: "onShift", label: "Prefer on shift → next shift" },
+  { value: "onShift", label: "Prefer on shift → next shift, balanced by volume" },
 ];
 
 export function actionOf(rule: Pick<AssignmentRule, "kind" | "then">): RuleAction {

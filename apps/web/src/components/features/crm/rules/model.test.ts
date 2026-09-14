@@ -79,7 +79,11 @@ describe("ruleWhenLabel / ruleThenLabel (crm-shared.js:466-467)", () => {
     expect(ruleThenLabel({ route: "gs" }, REPS)).toBe("route to Guest Services");
     expect(ruleThenLabel({ route: "ghost" }, REPS)).toBe("route to ghost");
     expect(ruleThenLabel({ skipOff: true }, REPS)).toBe("exclude reps marked off");
-    expect(ruleThenLabel({ onShift: true }, REPS)).toBe("prefer on shift → next shift");
+    // One rule, stated as one thing — the engine narrows by shift and then
+    // picks the lowest party-month volume among whoever is left, and the pill
+    // said only the first half (owner, 2026-09-14: "I need this prefer with
+    // balance combined").
+    expect(ruleThenLabel({ onShift: true }, REPS)).toBe("on shift → next shift → lowest volume");
     expect(ruleThenLabel({ standard: true }, REPS)).toBe("lowest party-month volume");
     expect(ruleThenLabel({ queue: true }, REPS)).toBe("leave in queue");
     expect(ruleCode({ position: 7 })).toBe("R7");

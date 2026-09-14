@@ -127,6 +127,9 @@ export function foldConversations(input: FoldInput): ConversationSummary[] {
         lastDirection: last?.direction ?? null,
         unread: t.unreadCount,
         stopped: t.stoppedAt !== null,
+        channels: ["sms"],
+        lastEmailAt: null,
+        emailCount: 0,
       });
       continue;
     }
@@ -174,7 +177,7 @@ export async function loadConversations(input: LoadConversationsInput): Promise<
     before: decodeThreadCursor(input.cursor),
     unreadOnly: input.unreadOnly,
   });
-  const page = await hydrate(threads, input.reps);
+  const page = await mergeEmail(await hydrate(threads, input.reps), input, limit);
   const last = threads.length === limit ? threads[threads.length - 1] : undefined;
   return {
     conversations: page,
@@ -184,6 +187,93 @@ export async function loadConversations(input: LoadConversationsInput): Promise<
         : null,
     unread: await unreadTotal(input.scope),
   };
+}
+
+/**
+ * Fold the email side in, so the list is one entry per PERSON rather than one
+ * per SMS thread.
+ *
+ * `loadConversations` read `crm_sms_threads` and nothing else, so a guest who
+ * had been emailed and never texted was invisible and the Email tab filtered a
+ * list that could only hold texts — owner, 2026-09-14: "why nothing showing
+ * under conversasions", over a screen with two sent emails and zero SMS
+ * threads. The conversation key already allowed `c-<contactId>`, so an
+ * email-only person has always been addressable; nothing ever built the row.
+ *
+ * A contact who has both keeps ONE row: `lastMessageAt` becomes the later of
+ * the two so the list orders by real recency, and `channels` says which tabs
+ * the row belongs to.
+ *
+ * Scope maps the same way the SMS side does — a rep sees their own mailbox
+ * rows, a director sees every rep's, and `{kind:"none"}` reads nothing.
+ */
+async function mergeEmail(
+  page: ConversationSummary[],
+  input: LoadConversationsInput,
+  limit: number,
+): Promise<ConversationSummary[]> {
+  if (input.scope.kind === "none") return page;
+  const { latestEmailPerContact } = await import("../../email/data/email-links-db");
+  const emails = await latestEmailPerContact({
+    repId: input.scope.kind === "rep" ? input.scope.repId : null,
+    limit,
+  }).catch((err: unknown) => {
+    // The email side failing must never cost the texts their list.
+    console.error("[crm] could not read email threads for the conversations list", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  });
+  if (!emails.length) return page;
+
+  const byContact = new Map(page.filter((c) => c.contactId).map((c) => [c.contactId!, c]));
+  const fresh = emails.filter((e) => !byContact.has(e.contactId));
+  const contacts = fresh.length ? await contactsByIds(fresh.map((e) => e.contactId)) : new Map();
+  const leads = fresh.length ? await leadsByContactIds(fresh.map((e) => e.contactId)) : new Map();
+
+  const out = [...page];
+  for (const e of emails) {
+    const existing = byContact.get(e.contactId);
+    if (existing) {
+      if (!existing.channels.includes("email")) existing.channels.push("email");
+      existing.lastEmailAt = e.lastAt;
+      existing.emailCount = e.count;
+      // The row's headline is whichever channel spoke last.
+      if (existing.lastMessageAt === null || e.lastAt > existing.lastMessageAt) {
+        existing.lastMessageAt = e.lastAt;
+        existing.lastBody = e.last.subject ?? e.last.preview ?? existing.lastBody;
+        existing.lastDirection = e.last.direction;
+      }
+      continue;
+    }
+    const contact = contacts.get(e.contactId) ?? null;
+    const lead = leads.get(e.contactId) ?? null;
+    const name = fullName(contact);
+    out.push({
+      key: contactKey(e.contactId),
+      contactId: e.contactId,
+      name,
+      // Email-only: there may be no number at all, and the row must not claim one.
+      phoneE164: contact?.phoneE164 ?? "",
+      leadId: lead?.id ?? null,
+      leadPublicId: lead?.publicId ?? null,
+      leadStatus: lead?.statusId ?? null,
+      leadTitle: captionFor(contact, name),
+      reps: [],
+      threadIds: [],
+      lastMessageAt: e.lastAt,
+      lastBody: e.last.subject ?? e.last.preview ?? null,
+      lastDirection: e.last.direction,
+      unread: 0,
+      stopped: false,
+      channels: ["email"],
+      lastEmailAt: e.lastAt,
+      emailCount: e.count,
+    });
+  }
+  return out
+    .sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""))
+    .slice(0, limit);
 }
 
 async function hydrate(

@@ -152,7 +152,22 @@ export interface ConversationSummary {
   lastDirection: Direction | null;
   unread: number;
   stopped: boolean;
+  /**
+   * Which channels this person has actually used, newest activity first.
+   *
+   * The screen is one entry per PERSON with Texts and Email tabs, but the list
+   * was built from `crm_sms_threads` alone — so a guest who had been emailed
+   * and never texted appeared nowhere, and the Email tab filtered a list that
+   * could only contain texts. Owner, 2026-09-14: "why nothing showing under
+   * conversasions", over a screen with two sent emails and no SMS at all.
+   */
+  channels: ConversationChannel[];
+  /** The latest email, when there is one — `lastMessageAt` is the later of the two. */
+  lastEmailAt: string | null;
+  emailCount: number;
 }
+
+export type ConversationChannel = "sms" | "email";
 
 export interface ConversationDetail {
   summary: ConversationSummary;

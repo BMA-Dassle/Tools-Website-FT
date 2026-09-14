@@ -174,32 +174,41 @@ export function buildContractWhere(
   if (plannerEmail) where.push(`lower(q.planner_email) = ${b.add(plannerEmail)}`);
   if (filter.status && filter.status !== "all") where.push(`q.status = ${b.add(filter.status)}`);
 
-  if (filter.q) {
-    const like = b.add(`%${filter.q}%`);
-    const digits = filter.q.replace(/\D/g, "");
-    const clauses = [
-      `q.event_name ILIKE ${like}`,
-      `q.guest_first_name ILIKE ${like}`,
-      `q.guest_last_name ILIKE ${like}`,
-      `(q.guest_first_name || ' ' || q.guest_last_name) ILIKE ${like}`,
-      `q.guest_email ILIKE ${like}`,
-      `q.event_number ILIKE ${like}`,
-      `q.contract_short_id ILIKE ${like}`,
-    ];
-    // The phone branch EXISTS only when the search actually holds digits.
-    // A "never matches" sentinel bound in its place would have to be a string
-    // Postgres can carry, and the obvious one — a NUL-prefixed literal — is
-    // exactly what `text` cannot hold: the driver rejects the whole statement,
-    // so every digit-less search would 500 rather than search by name.
-    if (digits) {
-      clauses.push(
-        `regexp_replace(COALESCE(q.guest_phone, ''), '[^0-9]', '', 'g') LIKE ${b.add(`%${digits}%`)}`,
-      );
-    }
-    where.push(`(${clauses.join(" OR ")})`);
-  }
+  const search = searchClause(filter.q, (v) => b.add(v));
+  if (search) where.push(search);
 
   return { where, params: b.params };
+}
+
+/**
+ * The guest search, as one OR clause. Extracted because the list and the tile
+ * counts both need it and a second copy would drift — which is exactly how the
+ * attention badge came to disagree with the list twice in one day.
+ */
+export function searchClause(q: string | undefined, add: (v: unknown) => string): string | null {
+  if (!q) return null;
+  const like = add(`%${q}%`);
+  const digits = q.replace(/\D/g, "");
+  const clauses = [
+    `q.event_name ILIKE ${like}`,
+    `q.guest_first_name ILIKE ${like}`,
+    `q.guest_last_name ILIKE ${like}`,
+    `(q.guest_first_name || ' ' || q.guest_last_name) ILIKE ${like}`,
+    `q.guest_email ILIKE ${like}`,
+    `q.event_number ILIKE ${like}`,
+    `q.contract_short_id ILIKE ${like}`,
+  ];
+  // The phone branch EXISTS only when the search actually holds digits.
+  // A "never matches" sentinel bound in its place would have to be a string
+  // Postgres can carry, and the obvious one — a NUL-prefixed literal — is
+  // exactly what `text` cannot hold: the driver rejects the whole statement,
+  // so every digit-less search would 500 rather than search by name.
+  if (digits) {
+    clauses.push(
+      `regexp_replace(COALESCE(q.guest_phone, ''), '[^0-9]', '', 'g') LIKE ${add(`%${digits}%`)}`,
+    );
+  }
+  return `(${clauses.join(" OR ")})`;
 }
 
 function whereSql(where: string[]): string {
@@ -212,9 +221,30 @@ function whereSql(where: string[]): string {
  * (`(hasReasons && !closed) || pastUnpaidDayof`, crm-events.js:213) exactly,
  * parentheses included.
  */
+/**
+ * What the tiles and the badge are counted OVER.
+ *
+ * Never the current page — the tiles are a standing total, not a page sum —
+ * but ALWAYS the current FILTER. Those are different things and conflating
+ * them is what the owner caught: with Stephanie selected the list showed her
+ * contracts and the badge still read 81, the whole team's
+ * ("That number is not honooring the filter").
+ *
+ * The status folder is deliberately absent: three of the four tiles ARE a
+ * status, so folding the status chip in would zero them by construction.
+ */
+export interface CountScope {
+  centre?: CentreCode;
+  /** `crm_reps.email`, lowercased — the list resolves the slug before calling. */
+  plannerEmail?: string | null;
+  q?: string;
+  closed?: boolean;
+  past?: boolean;
+}
+
 export async function contractCounts(
   now = new Date(),
-  includePast = false,
+  scope: CountScope = {},
 ): Promise<ContractCounts> {
   if (!isDbConfigured()) return EMPTY_COUNTS;
   await ensureGfSchema();
@@ -222,6 +252,22 @@ export async function contractCounts(
   const todayYmd = todayEasternYmd(now);
   const unsignedCutoff = new Date(now.getTime() - UNSIGNED_AGE_MINUTES * 60_000).toISOString();
   const closed = [...CLOSED_GF_STATUSES];
+  const includePast = scope.past === true;
+
+  // $1..$3 are positional because ATTENTION_SQL names $1 and $2 verbatim;
+  // everything the scope adds is numbered after them.
+  const params: unknown[] = [todayYmd, unsignedCutoff, closed];
+  const add = (v: unknown) => {
+    params.push(v);
+    return `$${params.length}`;
+  };
+  const scopeWhere: string[] = [];
+  if (scope.centre)
+    scopeWhere.push(`q.center_code = ${add(centreByCode(scope.centre).centerCode)}`);
+  if (scope.plannerEmail) scopeWhere.push(`lower(q.planner_email) = ${add(scope.plannerEmail)}`);
+  const search = searchClause(scope.q, add);
+  if (search) scopeWhere.push(search);
+  const scopeSql = scopeWhere.length ? ` WHERE ${scopeWhere.join(" AND ")}` : "";
 
   const rows = (await q.query(
     `SELECT
@@ -231,8 +277,8 @@ export async function contractCounts(
        COALESCE(sum(q.total_cents) FILTER (WHERE q.status = 'contract_sent'), 0)::bigint AS out_unsigned_cents,
        COALESCE(sum(q.deposit_due_cents) FILTER (WHERE q.status <> ALL($3::text[]) AND q.deposit_paid_at IS NOT NULL), 0)::bigint AS deposits_held_cents,
        COALESCE(sum(q.balance_cents) FILTER (WHERE q.status <> ALL($3::text[])), 0)::bigint AS balance_outstanding_cents
-     FROM group_function_quotes q`,
-    [todayYmd, unsignedCutoff, closed],
+     FROM group_function_quotes q${scopeSql}`,
+    params,
   )) as Record<string, string | number>[];
 
   const r = rows[0] ?? {};
@@ -284,7 +330,10 @@ export async function listContracts(filter: ContractListFilter = {}): Promise<Co
         rows: [],
         nextCursor: null,
         total: 0,
-        counts: await contractCounts(now, filter.past === true),
+        // An unknown slug filters to nothing, so the tiles must say nothing
+        // too — showing the team's totals beside an empty list is the same
+        // disagreement the rep filter was just fixed for.
+        counts: EMPTY_COUNTS,
       };
     }
     plannerEmail = email;
@@ -319,7 +368,13 @@ export async function listContracts(filter: ContractListFilter = {}): Promise<Co
       `SELECT count(*)::int AS n FROM group_function_quotes q ${whereSql(built.where)}`,
       built.params,
     ),
-    contractCounts(now, filter.past === true),
+    contractCounts(now, {
+      centre: filter.centre,
+      plannerEmail,
+      q: filter.q,
+      closed: filter.closed,
+      past: filter.past,
+    }),
   ]);
   const pageRows = pageRaw as QuoteRowSource[];
   const totalRows = totalRaw as { n: number }[];

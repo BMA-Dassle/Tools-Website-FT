@@ -244,6 +244,6 @@ function ConversationRepAvatar({ rep }: { rep: ConversationRep | null }) {
 
 function emptyFor(folder: ConversationFolder): string {
   if (folder === "unread") return "Nothing unread.";
-  if (folder === "email") return "Email lands here when the Outlook rail ships.";
+  if (folder === "email") return "No email yet. Email a guest from their deal to start one.";
   return "No conversations yet. Text a guest from their deal to start one.";
 }

@@ -32,7 +32,30 @@ export const GET = withCrmRoute(
   ContractsListQuerySchema,
   async ({ input }): Promise<ContractListPage> => {
     if (isOn(input.counts)) {
-      const counts = await contractCounts(new Date(), isOn(input.past)).catch(() => EMPTY_COUNTS);
+      // The badge poll. It carries the SAME filters as the list, because a
+      // count that ignores them is a count of somebody else's work — with a
+      // rep selected the badge read the whole team's 81 over that rep's list
+      // (owner, 2026-09-14: "That number is not honooring the filter").
+      // `listContracts` owns the slug → planner-email resolution, so a rep
+      // filter goes through it rather than being resolved a second way here.
+      if (input.rep) {
+        const page = await listContracts({
+          win: "attention",
+          centre: input.centre,
+          rep: input.rep,
+          q: input.q,
+          closed: isOn(input.closed),
+          past: isOn(input.past),
+          limit: 1,
+        });
+        return { rows: [], nextCursor: null, total: 0, counts: page.counts };
+      }
+      const counts = await contractCounts(new Date(), {
+        centre: input.centre,
+        q: input.q,
+        closed: isOn(input.closed),
+        past: isOn(input.past),
+      }).catch(() => EMPTY_COUNTS);
       return { rows: [], nextCursor: null, total: 0, counts };
     }
     return listContracts({

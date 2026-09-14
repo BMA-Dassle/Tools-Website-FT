@@ -177,6 +177,17 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 
 ## Open — presentation
 
+- [ ] **The email thread layout does not scale.** Owner, 2026-09-14: "think
+      there is a beter layout of this screen espcailly when you start getting
+      alot of emails back and forth." Today the deal's Email sheet stacks the
+      whole thread above the compose form, so with a dozen messages the reply
+      box is below the fold and every message is expanded at full height.
+      Wants: collapsed messages with sender / date / one-line preview that
+      expand on click, newest nearest the composer, quoted trails folded
+      behind a "show quoted text" control, and the composer pinned rather than
+      pushed down the page. The Conversations screen's own detail pane needs
+      the same treatment — it is the surface a rep lives in once email is on.
+
 - [ ] **The mobile header needs a proper pass** — owner, 2026-09-14: "Mobile
       layout of headers and such need lots of work." Seen on the Deal screen at
       phone width, with the screenshot in hand:

@@ -515,6 +515,60 @@ export async function listEmailThreads(
   };
 }
 
+/** One row per CONTACT: their latest email, whether or not it has a lead. */
+export interface EmailContactThread {
+  contactId: string;
+  lastAt: string;
+  count: number;
+  last: EmailLink;
+}
+
+/**
+ * The same fold as `listEmailThreads`, but per CONTACT rather than per lead —
+ * which is what the Conversations screen is keyed on.
+ *
+ * That screen is "one entry per person" and its key format already allows
+ * `c-<contactId>`, but `loadConversations` only ever read `crm_sms_threads`.
+ * So a guest who had been emailed and never texted appeared nowhere, and the
+ * Email tab filtered a list that could only contain texts — owner, 2026-09-14:
+ * "why nothing showing under conversasions" over a screen with two sent
+ * emails in the table and no SMS threads at all.
+ *
+ * `lead_id` is NOT required here, unlike the per-lead fold: an email to a
+ * contact we have not yet turned into a lead is still a conversation somebody
+ * is having.
+ */
+export async function latestEmailPerContact(
+  opts: { repId?: string | null; limit?: number } = {},
+): Promise<EmailContactThread[]> {
+  if (!isDbConfigured()) return [];
+  await ensureEmailSchema();
+  const q = sql();
+  const limit = clampLimit(opts.limit);
+  const rows = (await q.query(
+    `WITH ranked AS (
+       SELECT l.*, COALESCE(l.sent_at, l.created_at) AS at,
+              ROW_NUMBER() OVER (PARTITION BY l.contact_id ORDER BY COALESCE(l.sent_at, l.created_at) DESC, l.id DESC) AS rn,
+              COUNT(*) OVER (PARTITION BY l.contact_id) AS n
+         FROM crm_email_links l
+        WHERE l.contact_id IS NOT NULL
+          AND ($1::bigint IS NULL OR l.rep_id = $1::bigint)
+     )
+     SELECT ${COLUMNS}, at::text AS last_at, n::int AS n
+       FROM ranked
+      WHERE rn = 1
+      ORDER BY at DESC, contact_id DESC
+      LIMIT $2`,
+    [opts.repId ?? null, limit],
+  )) as (EmailLinkRowRaw & { last_at: string; n: number })[];
+  return rows.map((r) => ({
+    contactId: String(r.contact_id),
+    lastAt: r.last_at,
+    count: Number(r.n) || 1,
+    last: mapEmailLinkRow(r),
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Subscriptions
 // ---------------------------------------------------------------------------

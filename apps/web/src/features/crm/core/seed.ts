@@ -287,7 +287,7 @@ export const RULE_SEED: readonly RuleSeed[] = [
   {
     position: 5,
     kind: "avail",
-    label: "Prefer whoever is on shift now, then the next shift",
+    label: "Prefer whoever is on shift now, then the next shift — balanced by volume",
     when: {},
     then: { onShift: true },
     why: "A lead should reach someone who can act on it — and when more than one of them can, the lowest party-month volume wins, exactly as the final rule decides it",
