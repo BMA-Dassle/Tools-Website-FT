@@ -177,7 +177,22 @@ export function PacingChart({ series, thisYearLabel, lastYearLabel, caption }: P
               <text className="lbl" x={geo.todayX + 8} y={geo.yOf(geo.tyNow) + 4}>
                 {moneyK(geo.tyNow)} {thisYearLabel}
               </text>
-              <text x={geo.todayX + 8} y={geo.yOf(geo.lyNow) + 16}>
+              {/* LAST YEAR'S LABEL SITS ABOVE ITS POINT WHEN THE POINT IS ON
+                  THE FLOOR. It was always drawn 16px BELOW, which is fine in
+                  the middle of the chart and wrong at the bottom: a rep with no
+                  bookings last year has this line flat at zero, so the label
+                  landed in the date ticks and "$0 same day 2025" overprinted
+                  "Sep 16" (owner: "Text messed up bottom of chart"). Flipping
+                  it inside the plot near the floor keeps it clear of the axis
+                  without moving it anywhere else. */}
+              <text
+                x={geo.todayX + 8}
+                y={
+                  geo.yOf(geo.lyNow) > box.h - box.bottom - 28
+                    ? geo.yOf(geo.lyNow) - 10
+                    : geo.yOf(geo.lyNow) + 16
+                }
+              >
                 {moneyK(geo.lyNow)} same day {lastYearLabel}
               </text>
             </>
