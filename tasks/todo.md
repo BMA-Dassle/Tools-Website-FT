@@ -211,6 +211,11 @@ UI                              web: "Team member?" beside the checkout promo in
 Kill switch only: `EMPLOYEE_PERKS !== "false"` (default ON). Persist-first everywhere (link,
 ledger). Never `Number()` a BMI id. Admin read-only usage page = later PR.
 
+- FINAL MATCH RULE (owner 2026-09-13, after testing: "only checking last and phone for booked
+  products"): the BMI record's LAST NAME **and** PHONE must both equal 7shifts. The lenient
+  first-name leg was REMOVED — nicknames made it unreliable and the phone is the real second
+  factor. Two same-surname same-phone records (duplicate registration) → ambiguous, no link.
+
 ### Threat model — how a non-employee is kept out (owner Q 2026-09-13)
 - Perks unlock ONLY for a 7shifts user id resolved from the index AND active; non-employees are
   not in 7shifts, so there is nothing to resolve. Unknown punch/phone and wrong code return the

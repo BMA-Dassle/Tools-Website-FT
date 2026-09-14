@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   EMPLOYEE_ENTITLEMENT,
   employeeGameZoneCredit,
-  firstNamesMatchLeniently,
   freeRacesRemaining,
   matchEmployeeToParty,
   normalizeNameToken,
@@ -33,23 +32,11 @@ describe("payWeekKey", () => {
   });
 });
 
-describe("normalizeNameToken / firstNamesMatchLeniently", () => {
+describe("normalizeNameToken", () => {
   it("strips case, spaces, punctuation and accents", () => {
     expect(normalizeNameToken("  O'Brien ")).toBe("obrien");
     expect(normalizeNameToken("José")).toBe("jose");
     expect(normalizeNameToken("Van Der Berg")).toBe("vanderberg");
-  });
-
-  it("matches nicknames by a 3+ letter prefix, either direction", () => {
-    expect(firstNamesMatchLeniently("Sam", "Samantha")).toBe(true);
-    expect(firstNamesMatchLeniently("ALEXANDER", "alex")).toBe(true);
-    expect(firstNamesMatchLeniently("Sam", "Sam")).toBe(true);
-  });
-
-  it("refuses two-letter prefixes and unrelated names", () => {
-    expect(firstNamesMatchLeniently("Jo", "Joseph")).toBe(false);
-    expect(firstNamesMatchLeniently("Sam", "Jordan")).toBe(false);
-    expect(firstNamesMatchLeniently("", "Sam")).toBe(false);
   });
 });
 
@@ -62,16 +49,22 @@ describe("matchEmployeeToParty", () => {
     expect(res).toEqual({ ok: true, memberId: "b", matchedBy: "phone" });
   });
 
-  it("links on surname + lenient first name when the phone differs", () => {
+  it("does NOT link on surname + first name when the phone differs — phone is the second factor", () => {
     const res = matchEmployeeToParty(staff, [
       { id: "b", firstName: "Samantha", lastName: "ORTIZ", phone: "2395550000", bmiPersonId: "2" },
     ]);
-    expect(res).toEqual({ ok: true, memberId: "b", matchedBy: "first-name" });
+    expect(res).toEqual({ ok: false, reason: "none" });
   });
 
   it("does NOT link a same-surname relative who fails both legs", () => {
     const res = matchEmployeeToParty(staff, [
-      { id: "spouse", firstName: "Miguel", lastName: "Ortiz", phone: "2395550000", bmiPersonId: "3" },
+      {
+        id: "spouse",
+        firstName: "Miguel",
+        lastName: "Ortiz",
+        phone: "2395550000",
+        bmiPersonId: "3",
+      },
     ]);
     expect(res).toEqual({ ok: false, reason: "none" });
   });
@@ -84,30 +77,44 @@ describe("matchEmployeeToParty", () => {
   });
 
   it("ignores hand-typed members (no BMI person) unless allowed", () => {
-    const typed = [{ id: "t", firstName: "Sam", lastName: "Ortiz" }];
+    const typed = [{ id: "t", firstName: "Sam", lastName: "Ortiz", phone: "2395554417" }];
     expect(matchEmployeeToParty(staff, typed)).toEqual({ ok: false, reason: "none" });
     expect(matchEmployeeToParty(staff, typed, { allowUnlinked: true })).toEqual({
       ok: true,
       memberId: "t",
-      matchedBy: "first-name",
+      matchedBy: "phone",
     });
   });
 
-  it("lets the phone decide between two passing family members, else refuses", () => {
+  it("picks the family member whose phone matches; two same-surname same-phone records are ambiguous", () => {
     const twins = [
       { id: "s1", firstName: "Sam", lastName: "Ortiz", phone: "2395550001", bmiPersonId: "5" },
       { id: "s2", firstName: "Sammy", lastName: "Ortiz", phone: "2395554417", bmiPersonId: "6" },
     ];
-    expect(matchEmployeeToParty(staff, twins)).toEqual({ ok: true, memberId: "s2", matchedBy: "phone" });
-    const noPhone = twins.map((t) => ({ ...t, phone: null }));
-    expect(matchEmployeeToParty(staff, noPhone)).toEqual({ ok: false, reason: "ambiguous" });
+    expect(matchEmployeeToParty(staff, twins)).toEqual({
+      ok: true,
+      memberId: "s2",
+      matchedBy: "phone",
+    });
+    const dupes = twins.map((t) => ({ ...t, phone: "2395554417" }));
+    expect(matchEmployeeToParty(staff, dupes)).toEqual({ ok: false, reason: "ambiguous" });
+    expect(matchEmployeeToParty({ ...staff, mobile: null }, twins)).toEqual({
+      ok: false,
+      reason: "none",
+    });
   });
 });
 
 describe("employeeGameZoneCredit", () => {
   it("loads the bought tokens again as bonus, on top of any pack bonus, price untouched", () => {
-    expect(employeeGameZoneCredit({ tokens: 100, bonusTokens: 0 })).toEqual({ tokens: 100, bonusTokens: 100 });
-    expect(employeeGameZoneCredit({ tokens: 300, bonusTokens: 50 })).toEqual({ tokens: 300, bonusTokens: 350 });
+    expect(employeeGameZoneCredit({ tokens: 100, bonusTokens: 0 })).toEqual({
+      tokens: 100,
+      bonusTokens: 100,
+    });
+    expect(employeeGameZoneCredit({ tokens: 300, bonusTokens: 50 })).toEqual({
+      tokens: 300,
+      bonusTokens: 350,
+    });
   });
 });
 

@@ -23,11 +23,11 @@
  * a display hint, and every charge path re-derives the stamp from the token.
  *
  * WHICH PERSON. The perks attach to ONE party member — the employee's own BMI
- * record. `matchEmployeeToParty` is the rule: LAST NAME must equal 7shifts,
- * then EITHER the phone equals the 7shifts mobile OR the first name matches
- * leniently (Sam ↔ Samantha, against legal AND preferred). Last-name-only would
- * link a same-surname spouse when the employee is not racing; a strict first
- * name would lock out nicknames. First name alone is never a factor.
+ * record. `matchEmployeeToParty` is the rule (owner 2026-09-13, final: "only
+ * checking last and phone for booked products"): the BMI record's LAST NAME
+ * must equal 7shifts AND its PHONE must equal the 7shifts mobile. First names
+ * are never a factor — nicknames vs legal names made them unreliable, and the
+ * phone is the second factor that ties the record to the roster.
  */
 
 import type { MembershipDiscount } from "~/features/booking/service/membership-discounts";
@@ -103,24 +103,9 @@ export function payWeekKey(now: Date = new Date()): string {
 export function normalizeNameToken(raw: string | null | undefined): string {
   return (raw ?? "")
     .normalize("NFD")
-    .replace(/[0300-036f]/g, "")
+    .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/[^a-z]/g, "");
-}
-
-/**
- * Lenient first-name match: equal after normalization, or one is a ≥3-letter
- * prefix of the other (Sam ↔ Samantha, Alex ↔ Alexander). "Jo" vs "Joseph"
- * does NOT pass — two letters is not a name.
- */
-export function firstNamesMatchLeniently(a: string | null | undefined, b: string | null | undefined) {
-  const x = normalizeNameToken(a);
-  const y = normalizeNameToken(b);
-  if (!x || !y) return false;
-  if (x === y) return true;
-  const short = x.length <= y.length ? x : y;
-  const long = short === x ? y : x;
-  return short.length >= 3 && long.startsWith(short);
 }
 
 /** The 7shifts side of the match — a structural subset of `StaffRecord`. */
@@ -145,16 +130,15 @@ export interface MatchablePerson {
 }
 
 export type EmployeeMatch =
-  | { ok: true; memberId: string; matchedBy: "phone" | "first-name" }
+  | { ok: true; memberId: string; matchedBy: "phone" }
   | { ok: false; reason: "none" | "ambiguous" };
 
 /**
  * Pick the ONE party member who is the verified employee.
  *
- *   1. LAST NAME must equal the 7shifts last name (normalized). Always.
- *   2. Then EITHER the person's phone equals the 7shifts mobile,
- *      OR their first name matches leniently (legal or preferred).
- *   3. Several pass → the phone leg decides; still tied → ambiguous, no link.
+ *   1. LAST NAME must equal the 7shifts last name (normalized).
+ *   2. PHONE must equal the 7shifts mobile (E.164).
+ *   3. Exactly one passes → link; several → ambiguous, no link.
  *
  * Only members with a BMI person id are candidates (a hand-typed party entry is
  * not an account to link), unless `allowUnlinked` is set — the web contact
@@ -169,23 +153,21 @@ export function matchEmployeeToParty(
   if (!last) return { ok: false, reason: "none" };
   const mobile = staff.mobile ? canonicalizePhone(staff.mobile) : null;
 
-  const passing: Array<{ id: string; byPhone: boolean; byName: boolean }> = [];
+  // No 7shifts mobile ⇒ nothing can pass: the phone IS the second factor.
+  if (!mobile) return { ok: false, reason: "none" };
+
+  const passing: string[] = [];
   for (const p of party) {
     if (!p.bmiPersonId && !opts.allowUnlinked) continue;
     if (normalizeNameToken(p.lastName) !== last) continue;
-    const byPhone = !!mobile && canonicalizePhone(p.phone ?? null) === mobile;
-    const byName =
-      firstNamesMatchLeniently(p.firstName, staff.firstName) ||
-      firstNamesMatchLeniently(p.firstName, staff.legalFirstName ?? null);
-    if (byPhone || byName) passing.push({ id: p.id, byPhone, byName });
+    if (canonicalizePhone(p.phone ?? null) !== mobile) continue;
+    passing.push(p.id);
   }
 
   if (passing.length === 0) return { ok: false, reason: "none" };
-  if (passing.length === 1) {
-    return { ok: true, memberId: passing[0].id, matchedBy: passing[0].byPhone ? "phone" : "first-name" };
-  }
-  const byPhone = passing.filter((p) => p.byPhone);
-  if (byPhone.length === 1) return { ok: true, memberId: byPhone[0].id, matchedBy: "phone" };
+  if (passing.length === 1) return { ok: true, memberId: passing[0], matchedBy: "phone" };
+  // Two BMI records with the same surname AND the same phone (a duplicate
+  // registration, or family sharing a number) — refuse rather than guess.
   return { ok: false, reason: "ambiguous" };
 }
 
@@ -209,7 +191,9 @@ export function employeeGameZoneCredit(pkg: { tokens: number; bonusTokens: numbe
 }
 
 /** Free single races still available this pay week for a verified employee. */
-export function freeRacesRemaining(employee: Pick<SessionEmployee, "usedThisWeek"> | null | undefined) {
+export function freeRacesRemaining(
+  employee: Pick<SessionEmployee, "usedThisWeek"> | null | undefined,
+) {
   if (!employee) return 0;
   return Math.max(0, EMPLOYEE_PROGRAM.freeRacesPerWeek - Math.max(0, employee.usedThisWeek));
 }
@@ -229,7 +213,10 @@ export function stampEmployeeOnParty<T extends { id: string; employeePerks?: Emp
     const { employeePerks: _drop, ...rest } = m;
     void _drop;
     if (employee && employee.memberId && m.id === employee.memberId) {
-      return { ...rest, employeePerks: { userId: employee.userId, firstName: employee.firstName } } as T;
+      return {
+        ...rest,
+        employeePerks: { userId: employee.userId, firstName: employee.firstName },
+      } as T;
     }
     return rest as T;
   });

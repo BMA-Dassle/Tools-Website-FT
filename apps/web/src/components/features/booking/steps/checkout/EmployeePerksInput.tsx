@@ -87,9 +87,9 @@ export function EmployeePerksInput({
         </div>
         {!linked && (
           <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 px-4 py-3 text-xs text-white/60">
-            We couldn&apos;t match you to a racer on this booking. Your last name has to match your
-            7shifts profile, along with your phone or first name. Add yourself to the party as a
-            returning racer, then verify again.
+            We couldn&apos;t match you to a racer on this booking. The racer&apos;s last name and
+            phone both have to match your 7shifts profile. Add yourself to the party as a returning
+            racer, then verify again.
           </div>
         )}
       </div>
