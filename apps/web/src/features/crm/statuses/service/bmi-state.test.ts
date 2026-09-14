@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StatusBmiMapRow } from "../../core/types";
-import { bmiStateBranch, bmiSyncChipFor, isBuiltInStateId, transitionToastFor } from "./bmi-state";
+import { bmiStateBranch, bmiSyncChipFor, isRailedStateId, transitionToastFor } from "./bmi-state";
 
 const mapped = (bmiStateId: string): StatusBmiMapRow => ({
   statusId: "quote",
@@ -62,8 +62,8 @@ describe("bmiStateBranch", () => {
   });
 
   it("recognises a built-in id even with stray whitespace", () => {
-    expect(isBuiltInStateId(" -4")).toBe(true);
-    expect(isBuiltInStateId("49130082")).toBe(false);
+    expect(isRailedStateId(" -4")).toBe(true);
+    expect(isRailedStateId("49130082")).toBe(false);
   });
 });
 

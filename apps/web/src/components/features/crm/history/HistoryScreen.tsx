@@ -11,13 +11,14 @@ import { eventDayHref } from "~/features/crm/core/nav";
 import { historyKeys } from "~/features/crm/bmi/queries";
 import { errorMessage } from "../lib/crm-fetch";
 import { useUrlQuery } from "../lib/use-url-query";
-import { useCrmFetch, useCrmUser } from "../lib/use-crm-user";
+import { useCrmFetch, useCrmSheet, useCrmToast, useCrmUser } from "../lib/use-crm-user";
 import { Avatar } from "../primitives/Avatar";
 import { ICON } from "../primitives/icon-props";
 import { Pill } from "../primitives/Pill";
 import { EmptyState, ErrorState, LoadingState } from "../primitives/States";
 import { IconAvatar } from "./IconAvatar";
 import { MirrorCard } from "./MirrorCard";
+import { NewLeadSheet } from "../leads/NewLeadSheet";
 import { accountMeta, eventHost, eventMeta, wasRepLabel, windowLabel } from "./model";
 import { fetchHistory, fetchLastYear } from "./queries";
 import { HISTORY_TEST_IDS } from "./test-ids";
@@ -48,6 +49,50 @@ function useDebounced(value: string, ms: number): string {
 export default function HistoryScreen({ query }: ScreenProps) {
   const crmFetch = useCrmFetch();
   const { isDirector } = useCrmUser();
+  const { openSheet, closeSheet } = useCrmSheet();
+  const toast = useCrmToast();
+
+  /**
+   * "This time last year" → a reach-out lead, seeded from the booking.
+   *
+   * Everything the mirror knows is handed over — the host's name split the way
+   * every other adopt path splits it, the centre, the headcount, the phone and
+   * email — EXCEPT the date. Last year's date is not this year's, and guessing
+   * (same weekday? same week?) would be a date nobody chose sitting on a real
+   * lead. The rep picks it, which is the conversation they are about to have
+   * anyway.
+   *
+   * `source: "historical"` makes it a PROSPECT: no BMI project is minted and no
+   * guest notification fires until somebody converts it on real interest.
+   */
+  const startReachOut = (e: MirrorEvent) => {
+    const name = (e.personName || eventHost(e) || "").trim();
+    const cut = name.lastIndexOf(" ");
+    openSheet({
+      title: `Reach out to ${name || "last year's guest"}`,
+      icon: <IconPlus {...ICON} />,
+      wide: true,
+      body: (
+        <NewLeadSheet
+          defaultCentre={e.centre ?? "HPFM"}
+          prefill={{
+            source: "historical",
+            centre: e.centre ?? "HPFM",
+            firstName: cut > 0 ? name.slice(0, cut) : name,
+            lastName: cut > 0 ? name.slice(cut + 1) : "",
+            phone: e.personPhone ?? "",
+            email: e.personEmail ?? "",
+            guests: e.persons ? String(e.persons) : "",
+          }}
+          onCancel={closeSheet}
+          onCreated={(r) => {
+            closeSheet();
+            toast(`Reach-out ${r.lead.publicId} started`);
+          }}
+        />
+      ),
+    });
+  };
   const [urlQuery, setUrlQuery] = useUrlQuery(query);
   const q = urlQuery.q ?? "";
   const term = useDebounced(q.trim(), SEARCH_DEBOUNCE_MS);
@@ -208,7 +253,7 @@ export default function HistoryScreen({ query }: ScreenProps) {
               <EmptyState>All caught up</EmptyState>
             ) : null}
             {lastYear.map((e) => (
-              <LastYearRow key={e.projectId} event={e} />
+              <LastYearRow key={e.projectId} event={e} onReachOut={startReachOut} />
             ))}
             {lastYearQ.hasNextPage ? (
               <div className="pad">
@@ -286,7 +331,13 @@ function mirrorRowHref(e: MirrorEvent): string | null {
   return eventDayHref(e);
 }
 
-function LastYearRow({ event: e }: { event: MirrorEvent }) {
+function LastYearRow({
+  event: e,
+  onReachOut,
+}: {
+  event: MirrorEvent;
+  onReachOut: (e: MirrorEvent) => void;
+}) {
   const was = wasRepLabel(e);
   const href = mirrorRowHref(e);
   const title = eventHost(e);
@@ -312,11 +363,21 @@ function LastYearRow({ event: e }: { event: MirrorEvent }) {
         </div>
       </div>
       <div className="right">
+        {/* Enabled at last. This said "Reach-out leads arrive with the leads
+            PR" long after that rail shipped: `create-lead.ts` has known
+            `historical` (a PROSPECT — no BMI project, no notifications) since
+            it was written, and only the route's zod schema was still refusing
+            the source. Owner, 2026-09-14: "Why can't I start a reach out? says
+            arrives with leads PR."
+            It opens the sheet rather than creating silently, because LAST
+            YEAR'S DATE IS NOT THIS YEAR'S — the one field we cannot infer is
+            the one that matters, and a rep confirming it is the point of the
+            reach-out. */}
         <button
           type="button"
           className="btn btn-primary btn-sm"
-          disabled
-          title="Reach-out leads arrive with the leads PR"
+          onClick={() => onReachOut(e)}
+          title={`Start a lead for ${eventHost(e)} from last year's booking`}
         >
           <IconPlus {...ICON} /> Start reach-out
         </button>

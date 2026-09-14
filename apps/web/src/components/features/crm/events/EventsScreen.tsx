@@ -2,6 +2,7 @@
 
 import { IconArrowLeft, IconArrowRight, IconCalendarPlus } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { createPortal } from "react-dom";
 import { CENTRE_CODES, CENTRES } from "~/features/crm/core/centres";
 import type { ScreenProps } from "~/features/crm/core/screens";
@@ -153,6 +154,24 @@ export default function EventsScreen({ query }: ScreenProps) {
     });
 
   const days = q.data?.days ?? [];
+
+  /**
+   * Stepping order for the deal drawer: the board's own day order, but ONLY
+   * the rows that already have a CRM lead.
+   *
+   * A row without one MINTS a lead when it is opened (`openEvent` falls through
+   * to `createLeadFromEventRow`), and creating records is not something an
+   * arrow key may do on the way past. So the arrows walk between deals that
+   * exist; an event that is not in the CRM yet is still opened the normal way,
+   * by tapping it, which is an explicit act.
+   */
+  const dealOrder = useMemo(
+    () =>
+      (q.data?.days ?? []).flatMap((d) =>
+        d.events.map((e) => e.lead?.publicId).filter((id): id is string => Boolean(id)),
+      ),
+    [q.data],
+  );
   const nothing = days.length > 0 && days.every((d) => d.events.length === 0 && !d.error);
 
   return (
@@ -282,6 +301,7 @@ export default function EventsScreen({ query }: ScreenProps) {
           onClose={() => setUrlQuery({ deal: null, tab: null })}
           query={urlQuery}
           setQuery={setUrlQuery}
+          order={dealOrder}
         />
       ) : null}
     </>

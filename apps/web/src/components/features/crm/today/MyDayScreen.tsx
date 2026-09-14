@@ -2,6 +2,7 @@
 
 import { IconHistory, IconPhone, IconPlus, IconTarget } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { ScreenProps } from "~/features/crm/core/screens";
 import { LEAD_TEST_IDS, type RepMyDay } from "~/features/crm/leads/contracts";
@@ -81,6 +82,17 @@ export default function MyDayScreen({ query }: ScreenProps) {
 
   const view = q.data?.view;
 
+  /**
+   * The reading order of My Day: a rep's Overdue, then Due today, then New —
+   * the three columns left to right; a director's lanes, rep by rep, in the
+   * order the lanes are drawn. Stepping follows the eye, not the database.
+   */
+  const dealOrder = useMemo(() => {
+    if (!view) return [];
+    if (view.kind === "director") return view.lanes.flatMap((l) => l.due.map((d) => d.publicId));
+    return [...view.overdue, ...view.dueToday, ...view.newLeads].map((l) => l.publicId);
+  }, [view]);
+
   return (
     <>
       {slot
@@ -114,6 +126,7 @@ export default function MyDayScreen({ query }: ScreenProps) {
           onClose={() => setUrlQuery({ deal: null, tab: null })}
           query={urlQuery}
           setQuery={setUrlQuery}
+          order={dealOrder}
         />
       ) : null}
     </>

@@ -2,12 +2,13 @@
 
 import { IconFilter, IconFlag, IconLayoutColumns, IconPlus, IconSearch } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { activitiesKeys } from "~/features/crm/activities/queries";
 import { CENTRE_LIST } from "~/features/crm/core/centres";
 import type { ScreenProps } from "~/features/crm/core/screens";
 import type { CentreCode } from "~/features/crm/core/types";
+import { boardOrder } from "~/features/crm/deals/stepper";
 import { LEAD_TEST_IDS, type LeadView } from "~/features/crm/leads/contracts";
 import { leadsKeys } from "~/features/crm/leads/queries";
 import { BOARD_DRAG_HINT, PIPELINE_TEST_IDS } from "~/features/crm/statuses/contracts";
@@ -91,6 +92,18 @@ export default function PipelineScreen({ query }: ScreenProps) {
   // the rep filter — options must not come from the thing they filter.
   const reps = q.data?.reps ?? [];
   const emptyColumns = (q.data?.columns ?? []).filter((c) => c.count === 0).length;
+
+  /**
+   * The order the drawer's prev/next steps: exactly what the board is drawing,
+   * column by column and — with `?by=rep` on — lane by lane inside each. The
+   * screen owns this because "next" has to mean the next CARD A REP CAN SEE,
+   * not the next lead by id.
+   */
+  const dealOrder = useMemo(() => {
+    if (!q.data) return [];
+    const publicById = new Map(q.data.leads.map((l) => [l.id, l.publicId]));
+    return boardOrder(q.data.columns, (id) => publicById.get(id) ?? null);
+  }, [q.data]);
 
   const move = useMutation({
     mutationFn: (v: { lead: LeadView; statusId: string }) =>
@@ -307,6 +320,7 @@ export default function PipelineScreen({ query }: ScreenProps) {
           onClose={() => setUrlQuery({ deal: null, tab: null })}
           query={urlQuery}
           setQuery={setUrlQuery}
+          order={dealOrder}
         />
       ) : null}
     </>

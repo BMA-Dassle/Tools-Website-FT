@@ -230,13 +230,17 @@ export default function BuilderScreen({ view, query }: ScreenProps) {
               icon={<IconBuildingWarehouse {...ICON} />}
               testId={BUILDER_TEST_IDS.changedInOffice}
             >
-              <b>Changed in Office.</b> This project carries{" "}
-              {data.officeOnly.length === 1 ? "a line" : `${data.officeOnly.length} lines`} the CRM
-              did not add
-              {data.officeOnly.length > 0
-                ? `: ${data.officeOnly.map((l) => l.name ?? l.bmiProjectProductId).join(", ")}`
-                : ""}
-              . The builder leaves them alone — tidy it up in Office if it is wrong.
+              {/* The Office-added lines are IN THE TABLE now, so this no longer
+                  lists them — a banner naming rows that are visible three
+                  inches below it is noise, and listing them by raw id was how
+                  a fully-built event came to read "Nothing on this quote yet".
+                  What still deserves a banner is a line that has GONE: the CRM
+                  wrote it, Office no longer has it, and nothing on screen would
+                  otherwise say so. */}
+              <b>Changed in Office.</b>{" "}
+              {data.gone.length > 0
+                ? `${data.gone.length === 1 ? "A line the CRM wrote is" : `${data.gone.length} lines the CRM wrote are`} no longer on the project — someone removed ${data.gone.length === 1 ? "it" : "them"} in Office.`
+                : `${data.officeOnly.length === 1 ? "A line was" : `${data.officeOnly.length} lines were`} added in Office. ${data.officeOnly.length === 1 ? "It is" : "They are"} listed below and the builder leaves ${data.officeOnly.length === 1 ? "it" : "them"} alone — edit in Office if wrong.`}
             </Banner>
           </div>
         ) : null}
@@ -271,6 +275,7 @@ export default function BuilderScreen({ view, query }: ScreenProps) {
             <div className="pad-x">
               <QuoteLines
                 lines={lines}
+                officeOnly={data.officeOnly}
                 canForce={data.canForce}
                 busy={busy}
                 onRetry={(lineId) => act.mutate({ action: "retry-line", lead: leadId, lineId })}

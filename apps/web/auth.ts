@@ -95,7 +95,37 @@ export function buildAuthConfig(): NextAuthConfig {
         },
       },
     ],
-    session: { strategy: "jwt", maxAge: 8 * 60 * 60 },
+    /**
+     * A STAFF SESSION THAT SURVIVES THE SHIFT.
+     *
+     * Owner, 2026-09-14: "persisent pwa login." This was `maxAge: 8 * 60 * 60`
+     * with no `updateAge` — eight hours measured from SIGN-IN and never rolled
+     * by use. A rep who signed in at 9am was thrown out at 5pm mid-shift, and
+     * anyone opening the app the next morning signed in again. On an installed
+     * PWA that is worse than on the web: the re-auth can surface in a browser
+     * window OUTSIDE the app, leaving the app itself still signed out.
+     *
+     * `updateAge` is the half that actually fixes it. Without it a long
+     * `maxAge` would only move the cliff from daily to monthly; with it, the
+     * cookie is re-issued after a day of use, so somebody who opens the CRM
+     * most days is never signed out at all. The refresh happens wherever
+     * `auth()` runs in a context that can set cookies — every CRM API route
+     * does (`crmUserFromRequest`), and the boards poll, so an active rep rolls
+     * their own session simply by working.
+     *
+     * THIRTY DAYS IS A DELIBERATE TRADE, and worth the owner knowing: these are
+     * staff tools holding guest PII on phones that may not be company-managed,
+     * and this is the window in which a lost handset stays signed in. It is the
+     * normal figure for a tool people use daily, and the mitigations are real —
+     * revoking the gateway session or the Entra role kills access immediately,
+     * and the tenant's own Conditional Access can cap this regardless of what
+     * is set here. Shorten it if a device goes missing.
+     */
+    session: {
+      strategy: "jwt",
+      maxAge: 30 * 24 * 60 * 60,
+      updateAge: 24 * 60 * 60,
+    },
     callbacks: {
       // `profile` is present only on the sign-in pass; every later call just
       // carries what we copied then.

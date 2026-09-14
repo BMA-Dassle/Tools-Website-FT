@@ -233,6 +233,13 @@ export type BuilderStateResponse = ApiOk<{
   project: BuilderProject | null;
   lines: QuoteLine[];
   officeOnly: OfficeOnlyLine[];
+  /**
+   * Lines the CRM believes it wrote that Office no longer holds — somebody
+   * deleted them there. Computed all along; it only ever fed the
+   * `changedInOffice` boolean, so the screen could say THAT something had
+   * changed but never WHAT.
+   */
+  gone: QuoteLine[];
   changedInOffice: boolean;
   balance: BuilderBalance | null;
   writes: WritesState;

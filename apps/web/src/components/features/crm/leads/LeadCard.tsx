@@ -13,7 +13,7 @@ import { Chip } from "../primitives/Chip";
 import { ICON } from "../primitives/icon-props";
 import { Pill } from "../primitives/Pill";
 import { Timer } from "../primitives/Timer";
-import { bmiChip, cardUrgency, dueLabel, isOpen, leadTitle } from "./model";
+import { bmiChip, bmiChipIsRedundant, cardUrgency, dueLabel, isOpen, leadTitle } from "./model";
 import { useRouter } from "next/navigation";
 import { conversationKeyFor } from "../deal/actions";
 
@@ -83,7 +83,14 @@ export function LeadCard({
   };
   const urgency = cardUrgency(lead, status, now);
   const due = lead.nextAction && isOpen(status) ? dueLabel(lead.nextAction.due, now) : null;
-  const chip = bmiChip(lead);
+  /**
+   * The BMI chip only when Office DISAGREES with the column this card is in.
+   * A chip reading "BMI · Pending Quote" under a "Pending Quote" header is a
+   * line of nothing, repeated down twenty cards; suppressing the agreeing case
+   * is what makes the disagreeing one visible. Owner, 2026-09-14: "I still
+   * think you can do better with these tiles."
+   */
+  const chip = bmiChipIsRedundant(lead, status?.label) ? null : bmiChip(lead);
   const conversationHref = conversationKeyFor(lead);
   const cls = ["kcard", `c-${lead.centre}`, urgency, quiet ? "quiet" : ""]
     .filter(Boolean)
@@ -111,10 +118,14 @@ export function LeadCard({
         )}
         {lead.valueCents ? <span className="money muted">{moneyK(lead.valueCents)}</span> : null}
       </div>
+      {/* Date and headcount only. The centre pill used to sit here and was the
+          widest thing on the row, so on any card with a longer date it wrapped
+          to a second line and the cards in a column stopped lining up. It has
+          moved to the footer, beside the assignee — which is where "who and
+          where" belongs anyway. */}
       <div className="m">
         <span>{fDate(lead.eventDate)}</span>
         <span>{lead.guests} guests</span>
-        <Pill centre={lead.centre}>{centreShort(lead.centre)}</Pill>
       </div>
       {extraMeta ? <div className="m">{extraMeta}</div> : null}
       {due ? (
@@ -133,7 +144,8 @@ export function LeadCard({
             sm
           />
         )}
-        {chip.kind === "bmi" ? (
+        <Pill centre={lead.centre}>{centreShort(lead.centre)}</Pill>
+        {chip === null ? null : chip.kind === "bmi" ? (
           <Chip bmi title={chip.title}>
             {chip.label}
           </Chip>

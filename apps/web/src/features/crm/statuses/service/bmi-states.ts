@@ -34,10 +34,14 @@
  * RESOLVED FROM LIVE METADATA (headpinzftmyers, 2026-09-12, via the local
  * `_crm-bmi-states.mts` wrapper): New Lead 3891928 · Contacted 7845185 · Send
  * Contract 49130082 · Pending Signed Contract 48952154 · Confirmation -3 ·
- * Confirmation + Waiver 3274635 · Cancellation -4 · Pending Quote -2. There is
- * NO state named "Quote" at Fort Myers, so `waiting` and `quote` receive no
- * proposal there; the director maps them (probably to "Pending Quote") on the
- * Statuses screen. Naples is read the same way when the screen asks for HPN.
+ * Confirmation + Waiver 3274635 · Cancellation -4 · Pending Quote -2.
+ *
+ * RE-READ IN FULL on 2026-09-14, both tenants, every state Office defines — not
+ * just the ones with projects against them. There is no state named "Quote" and
+ * none named "Sent Quote" at either centre; the stock quote state is "Pending
+ * Quote" (-2) at both. `quote` now names it. Naples: New Lead 1565479 ·
+ * Contacted 3703830 · Send Contract 8020645 · Pending Signed Contract 8007473 ·
+ * Confirmation + Waiver 1191926 · Deposit Requested 1190814.
  */
 
 import { getMetadataLookups } from "~/features/daily-events/data/bmi-office";
@@ -45,13 +49,33 @@ import { CENTRES, isCentreCode } from "../../core/centres";
 import type { OfficeStateName, OfficeStateProposal } from "../../core/contracts";
 import type { CentreCode, OfficeClientKey } from "../../core/types";
 
-/** Seeded status id → the Office state NAME the prototype pairs it with. */
-export const STATUS_BMI_STATE_NAMES: Readonly<Record<string, string>> = Object.freeze({
+/**
+ * Seeded status id → the Office state NAME the prototype pairs it with, or
+ * `null` for a status that is deliberately ours alone.
+ *
+ * EVERY seeded status appears here, including the ones with no Office state —
+ * `null` records the decision where a missing key would only record forgetting.
+ * The test asserts this table's keys are exactly `STATUS_SEED`'s ids, which is
+ * how a new status is stopped from shipping without somebody choosing.
+ */
+export const STATUS_BMI_STATE_NAMES: Readonly<Record<string, string | null>> = Object.freeze({
   new: "New Lead",
   assigned: "New Lead",
   contacted: "Contacted",
-  waiting: "Quote",
-  quote: "Quote",
+  // "Pending Quote" (-2), NOT "Quote". The prototype's table says "Quote" and
+  // NEITHER CENTRE HAS A STATE BY THAT NAME — the full state list was read off
+  // both tenants on 2026-09-14 and the stock entry is "Pending Quote". So both
+  // of these resolved to nothing, the Statuses screen proposed nothing, and a
+  // rep moving a card to "Quote sent" moved nothing in Office. Since the KPI
+  // buckets read Office's state name, those deals never reached "Quoted, not
+  // yet won". Owner, 2026-09-14: "quoted should be sent quote as well."
+  //
+  // Only `quote` gets it. The prototype pairs "Waiting on guest" with the same
+  // state, but that status sits BEFORE "Quote sent" on the board and a deal can
+  // be waiting on a guest who has never been quoted. Mapping it here would put
+  // its money in "Quoted, not yet won" and overstate the tile.
+  waiting: null,
+  quote: "Pending Quote",
   contract: "Send Contract",
   deposit: "Confirmation",
   confirmed: "Confirmation + Waiver",
@@ -89,7 +113,7 @@ export function stateNamesToList(stateNames: Readonly<Record<string, string>>): 
  */
 export function proposeStatusMap(
   states: readonly OfficeStateName[],
-  table: Readonly<Record<string, string>> = STATUS_BMI_STATE_NAMES,
+  table: Readonly<Record<string, string | null>> = STATUS_BMI_STATE_NAMES,
 ): OfficeStateProposal[] {
   const byName = new Map<string, OfficeStateName>();
   for (const s of states) {
@@ -99,6 +123,8 @@ export function proposeStatusMap(
   }
   const out: OfficeStateProposal[] = [];
   for (const [statusId, wanted] of Object.entries(table)) {
+    // `null` is "ours alone, on purpose" — not a lookup that failed.
+    if (wanted === null) continue;
     const hit = byName.get(normalizeStateName(wanted));
     if (hit) out.push({ statusId, bmiStateId: hit.id, bmiStateName: hit.name });
   }

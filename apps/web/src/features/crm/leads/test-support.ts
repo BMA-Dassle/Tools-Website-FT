@@ -28,6 +28,7 @@ export function makeRep(overrides: Partial<CrmRep> & Pick<CrmRep, "id" | "slug">
     email: `${overrides.slug}@headpinz.com`,
     ssoSub: null,
     bmiUserId: null,
+    bmiUserIds: null,
     bmiUsername: null,
     sevenShiftsUserId: null,
     voxDid: null,

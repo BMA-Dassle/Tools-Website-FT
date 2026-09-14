@@ -4,7 +4,7 @@ import { DndContext, useDraggable, useDroppable, type UniqueIdentifier } from "@
 import { IconBolt, IconClock, IconPlus, IconSettings, IconUsers } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import { fDate } from "~/features/crm/core/dates";
@@ -135,6 +135,20 @@ export default function QueueScreen({ query }: ScreenProps) {
   const suggested = unassigned.filter((u) => u.park.kind === "retry" && u.suggestion);
   const dealId = urlQuery.deal ?? null;
   const openDeal = (publicId: string) => setUrlQuery({ deal: publicId });
+
+  /**
+   * What prev/next steps through: the parked leads first, in the order the
+   * queue lists them, then each rep's untouched column left to right. That is
+   * the reading order of the screen, which is the only order a rep can predict
+   * an arrow will follow.
+   */
+  const dealOrder = useMemo(
+    () => [
+      ...(q.data?.unassigned ?? []).map((it) => it.lead.publicId),
+      ...(q.data?.reps ?? []).flatMap((c) => c.assigned.map((l) => l.publicId)),
+    ],
+    [q.data],
+  );
 
   const parked = new Map(unassigned.map((it) => [it.lead.id, it.lead]));
   const dragged = draggingLeadId ? (parked.get(draggingLeadId) ?? null) : null;
@@ -300,6 +314,7 @@ export default function QueueScreen({ query }: ScreenProps) {
           onClose={() => setUrlQuery({ deal: null, tab: null })}
           query={urlQuery}
           setQuery={setUrlQuery}
+          order={dealOrder}
         />
       ) : null}
     </>

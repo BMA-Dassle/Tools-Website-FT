@@ -37,6 +37,7 @@ import { putProjectFields } from "@/lib/bmi-office-actions";
 import { recordActivity } from "~/features/crm/activities";
 import { neonJobStore, type JobStore } from "~/features/crm/jobs";
 import { listReps } from "~/features/crm/reps";
+import { bmiUserIdFor } from "~/features/crm/reps/bmi-user-id";
 import { centreByCode } from "../../core/centres";
 import { getSettingValue } from "../../core/data/settings-db";
 import { bmiWritesAllowedFor } from "../../core/flags";
@@ -384,6 +385,43 @@ export async function introduceIfHeld(
 }
 
 /**
+ * Is this Office refusal one that RETRYING CANNOT FIX?
+ *
+ * Owner, 2026-09-14: "We don't have constant crons running on this stuff do
+ * we? I don't want to be beating BMI office endpoints." He was right to ask —
+ * every failure here was queued for the default 20 attempts on a 30s-step
+ * backoff, which is roughly 20 Office PUTs over 1¾ hours. For a transient 502
+ * that is correct. For these two, seen on a real lead's timeline, it is 20
+ * requests that were never going to succeed:
+ *
+ *   404  "project 8756741 does not exist in Office" — the project is gone.
+ *        No amount of asking again brings it back.
+ *   400  violation of FOREIGN KEY constraint "FK_PRJ_US_ID" … F_US_ID =
+ *        30080112 — the rep's `bmi_user_id` does not exist ON THAT SERVER.
+ *        Office user ids are PER TENANT (a fact this codebase has been bitten
+ *        by before), so a Naples id written to the Fort Myers tenant fails
+ *        this way every single time.
+ *
+ * Both need a human — re-mint the project, or fix the rep's per-tenant id —
+ * so they are recorded loudly and NOT queued. The lead still shows the failure
+ * on its timeline; what stops is the pointless traffic.
+ *
+ * Matched on the wire text because that is all Office gives us: a `Kind`, a
+ * `Message` and an HTTP status, with no error code to switch on. Deliberately
+ * NARROW — anything unrecognised is still treated as transient and retried,
+ * because wrongly parking a recoverable job loses a hand-off silently, which
+ * is the worse failure of the two.
+ */
+export function isPermanentOfficeRefusal(error: string): boolean {
+  const e = error.toLowerCase();
+  if (e.includes("does not exist in office")) return true;
+  if (e.includes("violation of foreign key constraint")) return true;
+  // Office says this when the project id is well-formed but unknown to it.
+  if (e.includes("404") && e.includes("not found")) return true;
+  return false;
+}
+
+/**
  * `putProjectFields({userId, userAgentId})` for one hand-off. Exported so the
  * lead's BMI reconcile job (`mint-bmi-project`) can retry exactly this step.
  */
@@ -399,6 +437,12 @@ export async function syncResponsible(
   if (!rep.bmiUserId) return { status: "no_bmi_user" };
 
   const clientKey = centreByCode(lead.centre).clientKey;
+  /**
+   * The id for THIS TENANT, not the rep's single `bmi_user_id`. Office user
+   * ids differ per server, and sending the Fort Myers one to Naples is refused
+   * with a foreign-key violation — see `reps/bmi-user-id.ts`.
+   */
+  const bmiUserId = bmiUserIdFor(rep, clientKey);
   const setting = await deps.getSettingValue("bmi_writes");
   const now = deps.now();
   if (!bmiWritesAllowedFor(clientKey, setting)) {
@@ -418,7 +462,7 @@ export async function syncResponsible(
     await deps.putProjectFields({
       clientKey,
       projectId,
-      patch: { userId: rep.bmiUserId, userAgentId: rep.bmiUserId },
+      patch: { userId: bmiUserId, userAgentId: bmiUserId },
     });
     await deps.markSynced(assignment.id, now);
     await deps.updateLeadFields(lead.id, { bmiSyncedAt: now });
@@ -429,20 +473,26 @@ export async function syncResponsible(
       kind: "bmi",
       occurredAt: now,
       body: `BMI responsible → ${rep.bmiUsername ?? rep.displayName} (verified)`,
-      meta: { assignmentId: assignment.id, userId: rep.bmiUserId, projectId },
+      meta: { assignmentId: assignment.id, userId: bmiUserId, clientKey, projectId },
     });
     return { status: "synced" };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
+    const permanent = isPermanentOfficeRefusal(error);
     await deps.recordActivity({
       leadId: lead.id,
       repId: rep.id,
       actorEmail: actor,
       kind: "system",
       occurredAt: now,
-      body: `BMI responsible not updated — ${error} (queued for retry)`,
-      meta: { assignmentId: assignment.id, error },
+      // The timeline says which of the two happened, because "queued for
+      // retry" on something that will never retry is a lie a planner acts on.
+      body: permanent
+        ? `BMI responsible not updated — ${error} (not retried: this needs a person)`
+        : `BMI responsible not updated — ${error} (queued for retry)`,
+      meta: { assignmentId: assignment.id, error, permanent },
     });
+    if (permanent) return { status: "failed", error };
     try {
       await deps.jobs.enqueue({
         kind: MINT_JOB_KIND,

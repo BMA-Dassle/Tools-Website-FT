@@ -4,6 +4,7 @@ import { isDirector } from "~/features/crm/core/identity";
 import {
   LeadCreateSchema,
   LeadListQuerySchema,
+  PROSPECT_SOURCES,
   createLead,
   listLeads,
   mintOutcomeView,
@@ -63,7 +64,23 @@ export const POST = withCrmRoute(LeadCreateSchema, async ({ input, user }) => {
       capturePayload: { ...input, token: undefined },
       createdBy: user.email,
     },
-    { source: input.source, actorEmail: user.email },
+    {
+      source: input.source,
+      actorEmail: user.email,
+      /**
+       * A reach-out or a cold row is a PROSPECT, not a lead: no BMI project is
+       * minted and the guest is not written to until somebody converts it on
+       * real interest (brief B3 — "Cold-list rows and last-year reach-outs are
+       * prospects… no BMI project until the rep converts them").
+       *
+       * This was not passed at all, which was harmless only while the route
+       * refused those two sources. The moment History's "Start reach-out" was
+       * enabled it would have minted an Office project and introduced us to a
+       * guest who has not asked for anything — from a browsing screen, on one
+       * click.
+       */
+      isProspect: PROSPECT_SOURCES.includes(input.source),
+    },
   );
   if (!result.lead) throw new CrmHttpError(500, "lead_not_created");
   await writeAudit({

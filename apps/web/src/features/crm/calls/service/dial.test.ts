@@ -31,6 +31,7 @@ function user(partial: Partial<CrmUser["rep"]> | null): CrmUser {
           email: "kelsea@headpinz.com",
           ssoSub: null,
           bmiUserId: null,
+          bmiUserIds: null,
           bmiUsername: null,
           sevenShiftsUserId: null,
           voxDid: null,

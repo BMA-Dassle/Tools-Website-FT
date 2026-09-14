@@ -55,6 +55,7 @@ describe("seed content", () => {
     }
     expect(REP_SEED.find((r) => r.slug === "kelsea")).toMatchObject({
       bmiUserId: "28267036",
+      bmiUserIds: { headpinzftmyers: "28267036", headpinznaples: "6338800" },
       bmiUsername: "Kelsea Kosco",
       phoneE164: PLANNERS.kelsea.phone,
       teamsChatId: PLANNERS.kelsea.teamsChatId,
@@ -66,6 +67,32 @@ describe("seed content", () => {
     expect(REP_SEED.find((r) => r.slug === "stephanie")?.bmiUserId).toBe("465242");
     expect(REP_SEED.find((r) => r.slug === "gs")?.bmiUserId).toBe("30080112");
     expect(REP_SEED.find((r) => r.slug === "eric")?.bmiUserId).toBe("75262");
+
+    /**
+     * OFFICE USER IDS ARE PER TENANT — the same person is a different id on
+     * each server, which is why `bmi_user_id` alone could only ever be right
+     * about Fort Myers. Read off `crm_bmi_projects.responsible_user_id`
+     * grouped by `client_key` on 2026-09-14; a Naples write with a Fort Myers
+     * id is refused with `violation of FOREIGN KEY constraint "FK_PRJ_US_ID"`.
+     *
+     * Guest Services is the one to watch: Naples calls it **CallCenter**, and
+     * it is the default assignee for kids' birthdays, so it failed loudest.
+     */
+    const naples = (slug: string) =>
+      REP_SEED.find((r) => r.slug === slug)?.bmiUserIds?.headpinznaples ?? null;
+    expect(naples("kelsea")).toBe("6338800");
+    expect(naples("lori")).toBe("41096");
+    expect(naples("stephanie")).toBe("1559644");
+    expect(naples("gs")).toBe("6400642");
+    expect(naples("eric")).toBe("25228");
+    // Jacob has never been a responsible on a Naples project; no id to invent.
+    expect(naples("jacob")).toBeNull();
+    // Every mapped id differs from the Fort Myers one — the whole point.
+    for (const slug of ["kelsea", "lori", "stephanie", "gs", "eric"]) {
+      const r = REP_SEED.find((x) => x.slug === slug)!;
+      expect(r.bmiUserIds?.headpinzftmyers).toBe(r.bmiUserId);
+      expect(naples(slug)).not.toBe(r.bmiUserId);
+    }
     // Jacob's Office id arrived after production was seeded (owner-confirmed
     // 2026-09-13): the seed asserts it now and `seedReps` heals the live row.
     expect(REP_SEED.find((r) => r.slug === "jacob")).toMatchObject({
@@ -250,12 +277,16 @@ describe("runSeed idempotency (SQL boundary)", () => {
         "seven_shifts_user_id = COALESCE(crm_reps.seven_shifts_user_id, EXCLUDED.seven_shifts_user_id)",
       );
       expect(arm).toContain(
-        "WHERE (crm_reps.bmi_user_id IS NULL AND EXCLUDED.bmi_user_id IS NOT NULL) OR (crm_reps.bmi_username IS NULL AND EXCLUDED.bmi_username IS NOT NULL) OR (crm_reps.seven_shifts_user_id IS NULL AND EXCLUDED.seven_shifts_user_id IS NOT NULL) RETURNING id",
+        "bmi_user_ids = COALESCE(crm_reps.bmi_user_ids, EXCLUDED.bmi_user_ids)",
+      );
+      expect(arm).toContain(
+        "WHERE (crm_reps.bmi_user_id IS NULL AND EXCLUDED.bmi_user_id IS NOT NULL) OR (crm_reps.bmi_user_ids IS NULL AND EXCLUDED.bmi_user_ids IS NOT NULL) OR (crm_reps.bmi_username IS NULL AND EXCLUDED.bmi_username IS NOT NULL) OR (crm_reps.seven_shifts_user_id IS NULL AND EXCLUDED.seven_shifts_user_id IS NOT NULL) RETURNING id",
       );
       // The SET list names nothing else: display name, email, role, centres, phone… stay as set.
       const setList = arm.slice("ON CONFLICT (slug) DO UPDATE SET".length, arm.indexOf(" WHERE "));
       expect(setList.match(/\w+ =/g)).toEqual([
         "bmi_user_id =",
+        "bmi_user_ids =",
         "bmi_username =",
         "seven_shifts_user_id =",
         "updated_at =",
@@ -283,10 +314,14 @@ describe("runSeed idempotency (SQL boundary)", () => {
     expect(reps).toHaveLength(7);
     // seven_shifts_user_id sits right after bmi_username in the column list…
     for (const s of reps) {
-      expect(s.text).toContain("bmi_user_id, bmi_username, seven_shifts_user_id, teams_chat_id");
+      expect(s.text).toContain(
+        "bmi_user_id, bmi_user_ids, bmi_username, seven_shifts_user_id, teams_chat_id",
+      );
     }
     // …and is bound as a NUMBER (the column is INTEGER), never a digit string.
-    const idOf = (slug: string) => reps.find((s) => s.params[0] === slug)?.params[8];
+    // params[9], not [8]: `bmi_user_ids` was inserted at $8 when Office user
+    // ids became per-tenant, shifting everything after it along one.
+    const idOf = (slug: string) => reps.find((s) => s.params[0] === slug)?.params[9];
     expect(idOf("kelsea")).toBe(10832991);
     expect(idOf("lori")).toBe(6568770);
     expect(idOf("stephanie")).toBe(8204948);

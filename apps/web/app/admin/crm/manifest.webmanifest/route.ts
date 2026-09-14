@@ -36,7 +36,25 @@ export function GET() {
     description: "Group-event sales: leads, the pipeline, contracts and the day's events.",
     // My Day, not the board: a rep opening the app wants what they owe today.
     start_url: "/admin/crm/today?src=pwa",
-    scope: "/admin/crm",
+    /**
+     * SCOPE IS "/" BECAUSE SIGN-IN LIVES OUTSIDE THE CRM.
+     *
+     * This was `/admin/crm`, which is the tidier answer and was the wrong one.
+     * When a session lapses the app navigates to `/sso/signin` and then out to
+     * Microsoft — and a navigation outside an installed app's scope is handed
+     * to a browser view. On Android that view shares the cookie jar and it
+     * mostly works; on iOS an installed PWA has its OWN storage, so the rep
+     * signs in successfully in Safari and the app they are holding is STILL
+     * signed out. Owner, 2026-09-14: "persisent pwa login."
+     *
+     * So the whole OIDC round trip has to stay inside the app window, and that
+     * means `/sso/*` has to be in scope. The cost is the thing the narrow scope
+     * was bought for: a same-origin link now opens in the app window rather
+     * than the browser. That is a far smaller problem than reps who cannot sign
+     * in, and `start_url` still lands on My Day, so nothing about what the app
+     * OPENS AS has changed.
+     */
+    scope: "/",
     display: "standalone",
     orientation: "portrait-primary",
     // The shell's own ground and accent, so the splash and the status bar match

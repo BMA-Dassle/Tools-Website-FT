@@ -49,6 +49,7 @@ const rep = (id: string, slug: string, displayName: string, role: Rep["role"]): 
   email: `${slug}@headpinz.com`,
   ssoSub: null,
   bmiUserId: null,
+  bmiUserIds: null,
   bmiUsername: displayName,
   sevenShiftsUserId: null,
   voxDid: null,

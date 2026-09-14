@@ -92,8 +92,31 @@ describe("buildAuthConfig", () => {
     expect(buildAuthConfig().trustHost).toBe(true);
   });
 
-  it("keeps sessions in a JWT, capped at eight hours", () => {
-    expect(buildAuthConfig().session).toEqual({ strategy: "jwt", maxAge: 8 * 60 * 60 });
+  /**
+   * THIRTY DAYS, ROLLED DAILY — not the eight hours this used to assert.
+   *
+   * Owner, 2026-09-14: "persisent pwa login." Eight hours measured from
+   * SIGN-IN, never rolled by use, threw a rep out mid-shift and made every
+   * morning a fresh Microsoft round trip. `updateAge` is the half that
+   * actually fixes it: without it a longer `maxAge` would only move the cliff
+   * from daily to monthly.
+   *
+   * The figure matches the Team Member Portal, which made this exact call for
+   * the same reason — `api/auth/refresh-session.ts` there is
+   * `PWA_SESSION_TTL = 30 * 24 * 60 * 60` against `DEFAULT_SESSION_TTL = 28800`.
+   */
+  it("keeps sessions in a JWT for thirty days, re-issued after a day of use", () => {
+    expect(buildAuthConfig().session).toEqual({
+      strategy: "jwt",
+      maxAge: 30 * 24 * 60 * 60,
+      updateAge: 24 * 60 * 60,
+    });
+  });
+
+  it("updateAge is SHORTER than maxAge, or the cookie would never roll", () => {
+    const s = buildAuthConfig().session!;
+    expect(s.updateAge).toBeGreaterThan(0);
+    expect(s.updateAge!).toBeLessThan(s.maxAge!);
   });
 
   it("routes failures to the page that explains them", () => {

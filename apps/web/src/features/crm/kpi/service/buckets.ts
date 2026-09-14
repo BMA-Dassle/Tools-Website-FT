@@ -68,6 +68,11 @@ export const QUOTED_STATES = [
   "send contract",
   "pending signed contract",
   "deposit requested",
+  // HPFM's own "New Deposit Requested - FT" (48952156). `hits()` matches on a
+  // PREFIX, so "deposit requested" never reached a name that starts with "new"
+  // — found by reading every state Office defines rather than only the ones
+  // with projects against them today.
+  "new deposit requested",
   "deposit paid",
   "deposite paid",
 ] as const;
@@ -87,6 +92,7 @@ export const LEAD_STATES = [
   "send contract",
   "pending signed contract",
   "deposit requested",
+  "new deposit requested",
   "deposit paid",
   "deposite paid",
   "confirmation",
@@ -114,9 +120,10 @@ export function isCancelledState(stateName: string | null | undefined): boolean 
   return normalizeBmiStateName(stateName).startsWith("cancellation");
 }
 
-/** True for the one state the portal counts in QUOTED and in LEAD at once. */
+/** True for the states the portal counts in QUOTED and in LEAD at once. */
 export function isDoubleCounted(stateName: string | null | undefined): boolean {
-  return normalizeBmiStateName(stateName).startsWith("deposit requested");
+  const n = normalizeBmiStateName(stateName);
+  return n.startsWith("deposit requested") || n.startsWith("new deposit requested");
 }
 
 /**

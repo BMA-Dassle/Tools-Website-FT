@@ -44,6 +44,7 @@ function rep(
     email: `${slug}@headpinz.com`,
     ssoSub: null,
     bmiUserId: null,
+    bmiUserIds: null,
     bmiUsername: displayName,
     sevenShiftsUserId: null,
     voxDid: null,

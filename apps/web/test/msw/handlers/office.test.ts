@@ -72,7 +72,10 @@ describe("msw: BMI Office", () => {
       expect.arrayContaining([
         "New Lead",
         "Contacted",
-        "Quote",
+        // "Pending Quote", not "Quote" — the fixture used to name a state
+        // neither tenant has, which is precisely why the status map's phantom
+        // "Quote" entry survived every test run. See `bmi-states.ts`.
+        "Pending Quote",
         "Send Contract",
         "Pending Signed Contract",
         "Cancellation",

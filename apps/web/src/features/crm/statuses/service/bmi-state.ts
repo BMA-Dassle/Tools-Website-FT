@@ -15,13 +15,15 @@
  *               deal wears a `bmi_sync_pending` chip that says why.
  *   paused      `CRM_BMI_WRITES` / the per-centre list / the director's Neon
  *               toggle (R4 — a missing row means ON).
- *   builtin     the mapped state id is NEGATIVE (`-3` Confirmation, `-4`
- *               Cancelled). Those are Pandora-first rails with their own
- *               proof-by-re-read; `-4` is the CONTRACTS PR's cancel path
- *               (B5) and is deliberately NOT written from a board drag — a
- *               cancellation is an action with consequences for money, not a
- *               card moving one column right.
- *   write       a custom (positive) state id: Office is written and verified.
+ *   builtin     the mapped state is one of the two that CARRY A RAIL — `-3`
+ *               Confirmation and `-4` Cancellation. Those are Pandora-first
+ *               with their own proof-by-re-read; `-4` is the CONTRACTS PR's
+ *               cancel path (B5) and is deliberately NOT written from a board
+ *               drag — a cancellation is an action with consequences for
+ *               money, not a card moving one column right. Office's other
+ *               stock states are inert labels and DO get written; see
+ *               `RAILED_BUILTIN_STATE_IDS` for why that changed.
+ *   write       any other mapped state: Office is written and verified.
  *
  * `bmi_sync_pending` in the brief is a CHIP, not a column: every branch but
  * `write` leaves `crm_leads.bmi_state_id` untouched, and the chip is derived
@@ -45,12 +47,29 @@ export function bmiStateBranch(input: BmiStateBranchInput): BmiStateBranch {
   if (!input.projectId) return "no_project";
   if (!input.mapping) return "unmapped";
   if (!input.writesAllowed) return "paused";
-  return isBuiltInStateId(input.mapping.bmiStateId) ? "builtin" : "write";
+  return isRailedStateId(input.mapping.bmiStateId) ? "builtin" : "write";
 }
 
-/** Office's built-in states are negative ids (`-3` Confirmation, `-4` Cancelled). */
-export function isBuiltInStateId(stateId: string): boolean {
-  return stateId.trim().startsWith("-");
+/**
+ * The built-in states a board drag must NEVER write.
+ *
+ * NOT "every negative id", which is what this used to be. Office numbers all
+ * of its stock states negatively, and only two of them carry a rail:
+ *   -3  Confirmation — the confirmation/waiver mail rail.
+ *   -4  Cancellation — `group-quote-sync` drains the gift card, refunds Square
+ *       and emails the guest. A card moving one column right must not do that.
+ *
+ * `-2` Pending Quote and `-5` Temporary are inert labels with no rail behind
+ * them, and refusing them had a cost: "Quote sent" is a stock Office state at
+ * both centres, so the blanket rule meant a rep moving a card to Quote sent
+ * moved NOTHING in Office. The project stayed "New Lead", and because the KPI
+ * reads Office's state, "Quoted, not yet won" never counted it. Owner,
+ * 2026-09-14: "quoted should be sent quote as well."
+ */
+const RAILED_BUILTIN_STATE_IDS = new Set(["-3", "-4"]);
+
+export function isRailedStateId(stateId: string): boolean {
+  return RAILED_BUILTIN_STATE_IDS.has(stateId.trim());
 }
 
 export type BmiStateSyncStatus = BmiStateBranch | "pending";

@@ -47,6 +47,30 @@ export const LEAD_SOURCE_LABEL: Record<LeadSource, string> = {
 /** Sources a member of staff may pick when logging a lead by hand. */
 export const STAFF_LEAD_SOURCES: readonly LeadSource[] = ["phone", "walkin", "referral"];
 
+/**
+ * What `POST /leads` will ACCEPT — the three a rep picks in the New lead sheet,
+ * plus the two that are started from a row rather than typed.
+ *
+ * `historical` is the "This time last year" reach-out and `cold` is a dialled
+ * list row; both are PROSPECTS (`PROSPECT_SOURCES` in `create-lead.ts`), so
+ * they mint no BMI project and fire no notifications until a rep converts them.
+ * They are deliberately NOT in `STAFF_LEAD_SOURCES`, which is the sheet's own
+ * dropdown: nobody starts a lead by choosing "Last year" from a menu, they
+ * start it by pressing Start reach-out on the guest it belongs to.
+ *
+ * History's button was `disabled` with "Reach-out leads arrive with the leads
+ * PR" long after that rail shipped — the service knew `historical`, the route's
+ * schema did not, and the stub was never flipped. Owner, 2026-09-14: "Why can't
+ * I start a reach out? says arrives with leads PR."
+ */
+export const CREATABLE_LEAD_SOURCES: readonly LeadSource[] = [
+  "phone",
+  "walkin",
+  "referral",
+  "historical",
+  "cold",
+];
+
 // ---------------------------------------------------------------------------
 // The lead as the client sees it
 // ---------------------------------------------------------------------------

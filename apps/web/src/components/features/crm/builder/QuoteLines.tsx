@@ -1,7 +1,12 @@
 "use client";
 
 import { IconAlertTriangle, IconBolt, IconCalendarTime, IconTrash } from "@tabler/icons-react";
-import { BUILDER_TEST_IDS, lineTotalCents, type QuoteLine } from "~/features/crm/bmi/contracts";
+import {
+  BUILDER_TEST_IDS,
+  lineTotalCents,
+  type OfficeOnlyLine,
+  type QuoteLine,
+} from "~/features/crm/bmi/contracts";
 import { moneyExact } from "~/features/crm/core/format";
 import { Chip } from "../primitives/Chip";
 import { ICON } from "../primitives/icon-props";
@@ -25,6 +30,15 @@ import { canForceLine, lineErrorText, linesCaption, liveLines, statusChip } from
 
 export interface QuoteLinesProps {
   lines: QuoteLine[];
+  /**
+   * Product rows that are ON the Office project but were not written by the
+   * CRM — almost everything, for any event booked before the CRM existed.
+   *
+   * Owner, 2026-09-14, on a project whose banner named two lines while the
+   * table said it was empty: "wy did it not pull in items". They were being
+   * computed, named in a warning, and then thrown away instead of shown.
+   */
+  officeOnly?: readonly OfficeOnlyLine[];
   canForce: boolean;
   busy: boolean;
   onRetry: (lineId: string) => void;
@@ -43,6 +57,7 @@ const COLUMNS = [
 
 export function QuoteLines({
   lines,
+  officeOnly = [],
   canForce,
   busy,
   onRetry,
@@ -51,7 +66,9 @@ export function QuoteLines({
 }: QuoteLinesProps) {
   const rows = liveLines(lines);
 
-  if (rows.length === 0) {
+  // Empty only when NEITHER side has anything. A project built in Office is
+  // not an empty quote — saying so was the bug.
+  if (rows.length === 0 && officeOnly.length === 0) {
     return (
       <EmptyState>
         Nothing on this quote yet. Add a product below, or start from a template.
@@ -141,6 +158,41 @@ export function QuoteLines({
           </tr>
         );
       })}
+
+      {/*
+        OFFICE'S OWN LINES, SHOWN AS LINES.
+        These are products on the project that the CRM did not write — every
+        line of any event booked before the CRM existed. They used to be
+        computed, named in a warning banner, and then dropped, so a fully built
+        event read "Nothing on this quote yet" above a banner listing its
+        contents. Owner, 2026-09-14: "wy did it not pull in items".
+        READ-ONLY, deliberately. The one-writer rule is about not CLOBBERING
+        Office, so showing them costs nothing and hiding them cost everything —
+        but the CRM has no record of what it did not write, so it must not
+        offer to retry, reschedule or delete them. The row says where it came
+        from and points at Office for edits.
+      */}
+      {officeOnly.map((line) => (
+        <tr key={`office-${line.bmiProjectProductId}`} className="office-line">
+          <td>
+            <div className="stack" style={{ gap: 2 }}>
+              <span className="strong">{line.name ?? `Product ${line.productId ?? "?"}`}</span>
+              <span className="xs muted">Added in Office — edit it there</span>
+            </div>
+          </td>
+          <td className="num">{line.quantity ?? "—"}</td>
+          <td className="num money">—</td>
+          <td className="num money">
+            {line.totalCents === null ? "—" : moneyExact(line.totalCents)}
+          </td>
+          <td>
+            <Chip bmi title={`Office projectProduct ${line.bmiProjectProductId}`}>
+              In BMI
+            </Chip>
+          </td>
+          <td />
+        </tr>
+      ))}
     </Table>
   );
 }

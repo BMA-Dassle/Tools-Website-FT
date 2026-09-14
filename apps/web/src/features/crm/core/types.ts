@@ -134,6 +134,16 @@ export interface CrmRep {
   ssoSub: string | null;
   /** Office user id as text ('28267036'); the KPI attribution key. */
   bmiUserId: string | null;
+  /**
+   * Office user id PER TENANT — `{clientKey: id}`.
+   *
+   * The same person has a different id on each Office server (Kelsea is
+   * 28267036 at Fort Myers and 6338800 at Naples), so a write addressed with
+   * the wrong one is refused with a foreign-key violation. `bmiUserId` remains
+   * the fallback and the KPI attribution key; this is what a WRITE resolves
+   * through. See `bmiUserIdFor`.
+   */
+  bmiUserIds: Record<string, string> | null;
   /** Office responsible display name — the substring Pandora's `agent` matches. */
   bmiUsername: string | null;
   sevenShiftsUserId: number | null;

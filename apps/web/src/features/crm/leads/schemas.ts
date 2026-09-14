@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { CENTRE_CODES } from "../core/centres";
 import { EVENT_TYPES, LEAD_SOURCES } from "../core/types";
-import { STAFF_LEAD_SOURCES } from "./contracts";
+import { CREATABLE_LEAD_SOURCES } from "./contracts";
 
 export const LeadIdSchema = z
   .string()
@@ -32,7 +32,7 @@ const Phone = z.string().trim().min(7).max(30);
 /** POST /leads — a member of staff logging a phone / walk-in / referral lead. */
 export const LeadCreateSchema = z.object({
   centre: z.enum(CENTRE_CODES),
-  source: z.enum(STAFF_LEAD_SOURCES),
+  source: z.enum(CREATABLE_LEAD_SOURCES),
   firstName: Name,
   lastName: Name,
   phone: Phone,

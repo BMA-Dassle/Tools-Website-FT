@@ -490,3 +490,46 @@ describe("assignLead", () => {
     expect(state.assignments).toHaveLength(0);
   });
 });
+
+describe("isPermanentOfficeRefusal", () => {
+  /**
+   * Owner, 2026-09-14: "I don't want ot be beating BMI office endpoints."
+   * Both strings below are VERBATIM from a real lead's timeline, and both were
+   * being queued for the default 20 attempts on a 30s-step backoff — about 20
+   * Office PUTs over 1¾ hours, none of which could ever have worked.
+   */
+  it("parks a project Office says is gone", async () => {
+    const { isPermanentOfficeRefusal } = await import("./assign");
+    expect(
+      isPermanentOfficeRefusal(
+        "Failed to fetch project: 404 — project 8756741 does not exist in Office",
+      ),
+    ).toBe(true);
+  });
+
+  it("parks a foreign-key violation — a per-tenant user id is not a transient fault", async () => {
+    const { isPermanentOfficeRefusal } = await import("./assign");
+    expect(
+      isPermanentOfficeRefusal(
+        'Office project 8756741 PUT failed: 400 {"Kind":2,"Message":"violation of FOREIGN KEY ' +
+          'constraint \\"FK_PRJ_US_ID\\" on table \\"T_PROJECT\\"\r\nForeign key reference ' +
+          'target does not exist\r\nProblematic key value is (\\"F_US_ID\\" = 30080112)"}',
+      ),
+    ).toBe(true);
+  });
+
+  it("still RETRIES anything it does not recognise", async () => {
+    const { isPermanentOfficeRefusal } = await import("./assign");
+    // Wrongly parking a recoverable job loses a hand-off silently, which is
+    // the worse of the two failures — so the match stays narrow on purpose.
+    for (const transient of [
+      "Office project 123 PUT failed: 500 Internal Server Error",
+      "Office project 123 PUT failed: 502 Bad Gateway",
+      "socket hang up",
+      "ETIMEDOUT",
+      'Office project 123 PUT failed: 403 {"IsQuestion":true,"Kind":4}',
+    ]) {
+      expect(isPermanentOfficeRefusal(transient), transient).toBe(false);
+    }
+  });
+});

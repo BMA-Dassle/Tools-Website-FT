@@ -50,6 +50,32 @@ export function ensureRepsSchema(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `;
+    /**
+     * OFFICE USER IDS ARE PER TENANT, and `bmi_user_id` can only be right
+     * about one of them.
+     *
+     * Measured off the mirror on 2026-09-14 — the same five people, two
+     * tenants, ten different ids:
+     *
+     *            headpinzftmyers        headpinznaples
+     *   Kelsea       28267036              6338800
+     *   Lori           465247                41096
+     *   Stephanie      465242              1559644
+     *   Eric            75262                25228
+     *   Guest Svcs   30080112              6400642  ← and NAMED "CallCenter"
+     *
+     * So every Office write on a Naples lead was sending a Fort Myers id and
+     * being refused: `400 violation of FOREIGN KEY constraint "FK_PRJ_US_ID"
+     * … F_US_ID = 30080112`, which is exactly what the owner saw on a lead's
+     * timeline. Not a Guest Services problem — a problem for every rep, which
+     * only Guest Services surfaced because kids' birthdays route there.
+     *
+     * A JSONB map of `clientKey → id` rather than a second column, because
+     * "which tenant" is the key and there will be a third one the day a centre
+     * is added. `bmi_user_id` stays as the fallback and as the KPI attribution
+     * key, so nothing that reads it today changes.
+     */
+    await q`ALTER TABLE crm_reps ADD COLUMN IF NOT EXISTS bmi_user_ids JSONB`;
     await q`
       CREATE TABLE IF NOT EXISTS crm_rep_logins (
         email TEXT PRIMARY KEY,
@@ -72,6 +98,7 @@ export interface RepRowRaw {
   email: string | null;
   sso_sub: string | null;
   bmi_user_id: string | null;
+  bmi_user_ids: Record<string, string> | null;
   bmi_username: string | null;
   seven_shifts_user_id: number | null;
   vox_did: string | null;
@@ -86,6 +113,24 @@ export interface RepRowRaw {
 const REP_ROLES = new Set<RepRole>(["rep", "bucket", "hold", "director"]);
 const CENTRE_CODES = new Set<CentreCode>(["HPFM", "FT", "HPN"]);
 
+/**
+ * `{clientKey: id}` with every value forced to a STRING.
+ *
+ * Office ids exceed `Number.MAX_SAFE_INTEGER` in other tables and a JSONB
+ * column will happily hand back a number, so anything non-string is coerced
+ * here rather than trusted — the same discipline `parseWithRawIds` enforces on
+ * the wire. A blank or non-object value is simply no map.
+ */
+function normaliseUserIds(raw: unknown): Record<string, string> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (v === null || v === undefined || v === "") continue;
+    out[k] = String(v);
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 export function mapRepRow(r: RepRowRaw): CrmRep {
   return {
     id: String(r.id),
@@ -97,6 +142,7 @@ export function mapRepRow(r: RepRowRaw): CrmRep {
     email: r.email ?? null,
     ssoSub: r.sso_sub ?? null,
     bmiUserId: r.bmi_user_id ?? null,
+    bmiUserIds: normaliseUserIds(r.bmi_user_ids),
     bmiUsername: r.bmi_username ?? null,
     sevenShiftsUserId: r.seven_shifts_user_id ?? null,
     voxDid: r.vox_did ?? null,
@@ -111,7 +157,7 @@ export function mapRepRow(r: RepRowRaw): CrmRep {
 
 const REP_COLUMNS = `
   r.id::text AS id, r.slug, r.display_name, r.first_name, r.initials, r.role, r.email,
-  r.sso_sub, r.bmi_user_id, r.bmi_username, r.seven_shifts_user_id, r.vox_did,
+  r.sso_sub, r.bmi_user_id, r.bmi_user_ids, r.bmi_username, r.seven_shifts_user_id, r.vox_did,
   r.threecx_extension, r.teams_chat_id, r.phone_e164, r.centres, r.active, r.sort_order
 `;
 
@@ -150,6 +196,8 @@ export interface RepSeed {
   role: RepRole;
   email: string | null;
   bmiUserId: string | null;
+  /** Office user id PER TENANT — `{clientKey: id}`; see `bmiUserIdFor`. */
+  bmiUserIds?: Record<string, string> | null;
   bmiUsername: string | null;
   /** 7shifts user id (`seven_shifts_user_id INTEGER`) — a plain integer, bound as a number. */
   sevenShiftsUserId: number | null;
@@ -178,18 +226,25 @@ export async function seedReps(rows: readonly RepSeed[]): Promise<number> {
   for (const r of rows) {
     const out = (await q`
       INSERT INTO crm_reps (slug, display_name, first_name, initials, role, email, bmi_user_id,
-                            bmi_username, seven_shifts_user_id, teams_chat_id, phone_e164,
-                            centres, sort_order)
+                            bmi_user_ids, bmi_username, seven_shifts_user_id, teams_chat_id,
+                            phone_e164, centres, sort_order)
       VALUES (${r.slug}, ${r.displayName}, ${r.firstName}, ${r.initials}, ${r.role},
-              ${r.email ? r.email.toLowerCase() : null}, ${r.bmiUserId}, ${r.bmiUsername},
+              ${r.email ? r.email.toLowerCase() : null}, ${r.bmiUserId},
+              ${r.bmiUserIds ? JSON.stringify(r.bmiUserIds) : null}::jsonb, ${r.bmiUsername},
               ${r.sevenShiftsUserId}, ${r.teamsChatId}, ${r.phoneE164}, ${r.centres}::text[],
               ${r.sortOrder})
       ON CONFLICT (slug) DO UPDATE SET
         bmi_user_id = COALESCE(crm_reps.bmi_user_id, EXCLUDED.bmi_user_id),
+        -- The per-tenant map fills in even on a rep that already has a row:
+        -- every existing roster predates the column, so COALESCE on a NULL is
+        -- the ONLY way the measured ids ever reach a live database. A map a
+        -- director has already edited by hand still wins.
+        bmi_user_ids = COALESCE(crm_reps.bmi_user_ids, EXCLUDED.bmi_user_ids),
         bmi_username = COALESCE(crm_reps.bmi_username, EXCLUDED.bmi_username),
         seven_shifts_user_id = COALESCE(crm_reps.seven_shifts_user_id, EXCLUDED.seven_shifts_user_id),
         updated_at = NOW()
       WHERE (crm_reps.bmi_user_id IS NULL AND EXCLUDED.bmi_user_id IS NOT NULL)
+         OR (crm_reps.bmi_user_ids IS NULL AND EXCLUDED.bmi_user_ids IS NOT NULL)
          OR (crm_reps.bmi_username IS NULL AND EXCLUDED.bmi_username IS NOT NULL)
          OR (crm_reps.seven_shifts_user_id IS NULL AND EXCLUDED.seven_shifts_user_id IS NOT NULL)
       RETURNING id

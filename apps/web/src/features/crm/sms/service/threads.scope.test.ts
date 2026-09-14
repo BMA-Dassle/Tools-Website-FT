@@ -40,6 +40,7 @@ function rep(over: Partial<CrmRep> = {}): CrmRep {
     email: "kelsea@headpinz.com",
     ssoSub: null,
     bmiUserId: null,
+    bmiUserIds: null,
     bmiUsername: null,
     sevenShiftsUserId: null,
     voxDid: "+12392058142",

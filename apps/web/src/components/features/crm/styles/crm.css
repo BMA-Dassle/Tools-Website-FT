@@ -4452,3 +4452,284 @@ body:has(.crm-root) {
     font-size: 13px;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   THE PHONE PASS — owner, 2026-09-14: "please go through and check mobile
+   formatting alot of it sucks."
+
+   Everything below was MEASURED before it was written. `e2e/crm-mobile.spec.ts`
+   walks all 17 screens at 390 and 360px in a real browser and records, per
+   screen: content stranded past the right edge with no scroller to bring it
+   back, interactive targets under 40px, and text clipped without an ellipsis.
+   The numbers quoted in each block are from that run, and re-running it is how
+   the fix is proved rather than argued.
+
+   That instrument also settled what NOT to touch. Contracts and Statuses make
+   `documentElement.scrollWidth` 235px wider than the phone, which looks
+   alarming and is nothing: the box tree shows `.folders` (340 wide, 1042 of
+   content) and `.scroll-x` (368 wide, 743 of content) both scrolling their own
+   overflow exactly as intended, with `.crm-root` and `<body>` dead on the
+   viewport. A "fix" there would have broken two working screens — which is
+   precisely how the board's scrollbar got worse the last time something here
+   was reasoned about instead of rendered.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. The Events header ran off a 360px screen ───────────────────────────
+   MEASURED: `.topbar > .actions` 363px wide inside a 360px viewport, with the
+   segmented control alone 255px of it, and NO scrollable ancestor — so the
+   right-hand end of it simply did not exist on a small Android. Owner,
+   2026-09-14: "the buttons at top not properly formatting". At 390px it fit by
+   three pixels, which is why it read as a screen-specific glitch.
+
+   The group already wraps internally and its children already refuse to shrink
+   (`.actions > * { flex: none }`, `.btn { white-space: nowrap }`), so all it
+   needed was PERMISSION TO BE NARROWER THAN ITS CONTENT. `flex: none` was
+   pinning it at max-content — one unwrappable line — and a wrapping flex
+   container only wraps when something constrains its width. `0 1 auto` plus
+   `min-width: 0` lets the topbar squeeze it, and the wrap it already had takes
+   over. It still sits on the title's row whenever it fits, so nothing gains a
+   row it did not need — the header-height work above stands. */
+@media (max-width: 768px) {
+  .crm-root .topbar .actions {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+  /* A segmented control is one indivisible lump — Day · Week · Month cannot
+     wrap mid-control without reading as three separate buttons. So when even a
+     wrapped row cannot hold it, it scrolls inside itself rather than pushing
+     the row wider. Momentum scrolling, and no scrollbar gutter stealing height
+     from a 27px control. */
+  .crm-root .topbar .actions .seg {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .crm-root .topbar .actions .seg::-webkit-scrollbar {
+    display: none;
+  }
+  .crm-root .topbar .actions .seg button {
+    flex: none;
+  }
+}
+
+/* ── 2. Pipeline cards were cut off by their own column ────────────────────
+   MEASURED: `.col-body` holds 361px of content in a 301px box, at both widths,
+   and it is `overflow-x: hidden` — so 60px of every card on the board was
+   clipped away silently. The sample the rig caught was "Patricia Rosen · Mon,
+   Jun 15 · 169 guests · HP Na…", with the centre name and whatever followed it
+   gone.
+
+   `.col-body` is a flex column, so its cards are stretched to the column width
+   — but a flex item will not go below its own min-content width unless it is
+   told it may, and a card's min-content is set by its title row and its footer,
+   neither of which could shrink or wrap. Three rules: the card may be as narrow
+   as its column, the title truncates instead of shoving, and the footer wraps
+   rather than running on. */
+.crm-root .col-body > * {
+  min-width: 0;
+}
+.crm-root .kcard .t,
+.crm-root .kcard .f {
+  min-width: 0;
+}
+.crm-root .kcard .t > .card-open {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.crm-root .kcard .f {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+/* ── 3. Nothing on this app was thumb-sized ────────────────────────────────
+   MEASURED, at 390px, across all 17 screens — not one control cleared 40px:
+
+     header action buttons ("New lead", "Auto-assign all", "Dial")   38 × 30
+     icon buttons (theme, back, edit, reorder, reload)               34 × 34
+     toggle switches (enable a rule, show a column, off today)       40 × 22
+     a queue card's Call / Text / Email rail                         28 × 32
+     a queue card's "move to another rep"                            28 × 24
+
+   Apple asks 44px, Material 48. The rig's floor is 40 — below that a thumb
+   misses — and the theme toggle at 34 × 34 was on every single screen.
+
+   `hover: none and pointer: coarse`, NOT a width query: what decides this is
+   whether a finger or a cursor is doing the pointing. A tablet at 900px is
+   still a thumb, and a narrow desktop window is still a mouse and should keep
+   its compact controls.
+
+   MIN-HEIGHT RATHER THAN PADDING, deliberately. Padding moves text and grows
+   the row; a minimum box grows the hit area around content that stays where it
+   was, so the density of a table row survives and no new overflow is invented
+   — the header work in block 1 would have been undone by anything that made
+   these WIDER. */
+@media (hover: none) and (pointer: coarse) {
+  .crm-root .btn {
+    min-height: 40px;
+  }
+  /* Dense rows keep a slightly tighter control — 36px still clears a thumb,
+     and a table of 25 contracts does not gain 250px of height. */
+  .crm-root .btn-sm,
+  .crm-root .seg button,
+  .crm-root .folders button,
+  .crm-root .topbar .actions .btn {
+    min-height: 36px;
+  }
+  /* Square icon buttons have room in both directions; there is no reason for
+     these to be the smallest targets on the screen. `.btn-icon` is the whole
+     set — checked, not assumed: the theme toggle, the back link, and every
+     reorder/edit/reload control carry it, most of them alongside `.btn-sm`,
+     which this rule deliberately outranks by sitting after it. */
+  .crm-root .btn-icon {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  /* A queue card's rail is the whole point of the card on a phone — Call, Text
+     and Email, one tap. At 28 × 32 they were the smallest controls in the app. */
+  .crm-root .kcard .rail button {
+    min-height: 40px;
+  }
+  .crm-root .kcard .m > .btn-ghost {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  /* A switch must LOOK like a 40 × 22 switch — that shape is what makes it read
+     as a switch — so it keeps its size and gains an invisible 40px-tall pad
+     around it instead. `::before`, because `::after` is already the knob.
+     Height only: these sit in rows beside other controls and a wider pad would
+     start swallowing the taps meant for its neighbour. */
+  .crm-root .toggle {
+    position: relative;
+  }
+  .crm-root .toggle::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 40px;
+    transform: translateY(-50%);
+  }
+  /* The search box is 38px tall and the input inside it was 20px, so half of
+     what looks like a text field did nothing when tapped. The field fills its
+     box, and the box says "text" to a cursor. */
+  .crm-root .search {
+    cursor: text;
+  }
+  .crm-root .search input {
+    align-self: stretch;
+    min-height: 22px;
+  }
+}
+
+/* ── Stepping deal to deal from inside the drawer ──────────────────────────
+   Owner, 2026-09-14: "I should be able to hit right and left buttons to just
+   keep going through each of them. something in top right I'd assume."
+
+   Sits beside "Full page" in the drawer header. The count between the arrows
+   is what makes a disabled arrow legible — "18 of 18" explains itself where a
+   dead chevron just looks broken — so it is `tabular-nums`, which stops the
+   whole control jittering sideways as the number changes. */
+.crm-root .deal-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.crm-root .deal-step-n {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 56px;
+  text-align: center;
+  white-space: nowrap;
+}
+/* On a phone the header is already tight and the count is the first thing that
+   can go: the arrows still work, and the tab strip beneath says where you are. */
+@media (max-width: 480px) {
+  .crm-root .deal-step-n {
+    display: none;
+  }
+}
+
+/* ── The director's sidebar ran off the bottom of the screen ───────────────
+   Owner, 2026-09-14, with a screenshot of the nav clipped mid-way through the
+   person chip: "the menu for directors the menu is starting to go off screen.
+   Maybe colapse admin? Not sure."
+
+   A director sees fifteen items across four groups where a rep sees eleven
+   across three, and `.side` is a flex column with NO scroller in it — so the
+   list simply grew past the viewport and took the "Eric Osborn" footer with
+   it. The footer is where Sign out lives, which made it the worst possible
+   thing to push off the edge.
+
+   THE NAV SCROLLS, THE CHROME STAYS. `flex: 1` + `min-height: 0` (a flex item
+   will not shrink below its content without it, which is why the column
+   overflowed instead of scrolling) makes the LIST the scrolling part, so the
+   logo stays at the top and the person chip stays at the bottom no matter how
+   many items a role has.
+
+   Collapsing Admin was the owner's own suggestion and is deliberately NOT what
+   this does: hiding two items behind a disclosure to save 70px costs a click
+   every time and leaves the same bug for whoever adds the sixteenth item. A
+   scroller fixes the class of problem rather than this instance of it. */
+.crm-root .side .nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* A gutter that appears and disappears as groups load would shift every
+     label sideways; keep it quiet and let the list speak. */
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+
+/* ── A card title shredded into a column of letters ────────────────────────
+   Owner, 2026-09-14, on the contract sheet: "You still didn't fix this page
+   either" — with "Guest messages" rendered as thirteen stacked letters down
+   the left of the card.
+
+   `.card-h` is a flex row holding the title and, for a director, a "Fire a
+   reminder…" <select>. The title already carried `min-width: 0` so it COULD
+   shrink, plus `overflow-wrap: anywhere` — and those two together are the bug:
+   the select's intrinsic width (set by its longest option) pushed the heading
+   down to about one character, and "anywhere" then did exactly what it says
+   and broke after every letter. `anywhere` is the right tool for a long
+   unbroken string in a box that can grow; it is the wrong tool for a heading
+   in a row that cannot.
+
+   So the title truncates with an ellipsis instead — a shortened heading still
+   reads as a heading — and the CONTROL beside it is allowed to shrink too, so
+   the squeeze is shared rather than landing entirely on the words. */
+.crm-root .card-h h2 {
+  overflow-wrap: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+}
+.crm-root .card-h > .right {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+/* A <select> sizes itself to its longest option and will not shrink below it
+   without this, which is what did the squeezing. */
+.crm-root .card-h .select,
+.crm-root .card-h select {
+  min-width: 0;
+  max-width: 100%;
+}
+/* On a phone the pair cannot share one line at all; let the header wrap and
+   give each its own full-width row rather than crushing both. */
+@media (max-width: 560px) {
+  .crm-root .card-h {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .crm-root .card-h > .right {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+}

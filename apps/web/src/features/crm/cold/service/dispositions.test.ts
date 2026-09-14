@@ -44,6 +44,7 @@ const USER: CrmUser = {
     email: "kelsea@headpinz.com",
     ssoSub: null,
     bmiUserId: "28267036",
+    bmiUserIds: null,
     bmiUsername: "Kelsea",
     sevenShiftsUserId: 10832991,
     voxDid: null,

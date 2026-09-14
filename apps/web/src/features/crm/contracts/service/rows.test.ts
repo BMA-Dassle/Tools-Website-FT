@@ -29,6 +29,7 @@ const rep: CrmRep = {
   email: "Kelsea@HeadPinz.com",
   ssoSub: null,
   bmiUserId: "28267036",
+  bmiUserIds: null,
   bmiUsername: "Kelsea Kosco",
   sevenShiftsUserId: 10832991,
   voxDid: null,

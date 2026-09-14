@@ -77,6 +77,7 @@ function reps(): CrmRep[] {
   const base = {
     ssoSub: null,
     bmiUserId: null,
+    bmiUserIds: null,
     bmiUsername: null,
     sevenShiftsUserId: null,
     threecxExtension: null,

@@ -10,6 +10,180 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 
 ## Open — functional
 
+- [ ] **The PWA must stay signed in.** Owner, 2026-09-14: "persisent pwa login."
+      An installed app that asks for Microsoft every time is an app a rep stops
+      opening — and this one asks a lot.
+      CAUSE, read from `apps/web/auth.ts:98`: `session: { strategy: "jwt",
+      maxAge: 8 * 60 * 60 }`. Eight hours, and no `updateAge`, so the clock runs
+      from SIGN-IN and is never rolled by use: a rep who signs in at 9am is
+      bounced at 5pm mid-shift, and anyone who opens the app the next morning
+      signs in again every single day. A JWT session also cannot be refreshed
+      server-side — when it dies the only route back is the full OIDC round
+      trip, which on an installed PWA can surface in a browser window OUTSIDE
+      the app and leave the app itself still logged out.
+      FIX, in order:
+      - Roll the session on use: a long `maxAge` (30 days is the normal figure
+        for a staff tool on managed devices) plus `updateAge` so the cookie is
+        re-issued as they work. That alone turns "every shift" into "once a
+        month".
+      - Make the cookie survive the app being closed — an explicit `expires`,
+        not a session cookie, or iOS discards it when the PWA is evicted.
+      - Handle the expiry that does still happen INSIDE the app: land back on
+        the page they were on, not on My Day, and never in a detached browser
+        tab. `start_url` is `/admin/crm/today?src=pwa`, so a bounce today also
+        loses their place.
+      - CHECK FIRST, do not assume: iOS gives an installed PWA its own storage
+        partition in some versions, so a session established in Safari may not
+        be visible to the installed app at all. That is a different bug with a
+        different fix, and it decides whether the above is enough.
+      Owner decision needed: 30 days on a phone that may not be
+      company-managed. The tenant's own Conditional Access may also cap this
+      regardless of what we set.
+
+- [ ] **Events needs an "All centres" mode, with a location pill on each row.**
+      Owner, 2026-09-14: "I'd like an 'all' in top right also don't like how
+      these look. Do we add a small pill with the lcoation when in 'all' mode?"
+      Yes — and the pill is what makes All legible rather than confusing.
+      Today `EventsBoardInput.centre` is a single `CentreCode` and the whole
+      read is keyed on one `locationId`, so All means fanning out over the three
+      and merging each day's rows by start time. COST TO WATCH, given the
+      owner's standing concern about Office traffic: a week in All is 21
+      day-reads rather than 7. They are Redis-cached for 6 minutes
+      (`DAILY_EVENTS_CACHE_TTL_SECONDS = 360`) and on-demand rather than cron,
+      so it is a real but bounded increase — worth saying out loud before it
+      ships rather than after.
+      The row already knows its centre (`mergeEventRows` takes it), so the pill
+      is a render, not a lookup. Show it ONLY in All mode: repeating "HP Fort
+      Myers" down a board already filtered to Fort Myers is the same noise the
+      board cards had.
+      "Don't like how these look" also covers the row's right-hand stack — the
+      money pill, the BMI state chip and the payment meter are three separate
+      things stacked in a narrow column with no hierarchy. Treat that with the
+      same pass.
+
+- [ ] **The call-centre Teams chat gets the card TWICE.** Owner, 2026-09-14,
+      with a screenshot of #H1336 (Allison Diemert, HeadPinz Naples, Guest
+      Services) posted twice — identical down to "Acknowledged by Stephanie
+      Tajkowski · Sep 14, 1:42 PM", and BOTH marked "Edited".
+      "Edited" on both is the tell: the card is updated IN PLACE as the lead
+      moves (acknowledged → contacted), so there are two message ids being
+      edited in parallel, i.e. the card was POSTED twice and both copies are
+      being kept current. That points at the send path running twice for one
+      lead — the assign rail and the notify rail each posting, or a retry that
+      posted again after a send that had actually succeeded — rather than at
+      the edit path. Find where the message id is stored and make the post
+      idempotent per (lead, chat): if we already hold a message id for that
+      pair, EDIT, never send. Check the Guest Services bucket especially,
+      since that is where both copies landed and it is the one assignee that
+      is not a person.
+
+- [ ] **A rep's Office user id is per-tenant and we are writing the wrong
+      one.** Seen on a real lead's timeline, 2026-09-14:
+      `400 violation of FOREIGN KEY constraint "FK_PRJ_US_ID" … F_US_ID =
+      30080112` — that is Guest Services' id, refused because it does not exist
+      on the tenant the project lives on. A second row on the same lead reads
+      `404 — project 8756741 does not exist in Office`.
+      The retry storm this caused is FIXED (see below), but the underlying data
+      is not: `crm_reps.bmi_user_id` is ONE column and Office ids are per
+      tenant, so a rep who works both centres can only be right about one of
+      them. Either store the id per client key, or resolve it by name at write
+      time. Guest Services is the urgent case because it is the default
+      assignee for kids' birthdays.
+
+- [x] **A failed Office write no longer hammers the endpoint 20 times.** Owner,
+      2026-09-14: "I don't want ot be beating BMI office endpoints."
+      FIXED: `isPermanentOfficeRefusal` in `leads/service/assign.ts`. A 404
+      "does not exist in Office" and a foreign-key violation are refusals that
+      retrying cannot fix, and both were being queued for the default 20
+      attempts on a 30-second-step backoff — about 20 Office PUTs over 1¾
+      hours, every one of them doomed. They are now recorded on the lead's
+      timeline as "not retried: this needs a person" and no job is enqueued.
+      The match is deliberately narrow: anything unrecognised is still treated
+      as transient and retried, because wrongly parking a recoverable job loses
+      a hand-off silently, which is the worse of the two failures.
+
+- [ ] **Availability: the BMI resources tab is a stub, and HeadPinz needs it
+      most.** Owner, 2026-09-14: "under avaialability menu, headpinz locations.
+      When you try to swtich to BMI board says not available yet. But yet we
+      have it working on Fasttrax. FOr headpinz we just need hte arena, shuffly,
+      etc. What we sell at those locations."
+      WHAT IS ACTUALLY THERE: the reader is already generic — `heats.ts` calls
+      `getResourceIdsForLocation(clientKey, locationId)` and reads Office's
+      `dayPlanner`, with nothing FastTrax-specific about it. What gates the
+      screen is `isHeats = gridQ.data?.source === "heats"`, which is only true
+      where there is no QAMF bowling grid (FastTrax). HeadPinz resolves to
+      "lanes", so the heats panel never renders — and the "BMI resources"
+      segment is a dead stub that fires a toast
+      (`BMI_RESOURCES_TOAST = "coming later (needs product keys)"`) instead of
+      switching. The product keys it is waiting for are not needed to READ.
+      FIX: make the segment switch for real, enable the heats query when the
+      tab is `bmi` regardless of `source`, and render the panel it already has.
+      The resource picker inside `HeatsPanel` then lists whatever Office
+      exposes.
+      WHAT EACH CENTRE SELLS (owner, 2026-09-14 — and FT + HPFM share one BMI
+      server, so the location id, not the client key, is what separates them):
+      - HeadPinz: the **Arena** (gel blasters and laser tag) and **HeadPinz
+        Shuffly**.
+      - FastTrax: **HeadPinz Shuffly** as well, plus the tracks.
+      `TRACK_NAME = /track/i` currently picks the default resource, which is a
+      FastTrax assumption — HeadPinz has no track and would default to nothing.
+
+- [ ] **FastTrax availability must know about the MEGA TRACK configuration.**
+      Owner, 2026-09-14: "Fasttrax availability needs to take an account the
+      websites mega track configuration which is tuesday and thursday right
+      now. There is single place to get that."
+      On mega nights the two tracks run as one, so capacity and heat times are
+      not what the per-track `dayPlanner` read implies, and an availability
+      answer that ignores it will promise heats that cannot be sold. FIND THE
+      SINGLE SOURCE the owner refers to and read it — do NOT hardcode Tuesday
+      and Thursday, which is a configuration that changes seasonally.
+
+- [ ] **Availability: let them choose the LANE TYPE, and start a lead from
+      there.** Owner, 2026-09-14: "Need to be able to select what type of lanes
+      they want. Also should be able to start a lead from here with full BMI
+      project."
+      Today the request bar is Center · Date · Start · Length · Guests, and the
+      verdict picks a section on its own ("Fits. Old Time Lanes lanes 1-4 are
+      free…"). A planner taking a call usually knows which they are selling.
+      - Add a section control to the request bar — Old Time / VIP / Regular at
+        HPFM, Regular / VIP at HPN, the Blue track at FastTrax — defaulting to
+        "any" so the current behaviour is still one click away. It belongs in
+        the URL like every other filter here.
+      - Then a "Start a lead" action on the verdict that mints the lead AND the
+        BMI project with the window it just proved, rather than making a planner
+        re-type the date, time and guest count into the New lead sheet. The
+        lead-with-project mint already exists (`createLeadFromEventRow` and the
+        web-form rail both do it); this is a third caller with the availability
+        request as its seed.
+
+- [ ] **Somewhere to enter each rep's 3CX extension and texting DID.** Owner,
+      2026-09-14: "Need a spot to enter 3cx ext and did for sms that we will use
+      with voxtelesys. Guest services team will share a DID number if that
+      matters."
+      THE COLUMNS ALREADY EXIST AND ARE ALREADY READ — `crm_reps.vox_did` and
+      `crm_reps.threecx_extension` (`reps/data/reps-db.ts:42`), seeded NULL.
+      `dial.ts` refuses with "No 3CX extension on your rep record", `consent.ts`
+      refuses a text with `no_did`, and `sms/service/dids.ts` builds the inbound
+      allow-list from the union of active DIDs. So Calls and outbound SMS are
+      both dark purely for want of a form. That form is the whole task: a
+      director-only editor on the Statuses/Admin side — rep, extension, DID,
+      with E.164 normalisation and a "this DID is already on another rep"
+      check.
+      **THE SHARED GUEST SERVICES DID IS NOT A DETAIL — it breaks an assumption
+      the code makes in two places.** Both currently treat a number as
+      belonging to one person:
+      - `inbound.ts:227` threads a reply by `(repDid, guest number)`, so two
+        Guest Services agents on one DID land in the same thread with no idea
+        who owns the reply.
+      - `calls/service/match.ts:74` finds a rep by `threecxExtension === dn`,
+        which returns the FIRST match when a number is shared.
+      Decide before building: either the shared DID belongs to the Guest
+      Services BUCKET rep (it already exists as a `bucket` role, so a thread on
+      that DID is owned by the bucket and any GS agent can answer — recommended,
+      and it needs no schema change), or DIDs become their own table with a
+      many-to-many to reps. Do NOT just let two reps carry the same string —
+      that is the case that silently picks the wrong person.
+
 - [ ] **KPI: "99% of goal" and "+534% vs LY" are not on the same basis.** Owner,
       2026-09-14: "How can we be 99% of goal but over 500% up. Someting doesn't
       seem right." They were right; both numbers are arithmetically correct and

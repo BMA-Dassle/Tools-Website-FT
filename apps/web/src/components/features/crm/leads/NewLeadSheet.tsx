@@ -30,6 +30,13 @@ import { postCreateLead } from "./queries";
  */
 export interface NewLeadSheetProps {
   defaultCentre?: CentreCode;
+  /**
+   * Seed values for a lead that is being started FROM something — today only
+   * "This time last year" on History, which knows the guest, the centre, the
+   * headcount and who sold it. A rep should confirm and adjust (last year's
+   * date is not this year's), not re-type what we already have.
+   */
+  prefill?: Partial<Draft>;
   onCancel: () => void;
   onCreated: (r: LeadCreateResponse) => void;
 }
@@ -52,7 +59,12 @@ interface Draft {
 
 const SOURCE_OPTIONS = STAFF_LEAD_SOURCES.map((s) => ({ value: s, label: LEAD_SOURCE_LABEL[s] }));
 
-export function NewLeadSheet({ defaultCentre = "HPFM", onCancel, onCreated }: NewLeadSheetProps) {
+export function NewLeadSheet({
+  defaultCentre = "HPFM",
+  prefill,
+  onCancel,
+  onCreated,
+}: NewLeadSheetProps) {
   const crmFetch = useCrmFetch();
   const toast = useCrmToast();
   const qc = useQueryClient();
@@ -71,6 +83,7 @@ export function NewLeadSheet({ defaultCentre = "HPFM", onCancel, onCreated }: Ne
     type: "corporate",
     kids: false,
     notes: "",
+    ...prefill,
   });
 
   const create = useMutation({

@@ -237,8 +237,11 @@ export function monthJumps(fromYmd: string, count = 6): Array<{ ymd: string; lab
     out.push({
       ymd,
       // The year only when it is not the one we started in, so the strip stays
-      // short until it actually crosses into January.
-      label: MONTH_SHORT[month - 1] + (year === y ? "" : ` ${String(year).slice(2)}`),
+      // short until it actually crosses into January — and APOSTROPHISED,
+      // because a bare "Jan 27" is read as the 27th of January by everyone who
+      // has ever seen a date. Owner, 2026-09-14: "Whats with the random dates
+      // on jan and feb?" — which is exactly what it looked like.
+      label: MONTH_SHORT[month - 1] + (year === y ? "" : ` '${String(year).slice(2)}`),
     });
   }
   return out;

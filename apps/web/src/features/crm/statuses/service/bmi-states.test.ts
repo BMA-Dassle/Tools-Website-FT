@@ -40,13 +40,27 @@ describe("the prototype table", () => {
     expect(Object.keys(STATUS_BMI_STATE_NAMES).sort()).toEqual(STATUS_SEED.map((s) => s.id).sort());
   });
 
-  it("is crm-data.js:44-55 verbatim", () => {
+  /**
+   * The prototype's table said "Quote" for both `waiting` and `quote`, and
+   * NEITHER TENANT HAS A STATE BY THAT NAME — the stock one is "Pending Quote".
+   * The fixture agreed with the prototype rather than with Office, so this
+   * suite proved a mapping that could never resolve in production: the Statuses
+   * screen proposed nothing, a card dragged to "Quote sent" moved nothing in
+   * Office, and the KPI (which buckets on Office's state name) never counted
+   * it. Owner, 2026-09-14: "quoted should be sent quote as well."
+   *
+   * So the table follows OFFICE now, not the prototype, and the fixture carries
+   * the tenant's real state list.
+   */
+  it("names states that exist at the tenant, and records the unmapped ones as null", () => {
     expect(STATUS_BMI_STATE_NAMES).toEqual({
       new: "New Lead",
       assigned: "New Lead",
       contacted: "Contacted",
-      waiting: "Quote",
-      quote: "Quote",
+      // "Waiting on guest" is ours alone — it sits before "Quote sent" and a
+      // guest can be waited on without ever having been quoted.
+      waiting: null,
+      quote: "Pending Quote",
       contract: "Send Contract",
       deposit: "Confirmation",
       confirmed: "Confirmation + Waiver",
@@ -54,6 +68,16 @@ describe("the prototype table", () => {
       noresp: "Cancellation",
     });
     expect(UNPROPOSED_OFFICE_STATES).toEqual(["Pending Signed Contract", "Deposit Requested"]);
+  });
+
+  it("every name it does give is a state the tenant actually has", () => {
+    const real = new Set(
+      stateNamesToList(fixtureStateNames()).map((s) => normalizeStateName(s.name)),
+    );
+    for (const [statusId, wanted] of Object.entries(STATUS_BMI_STATE_NAMES)) {
+      if (wanted === null) continue;
+      expect(real.has(normalizeStateName(wanted)), `${statusId} → "${wanted}"`).toBe(true);
+    }
   });
 });
 
@@ -65,13 +89,19 @@ describe("proposeStatusMap", () => {
     const byStatus = Object.fromEntries(proposals.map((p) => [p.statusId, p]));
     expect(byStatus.new).toEqual({
       statusId: "new",
-      bmiStateId: "90000001",
+      bmiStateId: "3891928",
       bmiStateName: "New Lead",
     });
-    expect(byStatus.assigned.bmiStateId).toBe("90000001");
-    expect(byStatus.contacted.bmiStateId).toBe("90000002");
-    expect(byStatus.waiting.bmiStateId).toBe("90000003");
-    expect(byStatus.quote.bmiStateId).toBe("90000003");
+    expect(byStatus.assigned.bmiStateId).toBe("3891928");
+    expect(byStatus.contacted.bmiStateId).toBe("7845185");
+    // "Pending Quote" is Office's stock quote state (-2) at both centres.
+    expect(byStatus.quote).toEqual({
+      statusId: "quote",
+      bmiStateId: "-2",
+      bmiStateName: "Pending Quote",
+    });
+    // Ours alone: no Office state, so no proposal to make.
+    expect(byStatus.waiting).toBeUndefined();
     expect(byStatus.contract).toEqual({
       statusId: "contract",
       bmiStateId: "49130082",
@@ -85,7 +115,8 @@ describe("proposeStatusMap", () => {
     expect(byStatus.confirmed.bmiStateId).toBe("3274635");
     expect(byStatus.lost.bmiStateId).toBe("-4");
     expect(byStatus.noresp.bmiStateId).toBe("-4");
-    expect(proposals).toHaveLength(10);
+    // Nine of the ten seeded statuses; `waiting` is deliberately ours alone.
+    expect(proposals).toHaveLength(9);
   });
 
   it("never proposes Pending Signed Contract or Deposit Requested, and never invents an id", () => {
@@ -97,11 +128,10 @@ describe("proposeStatusMap", () => {
   });
 
   it("a name missing from the tenant yields NO proposal for that status", () => {
-    const without = states.filter((s) => s.name !== "Send Contract" && s.name !== "Quote");
+    const without = states.filter((s) => s.name !== "Send Contract" && s.name !== "Pending Quote");
     const proposals = proposeStatusMap(without);
     expect(proposals.find((p) => p.statusId === "contract")).toBeUndefined();
     expect(proposals.find((p) => p.statusId === "quote")).toBeUndefined();
-    expect(proposals.find((p) => p.statusId === "waiting")).toBeUndefined();
     expect(proposals).toHaveLength(7);
   });
 
@@ -123,8 +153,8 @@ describe("listOfficeStateNames", () => {
     const r = await listOfficeStateNames("FT", reader);
     expect(reader).toHaveBeenCalledWith("headpinzftmyers");
     expect(r).toMatchObject({ centre: "FT", clientKey: "headpinzftmyers", source: "office" });
-    expect(r.states.length).toBe(11);
-    expect(r.proposals.length).toBe(10);
+    expect(r.states.length).toBe(14);
+    expect(r.proposals.length).toBe(9);
     expect(r.error).toBeUndefined();
     const naples = await listOfficeStateNames("HPN", reader);
     expect(reader).toHaveBeenLastCalledWith("headpinznaples");

@@ -55,7 +55,7 @@ export {
 export {
   bmiStateBranch,
   bmiSyncChipFor,
-  isBuiltInStateId,
+  isRailedStateId,
   transitionToastFor,
   type BmiStateBranch,
   type BmiStateBranchInput,

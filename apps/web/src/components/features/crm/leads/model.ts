@@ -108,6 +108,44 @@ export interface BmiChipSpec {
 }
 
 /**
+ * Does the BMI chip TELL A PLANNER ANYTHING on this card?
+ *
+ * Owner, 2026-09-14, of the pipeline tiles: "I still think you can do better
+ * with these tiles." Every card in the "Pending Quote" column wore a chip
+ * reading "BMI · Pending Quote" — a whole line repeating the column header it
+ * was already sitting under, twenty times down a column. Repeated on every
+ * card, it stopped being read at all.
+ *
+ * So the chip earns its line only when Office DISAGREES with the column: a
+ * card in Assigned whose project still says New Lead, or one in Contract sent
+ * that Office never moved. That is the case a planner has to act on, and it is
+ * now the only case that draws a chip — which makes seeing one mean something.
+ *
+ * Compared on the LABEL rather than the state id, because the two sides are
+ * mapped per tenant and the director may rename a status; matching the words
+ * on screen is what makes "Pending Quote" under "Pending Quote" disappear
+ * however it was configured. Normalised the same way the KPI buckets normalise
+ * Office names, so "Deposit Requested (HPFM)" matches "Deposit Requested".
+ */
+export function bmiChipIsRedundant(l: LeadView, statusLabel: string | null | undefined): boolean {
+  // Only a real, minted project can be redundant. "not minted", "creating…"
+  // and "needs email & time" are always worth saying.
+  if (!l.bmi.projectId || !statusLabel) return false;
+  const state = normaliseChipText(l.bmi.stateName);
+  if (!state) return false;
+  return state === normaliseChipText(statusLabel);
+}
+
+function normaliseChipText(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return raw
+    .replace(/\s*\([^)]*\)\s*$/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/**
  * `bmiChip(l)` from crm-shared.js:204, plus the two states the CRM knows and
  * the prototype did not: minting in progress, and "needs email / time".
  */
