@@ -65,10 +65,30 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       here.** Owner confirmed the assignment exists in BMI. Related to the
       per-centre Office id work already landed, but this one is Fort Myers, so
       it is a different cause — needs its own look.
-- [ ] **Status disagrees with BMI on the deal header.** Kara Simmons / 2950
-      shows our status "New" beside "BMI · Confirmation" and "no quote yet".
-      Decide which wins and make the header say so rather than showing both
-      flatly.
+- [~] **Status disagrees with the contract on the deal header.** Owner,
+      2026-09-14, on Kara Simmons: "this event should be in lead its contract
+      sent double check and fix."
+      **REPAIRED.** L-129 (#2950) read `assigned` while its contract had been
+      signed on 1 July and the deposit paid — the queue card was nagging "no
+      touch · 1 h 33 m" about a booked, paid event. Our status and the contract
+      are written by different rails (a rep drags the board; the contract moves
+      when the guest signs or pays) and nothing reconciled them, so a deal that
+      progressed through the guest's own actions kept whatever the rep last set.
+      `scripts/crm-reconcile-lead-status.mts` advances a lead when its contract
+      is demonstrably further along — FORWARD ONLY (a rep who moved a deal on
+      knows something the money does not), and never touching Lost or
+      No-response, which are a judgement about a guest rather than a state the
+      money can infer. Measured: 4 of 151 leads were behind; all 4 advanced,
+      each with a timeline row saying why; a re-run finds nothing.
+      **STILL OPEN: it is a script, not a schedule.** Wire it into the crm-jobs
+      cron as its own kind so the drift cannot come back — the same shape as
+      `guest-intro-backstop`.
+
+- [ ] **The BMI state on the header is still its own question.** L-129 also had
+      `bmi_state_id` NULL beside `bmi_state_name` 'Confirmation'. Decide which
+      side wins when OUR status, the contract and the BMI state disagree, and
+      make the header say so rather than showing all three flatly.
+
 - [ ] **The incremental BMI sync has never run for Fort Myers.** Only Naples has
       delta runs, and nothing schedules it on a preview, so our copy goes stale
       the moment something is booked. This is why H3447 (Edward Leslie, Sullivan
@@ -308,6 +328,26 @@ being deleted yet, but the new read must not depend on them.
 ---
 
 ## Done 2026-09-14
+
+- [x] **Lost and No response now map to BMI Cancellation** (owner decision,
+      2026-09-14: "Map these to cancellation"). SAFE BY CONSTRUCTION: `-4` is a
+      built-in Office state, and `bmiStateBranch` already refuses to write
+      built-in states from a status change — it records "set from the Contract
+      tab" instead. So the mapping is what the screens and reporting read, and
+      the actual cancel still has to go through the deliberate, audited Cancel
+      action. That matters here: a `-4` reaching Office makes
+      `group-quote-sync` drain the gift cards, REFUND every Square payment and
+      email the guest, so a rep dragging a deposit-paid deal to Lost must never
+      be able to trigger a refund by accident.
+
+- [x] **Juniper Landscaping (e41b6fdf) dropped without a refund** — owner:
+      "Don't refund this event but this contract needs to go away. Just drop
+      it." The quote was already `cancelled` here, and the sync cron's refund
+      branch is `stateId === '-4' AND quote.status !== 'cancelled'` — so it was
+      already unreachable for this row, proven before touching anything. What
+      was left was the pending `contract-cancel-verify:e41b6fdf` job keeping
+      the "Cancel pending" banner up; it is parked with the reason on the row.
+      The $2,397.24 deposit and the two internal gift cards are untouched.
 
 - [x] **The pending card said "Guest Services" on a lead nobody owns.** It read
       "FastTrax Fort Myers · Guest Services" directly under a banner saying the
