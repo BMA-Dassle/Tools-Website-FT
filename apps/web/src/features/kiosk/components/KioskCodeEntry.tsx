@@ -1799,6 +1799,8 @@ export function KioskCodeEntry({
         party={party}
         onVerified={onEmployeeVerified}
         onBack={() => setMode("scan")}
+        // Verified → main menu, the way an applied coupon leaves this screen.
+        onDone={onBack}
       />
     );
   }

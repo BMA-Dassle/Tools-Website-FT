@@ -25,11 +25,16 @@ export function KioskTeamMemberEntry({
   party,
   onVerified,
   onBack,
+  onDone,
 }: {
   party: PartyMember[];
   /** The server's SessionEmployee — the parent dispatches setEmployee. */
   onVerified: (employee: SessionEmployee, linked: boolean) => void;
   onBack: () => void;
+  /** Leave the code screen for the main menu once verified — the same exit a
+   *  coupon or voucher takes (owner 2026-09-13). Fires on Continue and, if the
+   *  guest just reads the screen, after a short pause. */
+  onDone: () => void;
 }) {
   const t = useT();
   const { config } = useKioskConfig();
@@ -48,6 +53,11 @@ export function KioskTeamMemberEntry({
   useEffect(() => {
     inputRef.current?.focus();
   }, [phase]);
+  useEffect(() => {
+    if (phase !== "done") return;
+    const id = window.setTimeout(onDone, 4000);
+    return () => window.clearTimeout(id);
+  }, [phase, onDone]);
   useEffect(() => {
     if (phase !== "code") return;
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -139,7 +149,7 @@ export function KioskTeamMemberEntry({
           {done.linked ? t("team.done.linked") : t("team.done.unlinked")}
         </p>
         <div className="mt-auto flex gap-[24px]">
-          <button type="button" onClick={onBack} className="k-btn-primary k-tap">
+          <button type="button" onClick={onDone} className="k-btn-primary k-tap">
             {t("team.done.cta")}
           </button>
         </div>
