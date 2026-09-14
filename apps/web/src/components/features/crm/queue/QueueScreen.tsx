@@ -1,16 +1,20 @@
 "use client";
 
+import { DndContext, useDraggable, useDroppable, type UniqueIdentifier } from "@dnd-kit/core";
 import { IconBolt, IconClock, IconPlus, IconSettings, IconUsers } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { CRM_BASE } from "~/features/crm/core/contracts";
 import { fDate } from "~/features/crm/core/dates";
 import type { ScreenProps } from "~/features/crm/core/screens";
+import type { CrmStatus } from "~/features/crm/core/types";
 import {
   EVENT_TYPE_LABEL,
   LEAD_SOURCE_LABEL,
   LEAD_TEST_IDS,
+  type LeadView,
   type QueueLead,
   type QueueRepColumn,
 } from "~/features/crm/leads/contracts";
@@ -18,6 +22,12 @@ import { requestedPlannerLabel } from "~/features/crm/leads/planners";
 import { QUEUE_POLL_MS, leadsKeys } from "~/features/crm/leads/queries";
 import { responseBadge } from "~/features/crm/leads/response-badge";
 import { errorMessage } from "../lib/crm-fetch";
+import {
+  crmAnnouncements,
+  crmCollisionDetection,
+  dragInstructions,
+  useCrmDragSensors,
+} from "../lib/dnd";
 import { useUrlQuery } from "../lib/use-url-query";
 import { useCrmFetch, useCrmSheet, useCrmToast, useTopbarSlot } from "../lib/use-crm-user";
 import { Avatar } from "../primitives/Avatar";
@@ -30,9 +40,11 @@ import { Timer, formatMinutes } from "../primitives/Timer";
 import { DealDrawer } from "../deal/DealDrawer";
 import { useStatusIndex } from "../deal/use-deal";
 import { BoardColumn } from "../leads/BoardColumn";
+import { DragGhost } from "../leads/DragGhost";
+import { DragHandle } from "../leads/DragHandle";
 import { LeadCard, centreShort } from "../leads/LeadCard";
 import { NewLeadSheet } from "../leads/NewLeadSheet";
-import { leadTitle, relativeAge } from "../leads/model";
+import { assignToastText, leadTitle, relativeAge } from "../leads/model";
 import { fetchQueue, postAssign } from "../leads/queries";
 import { AssignSheet } from "./AssignSheet";
 
@@ -48,8 +60,12 @@ import { AssignSheet } from "./AssignSheet";
  * rep — plus the few the capture-time assign could not complete. Each card
  * says which, from the server's `park` verdict.
  *
- * Drag-onto-a-rep is B4's DragLayer; Assign is the keyboard / tap path the
- * brief requires anyway (R13: no drag-only interaction).
+ * The screen's own subtitle has always promised "Drag a lead onto a rep, or tap
+ * Assign", and now it is true: a parked card is a dnd-kit draggable and each rep
+ * column is a droppable, dropping one on the other runs the SAME `postAssign`
+ * the sheet's "Assign to <first>" button runs. Assign remains the tap and
+ * keyboard path the brief requires anyway (R13: no drag-only interaction), and
+ * it is the only path that can carry a note.
  */
 export default function QueueScreen({ query }: ScreenProps) {
   const crmFetch = useCrmFetch();
@@ -59,6 +75,10 @@ export default function QueueScreen({ query }: ScreenProps) {
   const { openSheet, closeSheet } = useCrmSheet();
   const statuses = useStatusIndex();
   const [urlQuery, setUrlQuery] = useUrlQuery(query);
+  const sensors = useCrmDragSensors();
+  /** The lead being written right now — its card goes quiet until it settles. */
+  const [pendingLeadId, setPendingLeadId] = useState<string | null>(null);
+  const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
 
   const q = useQuery({
     queryKey: leadsKeys.queue(),
@@ -84,6 +104,25 @@ export default function QueueScreen({ query }: ScreenProps) {
     onError: (err) => toast(errorMessage(err), "crit"),
   });
 
+  /**
+   * The drop. Deliberately the same call, the same invalidation and the same
+   * toast as `AssignSheet` — a drag is a shortcut to the sheet's primary
+   * button, not a second way of assigning that could drift from it. The note
+   * the sheet can carry is null here: a gesture cannot type.
+   */
+  const assign = useMutation({
+    mutationFn: (v: { lead: LeadView; repId: string }) =>
+      postAssign(crmFetch, v.lead.publicId, { repId: v.repId, note: null }),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: leadsKeys.all });
+      const first = r.assignment.toRepName?.split(/\s+/)[0] ?? "rep";
+      const t = assignToastText(first, r.bmi);
+      toast(t.text, t.kind);
+    },
+    onError: (err) => toast(errorMessage(err), "crit"),
+    onSettled: () => setPendingLeadId(null),
+  });
+
   const now = new Date();
   const unassigned = q.data?.unassigned ?? [];
   const reps = q.data?.reps ?? [];
@@ -94,6 +133,17 @@ export default function QueueScreen({ query }: ScreenProps) {
   const suggested = unassigned.filter((u) => u.park.kind === "retry" && u.suggestion);
   const dealId = urlQuery.deal ?? null;
   const openDeal = (publicId: string) => setUrlQuery({ deal: publicId });
+
+  const parked = new Map(unassigned.map((it) => [it.lead.id, it.lead]));
+  const dragged = draggingLeadId ? (parked.get(draggingLeadId) ?? null) : null;
+
+  /** A lead, a rep — whatever is in flight, said the way a person says it. */
+  const nameOf = (id: UniqueIdentifier) => {
+    const key = String(id);
+    const lead = parked.get(key);
+    if (lead) return leadTitle(lead);
+    return reps.find((c) => c.rep.id === key)?.rep.displayName ?? key;
+  };
 
   const openAssign = (item: QueueLead) =>
     openSheet({
@@ -174,80 +224,66 @@ export default function QueueScreen({ query }: ScreenProps) {
       {q.data ? (
         <div className="board-wrap" data-testid={LEAD_TEST_IDS.queue}>
           <div className="board-scroll" style={{ padding: 0 }}>
-            <div className="board queue-board">
-              <BoardColumn
-                testId={LEAD_TEST_IDS.queueUnassigned}
-                header={
-                  <>
-                    <Chip kind="lost">Parked</Chip>
-                    <span className="n">{unassigned.length}</span>
-                    <span className="sum">
-                      <Pill title="The rules assign every lead as it arrives. What is here was parked on purpose, or the rules could not name a rep.">
-                        needs a decision
-                      </Pill>
-                    </span>
-                  </>
-                }
-                count={unassigned.length}
-                empty="Nothing parked — every lead has a rep."
-              >
-                {unassigned.map((item) => (
-                  <LeadCard
-                    key={item.lead.id}
-                    lead={item.lead}
-                    status={statuses.get(item.lead.status)}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={crmCollisionDetection}
+              accessibility={{
+                announcements: crmAnnouncements(nameOf),
+                screenReaderInstructions: dragInstructions("the team's columns"),
+              }}
+              onDragStart={({ active }) => setDraggingLeadId(String(active.id))}
+              onDragCancel={() => setDraggingLeadId(null)}
+              onDragEnd={({ active, over }) => {
+                setDraggingLeadId(null);
+                if (!over) return;
+                const lead = parked.get(String(active.id));
+                if (!lead) return;
+                setPendingLeadId(lead.id);
+                assign.mutate({ lead, repId: String(over.id) });
+              }}
+            >
+              <div className="board queue-board">
+                <BoardColumn
+                  testId={LEAD_TEST_IDS.queueUnassigned}
+                  header={
+                    <>
+                      <Chip kind="lost">Parked</Chip>
+                      <span className="n">{unassigned.length}</span>
+                      <span className="sum">
+                        <Pill title="The rules assign every lead as it arrives. What is here was parked on purpose, or the rules could not name a rep.">
+                          needs a decision
+                        </Pill>
+                      </span>
+                    </>
+                  }
+                  count={unassigned.length}
+                  empty="Nothing parked — every lead has a rep."
+                >
+                  {unassigned.map((item) => (
+                    <ParkedCard
+                      key={item.lead.id}
+                      item={item}
+                      status={statuses.get(item.lead.status)}
+                      now={now}
+                      busy={pendingLeadId === item.lead.id}
+                      onOpen={openDeal}
+                      onAssign={openAssign}
+                    />
+                  ))}
+                </BoardColumn>
+
+                {reps.map((col) => (
+                  <RepColumn
+                    key={col.rep.id}
+                    col={col}
+                    months={months}
                     now={now}
                     onOpen={openDeal}
-                    hideRep
-                    extraMeta={
-                      <>
-                        <span>{EVENT_TYPE_LABEL[item.lead.type]}</span>
-                        <Timer
-                          tone={item.ageMinutes > 60 ? "crit" : item.ageMinutes > 30 ? "warn" : ""}
-                        >
-                          waiting {formatMinutes(item.ageMinutes)}
-                        </Timer>
-                        {/* B7 — what the guest asked for, honoured or not. */}
-                        {item.lead.requestedRep ? (
-                          <span className="xs" style={{ flexBasis: "100%" }}>
-                            <b>{requestedPlannerLabel(item.lead.requestedRep.firstName)}</b>
-                          </span>
-                        ) : null}
-                        {/*
-                          Why it is parked, not how long until a timer fires:
-                          the rules assign at capture, so there is nothing to
-                          count down to (owner, 2026-09-13).
-                        */}
-                        <span className="xs" style={{ flexBasis: "100%" }}>
-                          <b>{item.park.label}</b>
-                        </span>
-                        {item.park.kind !== "held" && item.suggestion ? (
-                          <span className="xs muted" style={{ flexBasis: "100%" }}>
-                            Auto-pick: {item.suggestion.rep.firstName} · {item.suggestion.reason}
-                          </span>
-                        ) : null}
-                      </>
-                    }
-                    footer={
-                      <>
-                        <span className="xs muted">{LEAD_SOURCE_LABEL[item.lead.source]}</span>
-                        <button
-                          type="button"
-                          className="btn btn-primary btn-sm"
-                          onClick={() => openAssign(item)}
-                        >
-                          Assign
-                        </button>
-                      </>
-                    }
                   />
                 ))}
-              </BoardColumn>
-
-              {reps.map((col) => (
-                <RepColumn key={col.rep.id} col={col} months={months} now={now} onOpen={openDeal} />
-              ))}
-            </div>
+              </div>
+              <DragGhost testId={LEAD_TEST_IDS.queueDragGhost} lead={dragged} />
+            </DndContext>
           </div>
         </div>
       ) : null}
@@ -267,6 +303,97 @@ export default function QueueScreen({ query }: ScreenProps) {
   );
 }
 
+/**
+ * A parked lead: the shared `LeadCard`, made draggable, keeping every word it
+ * had — the age timer, the requested planner, WHY it is parked, the auto-pick —
+ * and both ways out of the column. The grab bar sits beside Assign so the two
+ * paths are next to each other and neither looks like the only one.
+ */
+function ParkedCard({
+  item,
+  status,
+  now,
+  busy,
+  onOpen,
+  onAssign,
+}: {
+  item: QueueLead;
+  status: CrmStatus | undefined;
+  now: Date;
+  busy: boolean;
+  onOpen: (publicId: string) => void;
+  onAssign: (item: QueueLead) => void;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } = useDraggable({
+    id: item.lead.id,
+    disabled: busy,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-lead={item.lead.id}
+      style={{ opacity: isDragging ? 0.4 : undefined, touchAction: "manipulation" }}
+      {...listeners}
+    >
+      <LeadCard
+        lead={item.lead}
+        status={status}
+        now={now}
+        onOpen={onOpen}
+        hideRep
+        quiet={busy}
+        extraMeta={
+          <>
+            <span>{EVENT_TYPE_LABEL[item.lead.type]}</span>
+            <Timer tone={item.ageMinutes > 60 ? "crit" : item.ageMinutes > 30 ? "warn" : ""}>
+              waiting {formatMinutes(item.ageMinutes)}
+            </Timer>
+            {/* B7 — what the guest asked for, honoured or not. */}
+            {item.lead.requestedRep ? (
+              <span className="xs" style={{ flexBasis: "100%" }}>
+                <b>{requestedPlannerLabel(item.lead.requestedRep.firstName)}</b>
+              </span>
+            ) : null}
+            {/*
+              Why it is parked, not how long until a timer fires: the rules
+              assign at capture, so there is nothing to count down to (owner,
+              2026-09-13).
+            */}
+            <span className="xs" style={{ flexBasis: "100%" }}>
+              <b>{item.park.label}</b>
+            </span>
+            {item.park.kind !== "held" && item.suggestion ? (
+              <span className="xs muted" style={{ flexBasis: "100%" }}>
+                Auto-pick: {item.suggestion.rep.firstName} · {item.suggestion.reason}
+              </span>
+            ) : null}
+          </>
+        }
+        footer={
+          <>
+            <span className="xs muted">{LEAD_SOURCE_LABEL[item.lead.source]}</span>
+            <DragHandle
+              attributes={attributes}
+              setRef={setActivatorNodeRef}
+              label={`Move ${leadTitle(item.lead)} onto a rep`}
+              disabled={busy}
+            />
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busy}
+              onClick={() => onAssign(item)}
+            >
+              Assign
+            </button>
+          </>
+        }
+      />
+    </div>
+  );
+}
+
 function RepColumn({
   col,
   months,
@@ -278,9 +405,15 @@ function RepColumn({
   now: Date;
   onOpen: (publicId: string) => void;
 }) {
+  const { isOver, setNodeRef } = useDroppable({ id: col.rep.id });
   return (
     <BoardColumn
       testId={LEAD_TEST_IDS.queueRep(col.rep.slug)}
+      setRef={setNodeRef}
+      style={{
+        outline: isOver ? "2px solid var(--acc, #5b8cff)" : undefined,
+        outlineOffset: isOver ? 2 : undefined,
+      }}
       header={
         <>
           <Avatar
@@ -319,9 +452,14 @@ function RepColumn({
       </div>
       <div
         className="empty"
-        style={{ border: "1px dashed var(--border)", borderRadius: 10, padding: "18px 8px" }}
+        style={{
+          border: `1px dashed ${isOver ? "var(--acc, #5b8cff)" : "var(--border)"}`,
+          borderRadius: 10,
+          padding: "18px 8px",
+          transition: "border-color .12s ease",
+        }}
       >
-        Tap Assign on a lead to hand it to {col.rep.firstName}
+        Drop a lead here, or tap Assign, to hand it to {col.rep.firstName}
       </div>
       {col.assigned.map((l) => {
         const rb = responseBadge(l, now);

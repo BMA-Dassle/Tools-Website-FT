@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { StatusBmiMapRow } from "~/features/crm/core/types";
 import { makeLead } from "~/features/crm/leads/test-support";
 import { STATUSES } from "~/features/crm/statuses/test-support";
-import { boardSubtitle, columnIdAtPoint, columnSum, leadIndex, statusOptions } from "./model";
+import {
+  boardSubtitle,
+  boardTracks,
+  columnSum,
+  leadIndex,
+  railColumnIds,
+  statusOptions,
+} from "./model";
 
 /**
  * The board's pure client helpers. The one worth reading twice is
@@ -33,6 +40,57 @@ const map: StatusBmiMapRow[] = [
     bmiStateName: "Confirmation",
   },
 ];
+
+describe("railColumnIds / boardTracks", () => {
+  // A board mid-week: two stages busy, three empty.
+  const COLUMNS = [
+    { id: "assigned", count: 3 },
+    { id: "contacted", count: 0 },
+    { id: "waiting", count: 0 },
+    { id: "quote", count: 5 },
+    { id: "won", count: 0 },
+  ];
+
+  it("collapses exactly the empty columns", () => {
+    const rails = railColumnIds(COLUMNS, { showAll: false, overColumnId: null });
+    expect([...rails].sort()).toEqual(["contacted", "waiting", "won"]);
+  });
+
+  it("never collapses the column a card is being dragged over", () => {
+    const rails = railColumnIds(COLUMNS, { showAll: false, overColumnId: "waiting" });
+    expect(rails.has("waiting")).toBe(false);
+    // An empty stage must stay reachable BY DRAG — that is the whole reason
+    // this collapses rather than hides.
+    expect([...rails].sort()).toEqual(["contacted", "won"]);
+  });
+
+  it("collapses nothing when the planner asked for every column", () => {
+    expect(railColumnIds(COLUMNS, { showAll: true, overColumnId: null }).size).toBe(0);
+  });
+
+  it("writes one track per column, in board order", () => {
+    const rails = railColumnIds(COLUMNS, { showAll: false, overColumnId: null });
+    expect(boardTracks(COLUMNS, rails)).toBe(
+      "var(--col-w) var(--col-rail-w) var(--col-rail-w) var(--col-w) var(--col-rail-w)",
+    );
+  });
+
+  it("writes NO template when nothing is collapsed — grid-auto-columns keeps its job", () => {
+    // This null is what leaves the phone's 86% swipe columns and the queue's
+    // 300px alone: a template would override both.
+    expect(boardTracks(COLUMNS, new Set())).toBeNull();
+    expect(boardTracks(COLUMNS, railColumnIds(COLUMNS, { showAll: true, overColumnId: null })))
+      .toBeNull();
+  });
+
+  it("handles a board where every column is empty", () => {
+    const bare = COLUMNS.map((c) => ({ ...c, count: 0 }));
+    expect(railColumnIds(bare, { showAll: false, overColumnId: null }).size).toBe(5);
+    expect(boardTracks(bare, railColumnIds(bare, { showAll: false, overColumnId: null }))).toBe(
+      "var(--col-rail-w) var(--col-rail-w) var(--col-rail-w) var(--col-rail-w) var(--col-rail-w)",
+    );
+  });
+});
 
 describe("boardSubtitle / columnSum", () => {
   it("reads like the prototype's header", () => {
@@ -107,24 +165,5 @@ describe("statusOptions", () => {
     expect(
       statusOptions(archived, lead, map, "headpinzftmyers").map((o) => o.status.id),
     ).not.toContain("waiting");
-  });
-});
-
-describe("columnIdAtPoint", () => {
-  it("reads the column id off the nearest [data-col] ancestor", () => {
-    const card = { closest: (sel: string) => (sel === "[data-col]" ? col : null) };
-    const col = { dataset: { col: "quote" } } as unknown as HTMLElement;
-    const doc = { elementFromPoint: () => card } as unknown as Document;
-    expect(columnIdAtPoint(10, 10, doc)).toBe("quote");
-  });
-
-  it("is null outside any column, and null when there is no document at all", () => {
-    const doc = {
-      elementFromPoint: () => ({ closest: () => null }),
-    } as unknown as Document;
-    expect(columnIdAtPoint(10, 10, doc)).toBeNull();
-    expect(
-      columnIdAtPoint(10, 10, { elementFromPoint: () => null } as unknown as Document),
-    ).toBeNull();
   });
 });

@@ -4,17 +4,13 @@ import type { LeadView } from "~/features/crm/leads/contracts";
 import type { BoardColumnView } from "~/features/crm/statuses/contracts";
 
 /**
- * Pure helpers behind the pipeline board — no hooks, no fetch, no DOM types
- * beyond the one lookup the drag needs. Tested.
+ * Pure helpers behind the pipeline board — no hooks, no fetch, no DOM. Tested.
  *
  * CLIENT-SAFE IMPORTS ONLY: `core/format`, `core/types`, and the two sub
  * `contracts.ts` files. Never a sub's `index.ts` — that barrel reaches the
  * Office transport and ioredis, and one such import fails the production build
  * (§5.7b, proven on feat/crm-availability).
  */
-
-/** How far a pointer must travel before a press becomes a drag rather than a tap. */
-export const DRAG_THRESHOLD_PX = 6;
 
 /** `12 open · $84,300 quoted` (direction-b.html:75, verbatim shape). */
 export function boardSubtitle(openCount: number, openValueCents: number): string {
@@ -30,17 +26,42 @@ export function leadIndex(leads: readonly LeadView[]): Map<string, LeadView> {
   return new Map(leads.map((l) => [l.id, l]));
 }
 
+/** `?cols=all` — the planner asked to see every column at full width. */
+export const SHOW_ALL_COLUMNS = "all";
+
 /**
- * The column under a point, from the DOM. The board marks each column
- * `data-col="<id>"` exactly as the prototype does, so the drag has one place
- * to look and the keyboard path needs no geometry at all.
+ * Which columns shrink to a rail (owner, 2026-09-13: "should pipeline hide
+ * unused columns by default?").
+ *
+ * The empty ones — EXCEPT when the planner has asked for all of them, and
+ * except the one a card is being dragged over, which springs back to full width
+ * so there is somewhere to aim. That last exception is what keeps "collapse"
+ * from quietly becoming "hide": every stage stays reachable by drag.
  */
-export function columnIdAtPoint(x: number, y: number, doc?: Document): string | null {
-  const d = doc ?? (typeof document === "undefined" ? null : document);
-  if (!d) return null;
-  const el = d.elementFromPoint(x, y);
-  const col = el?.closest?.("[data-col]") as HTMLElement | null | undefined;
-  return col?.dataset.col ?? null;
+export function railColumnIds(
+  columns: readonly Pick<BoardColumnView, "id" | "count">[],
+  opts: { showAll: boolean; overColumnId: string | null },
+): Set<string> {
+  if (opts.showAll) return new Set();
+  return new Set(
+    columns.filter((c) => c.count === 0 && c.id !== opts.overColumnId).map((c) => c.id),
+  );
+}
+
+/**
+ * The board's `grid-template-columns`, one track per column in board order.
+ *
+ * Null when nothing is collapsed, and that null matters: without it the board
+ * sets no template at all and `grid-auto-columns` keeps sizing the tracks
+ * exactly as it always has — including the phone's `86%` swipe columns and the
+ * queue's 300px. A template is only worth declaring when the widths differ.
+ */
+export function boardTracks(
+  columns: readonly Pick<BoardColumnView, "id">[],
+  rails: ReadonlySet<string>,
+): string | null {
+  if (rails.size === 0) return null;
+  return columns.map((c) => (rails.has(c.id) ? "var(--col-rail-w)" : "var(--col-w)")).join(" ");
 }
 
 export interface StatusOption {
