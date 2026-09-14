@@ -207,7 +207,7 @@ export function EmployeePerksInput({
           </p>
           <div className="flex gap-2">
             <input
-              type="text"
+              type="password"
               inputMode="tel"
               value={value}
               onChange={(e) => {

@@ -216,9 +216,11 @@ export function KioskTeamMemberEntry({
       <div className="k-eyebrow">{t("team.eyebrow")}</div>
       <h1 className="k-display mt-[24px] text-[80px]">{t("team.title")}</h1>
       <p className="mt-[10px] text-[26px] leading-[1.35] text-white/60">{t("team.sub")}</p>
+      {/* type=password: the employee ID is a time-clock credential and the
+          kiosk screen is public — never echo it (owner 2026-09-13). */}
       <input
         ref={inputRef}
-        type="text"
+        type="password"
         inputMode="tel"
         value={value}
         onChange={(e) => {
