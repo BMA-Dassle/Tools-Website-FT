@@ -111,7 +111,11 @@ export default function EventsScreen({ query }: ScreenProps) {
         eventDate: row.when.slice(0, 10),
         eventTime: row.when.slice(11, 16) || null,
         guests: row.persons || 1,
-        type: "group",
+        // Must be one of EVENT_TYPES. "group" is not one of them, and sending it
+        // was the second half of the 400 that kept bouncing the planner back to
+        // the form. The sheet's own default is the honest placeholder here: the
+        // type is ours, not BMI's, and a planner can change it on the deal.
+        type: "corporate",
       });
       void qc.invalidateQueries({ queryKey: eventsKeys.all });
       openDeal(r.lead.publicId);

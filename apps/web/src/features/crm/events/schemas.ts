@@ -85,7 +85,16 @@ export const CreateLeadFromEventSchema = z.object({
   centre: z.enum(CENTRE_CODES),
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().max(80).optional().default(""),
-  phone: z.string().trim().min(7).max(30),
+  /**
+   * OPTIONAL, because this endpoint does not capture a guest — it points a CRM
+   * row at a booking BMI already holds, and BMI is the source of truth for the
+   * contact. Requiring a phone meant an event whose host has none on file could
+   * not be opened at all: clicking the row posted an empty phone, the schema
+   * refused it with a 400, and the screen fell back to asking the planner to
+   * fill a form for a booking that already exists. A lead captured from the
+   * public form still requires one — that schema is separate and unchanged.
+   */
+  phone: z.string().trim().max(30).optional().default(""),
   email: z.string().trim().toLowerCase().email().max(200).nullable().optional(),
   company: z.string().trim().max(120).nullable().optional(),
   eventDate: Ymd,
