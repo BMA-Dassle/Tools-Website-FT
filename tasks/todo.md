@@ -25,7 +25,7 @@ check-in window, (3) a staff press that says "ready to pull".
       fast-lane commit 9c7c41b7 beneath it. Not live-verified. Open question for the owner: the desk's own Called box still flashes green
       only on a complete grid; should it take the same three triggers?
 
-## Employee perks — 7shifts-verified, web + kiosk (2026-09-13) — PLAN v2, owner decisions in, awaiting GO
+## Employee perks — 7shifts-verified, web + kiosk (2026-09-13) — branch `feat/employee-perks` — BUILT 2026-09-13, gates green, NOT live-verified
 
 Owner: "employee discounts for both web and kiosk … keep it generic … keep it with the other
 discount/voucher program code. Employees get 2 free races a week, 50% off everything. Game Zone
@@ -93,9 +93,23 @@ cards double tokens: buy 100 → 100 regular + 100 bonus. Verified through 7shif
 - Prove: 6-digit code texted to the 7shifts `mobile_number` (masked on screen; never to a typed
   number). Kiosk shortcut: a main person whose `phoneVerified` phone equals a 7shifts mobile
   skips the code (already proven this session).
-- **Link to BMI (decision 7):** the proven employee must match ONE party member: E.164 phone
-  equal (7shifts mobile ↔ member/contact phone), OR normalized first+last name equal to the
-  7shifts name. Match → write `employee_bmi_links (seven_shifts_user_id, bmi_person_id,
+- **Link to BMI (decision 7 + owner 2026-09-13 second safety check):** the proven employee must
+  match ONE party member: LAST NAME (normalized) equal to the 7shifts last name ALWAYS, then
+  EITHER E.164 phone equal to the 7shifts mobile OR a LENIENT first-name match (against 7shifts
+  legal AND preferred first name; case/accents stripped; a ≥3-letter prefix counts, so Sam ↔
+  Samantha). Neither leg → no link. Rationale (2026-09-13 exchange): last-name-only would link a
+  same-surname spouse/sibling when the employee is not racing; a strict first name would lock out
+  nicknames. Several candidates pass → the phone leg decides; still tied → no link. A phone hit
+  with a different surname does NOT link.
+  BMI-ACCOUNT LOOKUP IS THE INPUT (owner 2026-09-13): the match reads the BMI person RECORD (Office
+  / Pandora name + mobile) whenever the party member came from a lookup — kiosk licence scan, phone
+  lookup, login code, web returning-racer lookup. A hand-typed party name is never a BMI match. And
+  at VERIFY time, before anyone is on the booking, search BMI by the 7shifts mobile + last name
+  (Pandora `GET /bmi/person/search`, the kiosk licence-scan rail): exactly ONE hit that passes the
+  rule → pre-link, so the first licence scan already fires "Welcome back"; zero or several hits
+  (duplicate registrations) → no pre-link, match at party time instead. Finding an account is not
+  the check; it is what gets checked. Re-checked on
+  every code-free recognition (the linked person's current BMI last name vs 7shifts). Match → write `employee_bmi_links (seven_shifts_user_id, bmi_person_id,
   matched_by 'phone'|'name'|'phone+name', linked_at, last_seen_at)` in Neon (persist-first). No
   match → perks stay off with an honest line ("we couldn't match you to a racer on this
   booking — sign in as yourself first"). A name-only match is accepted but flagged in the row;
@@ -213,17 +227,48 @@ ledger). Never `Number()` a BMI id. Admin read-only usage page = later PR.
   today, retire once the 7shifts path is proven.
 
 ### Build order (one branch `feat/employee-perks`, PR per step if large)
-- [ ] A. Staff index: mobile/email/by-id/phone hashes + `resolveEmployee` + tests.
-- [ ] B. discount-codes/programs/employee: config, projection, weekKey, Neon tables, tests.
-- [ ] C. OTP start/verify/clear routes + token + BMI link + rate limits (per contact/IP/device).
-- [ ] D. Pricing: entitlementsForMember two-source; attraction own-unit split; free-race
+- [x] A. Staff index: mobile/email/by-id/phone hashes + `resolveEmployee` + tests.
+- [x] B. discount-codes/programs/employee: config, projection, weekKey, Neon tables, tests.
+- [x] C. OTP start/verify/clear routes + token + BMI link + rate limits (per contact/IP/device).
+- [x] D. Pricing: entitlementsForMember two-source; attraction own-unit split; free-race
       coverage + hard-fail; ledger writes; tests for display==charge on all three credit cases.
-- [ ] E. Game Zone credit-plan transform + ledger column + load/reconcile agreement tests.
-- [ ] F. UI web (CheckoutStep) + kiosk (code-entry classifier, sign-in recognition, StaffBar-
+- [x] E. Game Zone credit-plan transform + ledger column + load/reconcile agreement tests.
+- [x] F. UI web (CheckoutStep) + kiosk (code-entry classifier, sign-in recognition, StaffBar-
       style chip), EN+ES.
-- [ ] G. Gates: vitest, tsc, eslint, `next build`; smoke plan for the owner (both surfaces).
+- [x] G. Gates: vitest, tsc, eslint, `next build`; smoke plan for the owner (both surfaces).
 
-<<<<<<< Updated upstream
+Review (2026-09-13, evening) — BUILT on `feat/employee-perks` (worktree), gates green, NOT live-verified:
+- New: `features/discount-codes/programs/{employee,employee.server,employee-data,employee-client}.ts`
+  (program config + pure match rule; token/OTP/link/recognize/reconcile; Neon `employee_bmi_links` +
+  `employee_perk_redemptions`; typed client), `booking/service/employee-perks.ts` (pure free-race +
+  attraction-unit walks), `app/api/booking/v2/employee/route.ts` (start / verify / recognize),
+  kiosk `KioskTeamMemberEntry` ("Team member" MODE of the code-entry screen — a button, not the
+  classifier: a 10-digit mobile classifies as a game card) + `KioskEmployeeSheet` (recognition
+  sheet + Review & Pay bar), web `EmployeePerksInput` beside the promo field.
+- Changed: `staff/punch-index+service` (by-id + phone hashes in the SAME rebuild, `resolveEmployee`,
+  `getStaffRecord`; `SevenShiftsUser` gains `mobile_number`/`birth_date`), `membership-discounts`
+  (`entitlementsForMember`, two sources, dedup by key), `checkout.ts#racingDiscountForMember` +
+  `bogo-scheduled#racingPassBlocksBogo` read it (signature now takes the member), `unified-reserve`
+  (step 0a½ reconcile + `EmployeePerksChangedError` hard fail; free-race coverage after vouchers
+  before BOGO, kind `employee-perk`; attraction own-unit split line `(Employee Pass −50%)`; perk
+  ledger post-capture; GZ rows carry the doubled credit + `perk`), quote route reconciles first,
+  reserve-prepare/reserve-all map the 409, `cart-purchase` `{employee}` option, `transactions-log`
+  `perk` column, `credit-plan` doubles on `employee-2x`, standalone GZ `terminal-prepare` accepts
+  `employeeToken`, CheckoutStep/CartView/KioskCheckoutScreen mirrors, state `session.employee` +
+  `PartyMember.employeePerks` + `setEmployee` action, EN+ES `team.*` (38 keys), kiosk 1.36.0.
+- Gates: vitest 70 new tests green (7764 total; the 6 failing SUITES are pre-existing auth/sso/
+  middleware/waiver-short-link load failures — `/core` absent in this checkout); tsc clean on
+  touched files (same pre-existing `/core` / playwright errors); eslint 0 errors (2 warnings:
+  `Date.now` in a handler, a pre-existing KioskFlow deps warning); prettier.
+- Env: none required — signing falls back to `KIOSK_STAFF_SIGNING_SECRET` / `ADMIN_API_SIGNING_SECRET`
+  / `ADMIN_CAMERA_TOKEN`; optional `EMPLOYEE_PERKS_SIGNING_SECRET`; kill switch `EMPLOYEE_PERKS=false`.
+- NOT covered (flagged): the standalone web `/reload` page (no verification UI there); an admin
+  usage page (ledger is written, nothing reads it yet); a per-week card cap (owner declined a cap).
+- OWED: live smoke on a Fort Myers kiosk (Team member → code → perks; licence sign-in →
+  "Welcome back"; Review & Pay lines; GZ card loads 100+100) and on web checkout; first real
+  7shifts roster rebuild must show mobiles in `staff:phone-index` (check `[staff] punch index
+  rebuilt — … mobiles` in logs).
+
 ## A signed contract re-signs when the DATE or VENUE moves, not just the price (2026-09-13) — branch `worktree-resign-on-material-change` — BUILT, gates green, NOT deployed
 
 Owner question: "https://headpinz.com/contract/c31e3aec — this contract changed date and it's not

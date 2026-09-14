@@ -4,6 +4,7 @@ import {
   RewardFailedError,
   ReserveInProgressError,
   BillExpiredError,
+  EmployeePerksChangedError,
   ExistingBookingConflictError,
   CrossCategoryHeatCollisionError,
 } from "~/features/booking/service/unified-reserve";
@@ -94,6 +95,11 @@ export async function POST(req: NextRequest) {
     }
     if (err instanceof BillExpiredError) {
       // 409 Conflict — the held bill lapsed before payment. No charge happened.
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof EmployeePerksChangedError) {
+      // 409 — the weekly free-race allowance the review priced with is gone.
+      // Nothing was charged; the client re-quotes.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof ExistingBookingConflictError) {

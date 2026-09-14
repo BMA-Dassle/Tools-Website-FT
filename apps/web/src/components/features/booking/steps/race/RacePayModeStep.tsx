@@ -834,7 +834,8 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
               bogoSaleActive(item.date) &&
               bundles.every((b) => !b.badge) &&
               racers.some(
-                (m) => !racingPassBlocksBogo((m as { memberships?: string[] }).memberships),
+                (m) =>
+                  !racingPassBlocksBogo(m as { memberships?: string[]; employeePerks?: unknown }),
               );
             const rowInner = (
               <>

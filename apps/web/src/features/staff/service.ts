@@ -28,11 +28,26 @@ import "server-only";
  *    down, rate-limited or challenged does not brick the briefing rooms. An
  *    index built six hours ago still names everybody who was employed six hours
  *    ago, which is everybody. Fail open, loudly.
+ *
+ * ── EMPLOYEE PERKS (2026-09-13) ─────────────────────────────────────────────
+ *
+ * The SAME rebuild also publishes `staff:by-id` (user id → StaffRecord, with the
+ * mobile 7shifts holds) and `staff:phone-index` (E.164 → user id), so a team
+ * member can be resolved from a punch ID OR their mobile, and so an
+ * "is this person still active?" check at charge time is one HGET. One page of
+ * 7shifts, three maps; the maps can never disagree about who is on the roster.
  */
 
 import redis from "@/lib/redis";
 import { listSevenShiftsUsers, isSevenShiftsConfigured } from "~/lib/api/sevenshifts";
-import { buildPunchIndex, normalizePunchId, type StaffIdentity } from "./punch-index";
+import { canonicalizePhone } from "@/lib/participant-contact";
+import {
+  buildPunchIndex,
+  buildStaffIndexes,
+  normalizePunchId,
+  type StaffIdentity,
+  type StaffRecord,
+} from "./punch-index";
 
 /** The hash: punchId → JSON(StaffIdentity). */
 const INDEX_KEY = "staff:punch-index";
@@ -42,6 +57,12 @@ const COLLISION_KEY = "staff:punch-index:collisions";
 const FRESH_KEY = "staff:punch-index:fresh";
 /** Held during a rebuild so concurrent misses cannot stampede 7shifts. */
 const LOCK_KEY = "staff:punch-index:lock";
+/** The hash: String(userId) → JSON(StaffRecord). Every active user. */
+const BY_ID_KEY = "staff:by-id";
+/** The hash: E.164 mobile → String(userId). */
+const PHONE_KEY = "staff:phone-index";
+/** Mobiles held by two active people. Excluded from the hash. */
+const PHONE_COLLISION_KEY = "staff:phone-index:collisions";
 
 /** How long the index is considered current. A new hire is typeable within this. */
 const REFRESH_SECONDS = 10 * 60;
@@ -65,6 +86,10 @@ export type PunchVerifyResult =
   /** No index and we could not build one — 7shifts unreachable on a cold cache. */
   | { ok: false; reason: "unavailable" };
 
+export type EmployeeResolveResult =
+  | { ok: true; staff: StaffRecord; stale: boolean }
+  | { ok: false; reason: "unknown" | "ambiguous" | "unavailable" };
+
 /**
  * Page the whole roster and publish it as the index.
  *
@@ -75,7 +100,8 @@ export type PunchVerifyResult =
  *
  * The write is a replace, not a merge (DEL then HSET), so a departed employee
  * actually leaves. That is the one thing a merge would get wrong, and it is the
- * case that matters: an ex-employee must stop being able to sign for a group.
+ * case that matters: an ex-employee must stop being able to sign for a group —
+ * and, since 2026-09-13, must stop receiving employee perks.
  */
 export async function rebuildPunchIndex(): Promise<{ size: number; collisions: string[] } | null> {
   if (!isSevenShiftsConfigured()) {
@@ -107,20 +133,29 @@ export async function rebuildPunchIndex(): Promise<{ size: number; collisions: s
   }
 
   const { index, collisions, size } = buildPunchIndex(users);
+  const { byId, byPhone, phoneCollisions } = buildStaffIndexes(users);
 
   // Users came back but NOTHING was usable and nothing collided ⇒ the payload
   // shape moved under us (a renamed field), not a roster we should publish.
   // Collisions are the deliberate exception: an index of nothing but colliding
   // IDs is still the truth, and callers need it to answer "ambiguous" rather
   // than pretend the ID is unknown.
-  if (size === 0 && collisions.length === 0) {
-    console.error("[staff] 7shifts returned no usable punch IDs — keeping the previous index");
+  if (size === 0 && collisions.length === 0 && Object.keys(byId).length === 0) {
+    console.error("[staff] 7shifts returned no usable staff records — keeping the previous index");
     return null;
   }
 
   const entries: string[] = [];
   for (const [punchId, staff] of Object.entries(index)) {
     entries.push(punchId, JSON.stringify(staff));
+  }
+  const byIdEntries: string[] = [];
+  for (const [userId, rec] of Object.entries(byId)) {
+    byIdEntries.push(userId, JSON.stringify(rec));
+  }
+  const phoneEntries: string[] = [];
+  for (const [phone, userId] of Object.entries(byPhone)) {
+    phoneEntries.push(phone, String(userId));
   }
 
   try {
@@ -134,6 +169,17 @@ export async function rebuildPunchIndex(): Promise<{ size: number; collisions: s
       pipeline.sadd(COLLISION_KEY, ...collisions);
       pipeline.expire(COLLISION_KEY, INDEX_TTL_SECONDS);
     }
+    pipeline.del(BY_ID_KEY);
+    if (byIdEntries.length) pipeline.hset(BY_ID_KEY, ...byIdEntries);
+    pipeline.expire(BY_ID_KEY, INDEX_TTL_SECONDS);
+    pipeline.del(PHONE_KEY);
+    if (phoneEntries.length) pipeline.hset(PHONE_KEY, ...phoneEntries);
+    pipeline.expire(PHONE_KEY, INDEX_TTL_SECONDS);
+    pipeline.del(PHONE_COLLISION_KEY);
+    if (phoneCollisions.length) {
+      pipeline.sadd(PHONE_COLLISION_KEY, ...phoneCollisions);
+      pipeline.expire(PHONE_COLLISION_KEY, INDEX_TTL_SECONDS);
+    }
     pipeline.set(FRESH_KEY, new Date().toISOString(), "EX", REFRESH_SECONDS);
     await pipeline.exec();
   } catch (e) {
@@ -146,7 +192,14 @@ export async function rebuildPunchIndex(): Promise<{ size: number; collisions: s
       `[staff] ${collisions.length} punch ID(s) held by more than one active employee and excluded: ${collisions.join(", ")}`,
     );
   }
-  console.log(`[staff] punch index rebuilt — ${size} employees`);
+  if (phoneCollisions.length) {
+    console.warn(
+      `[staff] ${phoneCollisions.length} mobile(s) held by more than one active employee and excluded from the phone index`,
+    );
+  }
+  console.log(
+    `[staff] punch index rebuilt — ${size} employees with punch IDs, ${Object.keys(byId).length} records, ${phoneEntries.length / 2} mobiles`,
+  );
   return { size, collisions };
 }
 
@@ -171,9 +224,30 @@ async function readIdentity(punchId: string): Promise<StaffIdentity | null> {
   }
 }
 
-async function isAmbiguous(punchId: string): Promise<boolean> {
+async function readRecord(userId: number | string): Promise<StaffRecord | null> {
   try {
-    return (await redis.sismember(COLLISION_KEY, punchId)) === 1;
+    const raw = await redis.hget(BY_ID_KEY, String(userId));
+    if (!raw) return null;
+    return JSON.parse(raw) as StaffRecord;
+  } catch {
+    return null;
+  }
+}
+
+async function readUserIdByPhone(e164: string): Promise<number | null> {
+  try {
+    const raw = await redis.hget(PHONE_KEY, e164);
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+async function isMember(setKey: string, value: string): Promise<boolean> {
+  try {
+    return (await redis.sismember(setKey, value)) === 1;
   } catch {
     return false;
   }
@@ -187,45 +261,116 @@ async function indexIsFresh(): Promise<boolean> {
   }
 }
 
-async function indexExists(): Promise<boolean> {
+async function keyExists(key: string): Promise<boolean> {
   try {
-    return (await redis.exists(INDEX_KEY)) === 1;
+    return (await redis.exists(key)) === 1;
   } catch {
     return false;
   }
 }
 
 /**
- * Resolve a typed punch ID.
- *
- * The flow, in the order it actually runs:
+ * The shared miss handling behind every lookup here:
  *   hit                        → done, one Redis read
  *   miss + index fresh         → genuinely unknown, say so without touching 7shifts
  *   miss + index stale/absent  → rebuild once (if we win the lock), re-check
  *   no index and no rebuild    → "unavailable", so the caller can degrade
- *                                rather than lock a room out of its own tablet
  */
-export async function verifyPunchId(rawPunchId: string): Promise<PunchVerifyResult> {
-  const punchId = normalizePunchId(rawPunchId);
-  if (!punchId) return { ok: false, reason: "unknown" };
+async function resolveThroughIndex<T>(
+  indexKey: string,
+  read: () => Promise<T | null>,
+  ambiguous: () => Promise<boolean>,
+): Promise<
+  | { ok: true; value: T; stale: boolean }
+  | { ok: false; reason: "unknown" | "ambiguous" | "unavailable" }
+> {
+  const hit = await read();
+  if (hit) return { ok: true, value: hit, stale: !(await indexIsFresh()) };
 
-  const hit = await readIdentity(punchId);
-  if (hit) return { ok: true, staff: hit, stale: !(await indexIsFresh()) };
-
-  if (await isAmbiguous(punchId)) return { ok: false, reason: "ambiguous" };
+  if (await ambiguous()) return { ok: false, reason: "ambiguous" };
 
   // A miss against an index we know to be current is simply a wrong number.
-  const had = await indexExists();
+  const had = await keyExists(indexKey);
   if (had && (await indexIsFresh())) return { ok: false, reason: "unknown" };
 
   // Stale or cold: this may be somebody hired since the last build.
   if (await takeRebuildLock()) {
     await rebuildPunchIndex();
-    const retry = await readIdentity(punchId);
-    if (retry) return { ok: true, staff: retry, stale: false };
-    if (await isAmbiguous(punchId)) return { ok: false, reason: "ambiguous" };
+    const retry = await read();
+    if (retry) return { ok: true, value: retry, stale: false };
+    if (await ambiguous()) return { ok: false, reason: "ambiguous" };
   }
 
   // Still nothing. If we have no index at all we cannot claim the ID is wrong.
-  return { ok: false, reason: (await indexExists()) ? "unknown" : "unavailable" };
+  return { ok: false, reason: (await keyExists(indexKey)) ? "unknown" : "unavailable" };
+}
+
+/** Resolve a typed punch ID (briefing tablets). */
+export async function verifyPunchId(rawPunchId: string): Promise<PunchVerifyResult> {
+  const punchId = normalizePunchId(rawPunchId);
+  if (!punchId) return { ok: false, reason: "unknown" };
+  const res = await resolveThroughIndex(
+    INDEX_KEY,
+    () => readIdentity(punchId),
+    () => isMember(COLLISION_KEY, punchId),
+  );
+  if (!res.ok) return res;
+  return { ok: true, staff: res.value, stale: res.stale };
+}
+
+/**
+ * Resolve a team member for EMPLOYEE PERKS from a punch ID or a mobile number.
+ * Exactly one of the two is used (punch ID wins when both are given). The
+ * record that comes back carries the 7shifts mobile the one-time code goes to.
+ */
+export async function resolveEmployee(input: {
+  punchId?: string | null;
+  phone?: string | null;
+}): Promise<EmployeeResolveResult> {
+  const punchId = normalizePunchId(input.punchId ?? "");
+  if (punchId) {
+    const res = await resolveThroughIndex(
+      INDEX_KEY,
+      async () => {
+        const id = await readIdentity(punchId);
+        return id ? await readRecord(id.userId) : null;
+      },
+      () => isMember(COLLISION_KEY, punchId),
+    );
+    if (!res.ok) return res;
+    return { ok: true, staff: res.value, stale: res.stale };
+  }
+
+  const e164 = canonicalizePhone(input.phone ?? null);
+  if (!e164) return { ok: false, reason: "unknown" };
+  const res = await resolveThroughIndex(
+    PHONE_KEY,
+    async () => {
+      const userId = await readUserIdByPhone(e164);
+      return userId != null ? await readRecord(userId) : null;
+    },
+    () => isMember(PHONE_COLLISION_KEY, e164),
+  );
+  if (!res.ok) return res;
+  return { ok: true, staff: res.value, stale: res.stale };
+}
+
+/**
+ * The record for a KNOWN user id, or null when they are no longer on the active
+ * roster. Used at charge time ("is this person still an employee?") and by the
+ * code-free recognition path. A miss on a stale index rebuilds once, exactly
+ * like the typed lookups, so a fresh deactivation is honoured within the
+ * rebuild lock window and a fresh hire is not refused.
+ */
+export async function getStaffRecord(
+  userId: number,
+): Promise<{ ok: true; staff: StaffRecord; stale: boolean } | { ok: false; reason: string }> {
+  if (!Number.isFinite(userId) || userId <= 0) return { ok: false, reason: "unknown" };
+  const res = await resolveThroughIndex(
+    BY_ID_KEY,
+    () => readRecord(userId),
+    async () => false,
+  );
+  if (!res.ok) return res;
+  return { ok: true, staff: res.value, stale: res.stale };
 }

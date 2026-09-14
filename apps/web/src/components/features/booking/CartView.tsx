@@ -37,6 +37,11 @@ import {
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { getRaceSimProduct, getRaceSimTrack, raceSimPriceFor } from "~/features/race-sims/products";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import {
+  employeeMember,
+  computeEmployeeFreeHeats,
+  employeeAttractionUnits,
+} from "~/features/booking/service/employee-perks";
 import { racerNeedsLicense } from "~/features/booking/service/license";
 import { useT } from "~/features/kiosk/i18n";
 import { racePackTeaserVisible } from "./steps/race/RacePackTeaser";
@@ -370,7 +375,9 @@ export function CartGameCardsBlock({
   if (!session.gameCardPurchase) return null;
   let gz: ReturnType<typeof resolveCartPurchase>;
   try {
-    gz = resolveCartPurchase(session.gameCardPurchase);
+    gz = resolveCartPurchase(session.gameCardPurchase, {
+      employee: !!employeeMember(session.party),
+    });
   } catch {
     gz = null;
   }
@@ -1341,6 +1348,7 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
     // the pay screen. Same coverage order too: credits → packs → vouchers →
     // BOGO on the cash remainder.
     let bogoFreeTotal = 0;
+    let employeeFreeTotal = 0;
     if (!session.comboSpecialId) {
       try {
         let base = redeemedHeatSet(session);
@@ -1355,13 +1363,28 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
           const vHeats = planVoucherCoverage(session, base).raceHeats;
           if (vHeats.size > 0) base = new Set([...base, ...vHeats]);
         }
+        const sumLines = (ex: Set<RaceHeatAssignment>) =>
+          applyPromoToBillLines(raceItemChargeLines(item, ex), session.appliedPromo).reduce(
+            (s, l) => s + l.amount,
+            0,
+          );
+        // EMPLOYEE PERKS — the team member's free single races, same coverage
+        // slot as the charge (after vouchers, before BOGO), differenced against
+        // THIS item's own lines like everything above.
+        const empFree = computeEmployeeFreeHeats(
+          session.items,
+          session.party,
+          base,
+          session.employee,
+        );
+        if (empFree.heats.size > 0) {
+          employeeFreeTotal =
+            Math.round((sumLines(base) - sumLines(new Set([...base, ...empFree.heats]))) * 100) /
+            100;
+          base = new Set([...base, ...empFree.heats]);
+        }
         const bogo = computeBogoScheduledFree(session.items, session.party, base);
         if (bogo.heats.size > 0) {
-          const sumLines = (ex: Set<RaceHeatAssignment>) =>
-            applyPromoToBillLines(raceItemChargeLines(item, ex), session.appliedPromo).reduce(
-              (s, l) => s + l.amount,
-              0,
-            );
           bogoFreeTotal =
             Math.round((sumLines(base) - sumLines(new Set([...base, ...bogo.heats]))) * 100) / 100;
         }
@@ -1374,6 +1397,7 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
       packsTotal -
       packCoveredTotal -
       voucherCoveredTotal -
+      employeeFreeTotal -
       bogoFreeTotal +
       licenseTotal +
       povTotal +
@@ -1395,6 +1419,15 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
           .reduce((s, p) => s + (p.attractionUnitCents ?? 0), 0);
         return Math.max(0, base - cents / 100);
       }
+    }
+    // EMPLOYEE PERKS — the team member's own gel/laser units at 50%, the same
+    // helper the charge builder splits its line with.
+    const emp = employeeAttractionUnits(item, session.party);
+    if (emp.units > 0 && config?.bookingMode === "per-person") {
+      return Math.max(
+        0,
+        base - (Math.round(item.price * 100 * (emp.percentOff / 100)) * emp.units) / 100,
+      );
     }
     return base;
   }

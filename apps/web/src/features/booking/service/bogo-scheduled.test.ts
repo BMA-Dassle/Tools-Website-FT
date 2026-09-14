@@ -165,11 +165,11 @@ describe("computeBogoScheduledFree — the pairing rule", () => {
   });
 
   it("racingPassBlocksBogo reads the racing category only", () => {
-    expect(racingPassBlocksBogo(["Employee Pass"])).toBe(true);
+    expect(racingPassBlocksBogo({ memberships: ["Employee Pass"] })).toBe(true);
     // Retired discount = no pass = no block (owner 2026-09-01).
-    expect(racingPassBlocksBogo(["League Racer"])).toBe(false);
-    expect(racingPassBlocksBogo(["Some Bowling Club"])).toBe(false);
-    expect(racingPassBlocksBogo([])).toBe(false);
+    expect(racingPassBlocksBogo({ memberships: ["League Racer"] })).toBe(false);
+    expect(racingPassBlocksBogo({ memberships: ["Some Bowling Club"] })).toBe(false);
+    expect(racingPassBlocksBogo({ memberships: [] })).toBe(false);
     expect(racingPassBlocksBogo(undefined)).toBe(false);
   });
 

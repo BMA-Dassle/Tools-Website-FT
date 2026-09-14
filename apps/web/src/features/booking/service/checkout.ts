@@ -31,7 +31,7 @@ import { applyPromoToBillLines, promoSavingsCents } from "./promo-pricing";
 import { getRaceProductById, priceOnDate } from "./race-products";
 import { raceUsesZeroBmiModel, cancelRaceOrder, holdRaceItem } from "./race";
 import { getPackage, packagePerRacerPrice, POV_PRICE } from "./packages";
-import { membershipDiscountsForNames } from "./membership-discounts";
+import { entitlementsForMember } from "./membership-discounts";
 import { LICENSE_PRICE, calculateTax } from "./race-pricing";
 import { addonChargeLines } from "./addon-charge";
 import { redemptionsFromSession } from "../data/race-credits";
@@ -907,10 +907,12 @@ function racingDiscountForMember(m: PartyMember | undefined): {
   percent: number;
   label: string | null;
 } {
-  if (!m || !m.memberships?.length) return { percent: 0, label: null };
+  if (!m) return { percent: 0, label: null };
   let percent = 0;
   let label: string | null = null;
-  for (const d of membershipDiscountsForNames(m.memberships)) {
+  // BOTH sources — BMI membership names AND the verified 7shifts employee stamp
+  // (same `employee-pass` key, deduped) — see entitlementsForMember.
+  for (const d of entitlementsForMember(m)) {
     if (d.categories.includes("racing") && d.percentOff > percent) {
       percent = d.percentOff;
       label = d.label;

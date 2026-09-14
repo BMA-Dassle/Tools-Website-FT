@@ -14,6 +14,10 @@
  * absent; removing the last KbfItem clears it.
  */
 import type { AppliedPromo } from "~/features/discount-codes";
+import {
+  stampEmployeeOnParty,
+  type SessionEmployee,
+} from "~/features/discount-codes/programs/employee";
 import type { AppliedVoucherState } from "./types";
 import { qamfCenterIdForCode, type CenterCode, type ContactInfo } from "../types";
 import { packSkusForRaceDate } from "../service/race-pack-kiosk";
@@ -99,6 +103,12 @@ export type Action =
    * not mutating mid-flow.
    */
   | { type: "applyPromo"; promo: AppliedPromo | null }
+  /**
+   * EMPLOYEE PERKS: set (or clear) the verified team member. Stamps the one
+   * matched party member via `stampEmployeeOnParty` so the pure pricing helpers
+   * read the same person the server will re-derive from the token.
+   */
+  | { type: "setEmployee"; employee: SessionEmployee | null }
   | { type: "applyVoucher"; voucher: AppliedVoucherState }
   /** No itemIndex = drop every leg of the code; with itemIndex = drop ONE
    *  native leg (kiosk per-leg ✕) and leave the code's other legs applied. */
@@ -391,6 +401,13 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
 
     case "applyPromo":
       return { ...state, appliedPromo: action.promo };
+
+    case "setEmployee":
+      return {
+        ...state,
+        employee: action.employee,
+        party: stampEmployeeOnParty(state.party, action.employee),
+      };
 
     case "applyVoucher": {
       // Upsert by (code, itemIndex) — re-scans and pending→applied transitions

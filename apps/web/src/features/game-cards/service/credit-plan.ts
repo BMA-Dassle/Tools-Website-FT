@@ -23,6 +23,10 @@ import { gameCardGrantFromPackageId, isVoucherPackageId } from "../vouchers/gran
 // Routed transport: onsite first, cloud SOAP fallback (data/intercard-router.ts).
 import { creditAccountValues, type IntercardTransport } from "../data/intercard-router";
 import type { TxnKind } from "../types";
+import {
+  EMPLOYEE_GZ_PERK,
+  employeeGameZoneCredit,
+} from "~/features/discount-codes/programs/employee";
 
 export interface CreditPlan {
   /** Purchased-token bucket. */
@@ -42,6 +46,8 @@ export interface CreditableRow {
   packageId: string;
   tokens: number;
   bonusTokens: number;
+  /** `employee-2x` (employee perks) doubles the bought tokens into bonus. */
+  perk?: string | null;
 }
 
 export function creditPlanForRow(row: CreditableRow): CreditPlan | null {
@@ -59,9 +65,18 @@ export function creditPlanForRow(row: CreditableRow): CreditPlan | null {
     };
   }
   const pkg = getPackage(row.packageId);
-  return {
+  const base = {
     tokens: pkg?.tokens ?? row.tokens,
     bonusTokens: pkg?.bonusTokens ?? row.bonusTokens,
+  };
+  // EMPLOYEE PERKS: a team member's card loads the bought tokens again as
+  // BONUS (100 → 100 + 100). Resolved from the ROW's persisted perk marker —
+  // written at prepare after the token verified — so the live load, a retry and
+  // the reconcile cron all credit the same doubled plan.
+  const credit = row.perk === EMPLOYEE_GZ_PERK ? employeeGameZoneCredit(base) : base;
+  return {
+    tokens: credit.tokens,
+    bonusTokens: credit.bonusTokens,
     bonusCashDollars: 0,
     bridgeable: true,
   };

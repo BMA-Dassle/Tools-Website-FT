@@ -125,6 +125,10 @@ export const TerminalPrepareSchema = z.object({
   /** Which kiosk — see PurchaseSchema.kioskId. This is THE kiosk rail, so it is
    *  the path that actually populates the staff card-load view. */
   kioskId: z.string().trim().max(120).optional(),
+  /** EMPLOYEE PERKS: the verified team member's signed token (kiosk store). The
+   *  server verifies it and doubles the bought tokens into bonus; an invalid or
+   *  missing token prices a plain guest. Never a client-supplied token COUNT. */
+  employeeToken: z.string().max(512).optional(),
 });
 export type TerminalPrepareInput = z.infer<typeof TerminalPrepareSchema>;
 

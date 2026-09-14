@@ -17,6 +17,8 @@
  * verified lookup before checking `activeMembershipDiscounts`.
  */
 
+import { EMPLOYEE_ENTITLEMENT } from "~/features/discount-codes/programs/employee";
+
 /** What a discount can apply to. A Square day-of line is mapped to one of these. */
 export type DiscountCategory = "racing" | "gel-blasters" | "laser-tag" | "bowling" | "attractions";
 
@@ -128,6 +130,31 @@ export function activeMembershipDiscounts(
 export function membershipDiscountsForNames(names: string[]): MembershipDiscount[] {
   const set = new Set((names ?? []).map((n) => n.trim().toLowerCase()));
   return MEMBERSHIP_DISCOUNTS.filter((d) => d.enabled && set.has(d.membershipName.toLowerCase()));
+}
+
+/**
+ * The member shape `entitlementsForMember` reads — PartyMember satisfies it.
+ */
+export interface EntitledMember {
+  memberships?: string[];
+  /** Set only by the employee-perks stamp (programs/employee.ts). */
+  employeePerks?: unknown;
+}
+
+/**
+ * EVERY benefit this member is entitled to, from BOTH sources — active BMI
+ * membership names (Employee Pass, …) AND the verified 7shifts employee stamp
+ * (EMPLOYEE_ENTITLEMENT, same `employee-pass` key). Deduped by key, so the two
+ * can never stack: a member is entitled or not. THE ONE helper the race line
+ * builder, the credit attribution, the BOGO exclusion and the attraction split
+ * all read, so display and charge cannot disagree about who is entitled.
+ */
+export function entitlementsForMember(m: EntitledMember | null | undefined): MembershipDiscount[] {
+  const out = membershipDiscountsForNames(m?.memberships ?? []);
+  if (m?.employeePerks && !out.some((d) => d.key === EMPLOYEE_ENTITLEMENT.key)) {
+    out.push(EMPLOYEE_ENTITLEMENT);
+  }
+  return out;
 }
 
 /** Highest percent-off available for a category across the active discounts. */

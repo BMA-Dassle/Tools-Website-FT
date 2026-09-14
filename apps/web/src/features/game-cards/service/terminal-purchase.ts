@@ -28,6 +28,12 @@ import { verifyAccount, IntercardError } from "../data/intercard-router";
 import { createReloadOrder, readSquarePaymentSettled } from "../data/square-order";
 import { startTxn, markCharged, markLoadState, getTxn } from "../data/transactions-log";
 import { assertSwipedBlanks } from "./swiped-blank-guard";
+import { verifyEmployeeToken } from "~/features/discount-codes/programs/employee.server";
+import { getStaffRecord } from "~/features/staff/service";
+import {
+  EMPLOYEE_GZ_PERK,
+  employeeGameZoneCredit,
+} from "~/features/discount-codes/programs/employee";
 
 export interface TerminalPreparedRow {
   txnId: string;
@@ -65,13 +71,24 @@ export async function prepareTerminalPurchase(
     throw new GameCardHttpError(400, "EMPTY_CART", "Add at least one card.");
   }
 
+  // EMPLOYEE PERKS: a verified team member's token doubles the bought tokens
+  // into bonus at full price. Verified HERE (server), and the doubled plan is
+  // persisted on each ledger row so the load and the reconcile cron agree. A
+  // bad or absent token is simply a guest purchase — never an error.
+  const employee = verifyEmployeeToken(input.employeeToken);
+  const employeeActive = employee ? (await getStaffRecord(employee.userId)).ok : false;
+  const perk = employeeActive ? EMPLOYEE_GZ_PERK : null;
+
   const resolved = input.items.map((it) => {
     const pkg = getPackage(it.packageId);
     if (!pkg) throw new GameCardHttpError(400, "UNKNOWN_PACKAGE", "That package isn't available.");
     if (input.kind === "reload" && !it.accountNumber) {
       throw new GameCardHttpError(400, "CARD_NOT_FOUND", "A card number is required to reload.");
     }
-    return { pkg, accountNumber: it.accountNumber ?? "" };
+    const credit = perk
+      ? employeeGameZoneCredit(pkg)
+      : { tokens: pkg.tokens, bonusTokens: pkg.bonusTokens };
+    return { pkg, accountNumber: it.accountNumber ?? "", credit };
   });
 
   // New cards on a SWIPE kiosk arrive with the account the guest swiped: confirm
@@ -133,18 +150,19 @@ export async function prepareTerminalPurchase(
       locationCode: input.locationCode,
       accountNumber: r.accountNumber,
       packageId: r.pkg.id,
-      tokens: r.pkg.tokens,
-      bonusTokens: r.pkg.bonusTokens,
+      tokens: r.credit.tokens,
+      bonusTokens: r.credit.bonusTokens,
       amountCents: r.pkg.priceCents,
       tpiTransactionId,
       contact: input.contact,
       kioskId: input.kioskId,
+      perk,
     });
     rows.push({
       txnId,
       packageId: r.pkg.id,
-      tokens: r.pkg.tokens,
-      bonusTokens: r.pkg.bonusTokens,
+      tokens: r.credit.tokens,
+      bonusTokens: r.credit.bonusTokens,
       amountCents: r.pkg.priceCents,
       accountNumber: r.accountNumber,
     });

@@ -8,6 +8,12 @@
  *
  * The session entries are selection POINTERS (packageId + reload account) —
  * prices always re-derive from TOKEN_PACKAGES, never from the client.
+ *
+ * EMPLOYEE PERKS (2026-09-13): when the cart belongs to a verified team member
+ * (`employee: true` — the caller decides that from the stamped party, never
+ * from a client flag alone), every card's CREDIT doubles the bought tokens into
+ * bonus (100 → 100 + 100) at FULL price. The `credit` and `perk` on each
+ * resolved card are what the ledger row is written with at prepare.
  */
 import {
   getPackage,
@@ -17,6 +23,10 @@ import {
   SQUARE_ACTIVATION_FEE_CATALOG_ID,
   type TokenPackage,
 } from "./constants";
+import {
+  EMPLOYEE_GZ_PERK,
+  employeeGameZoneCredit,
+} from "~/features/discount-codes/programs/employee";
 import type { GameCardCartPurchase } from "~/features/booking/state/types";
 
 export interface ResolvedCartCard {
@@ -24,6 +34,10 @@ export interface ResolvedCartCard {
   /** "" for a new card (account attached when the blank is dispensed). */
   accountNumber: string;
   pkg: TokenPackage;
+  /** What the card is CREDITED — the pack's buckets, doubled for a team member. */
+  credit: { tokens: number; bonusTokens: number };
+  /** Ledger marker (`employee-2x`) or null. */
+  perk: string | null;
 }
 
 export interface ResolvedCartPurchase {
@@ -47,6 +61,7 @@ export interface ResolvedCartPurchase {
  */
 export function resolveCartPurchase(
   p: GameCardCartPurchase | undefined | null,
+  opts: { employee?: boolean } = {},
 ): ResolvedCartPurchase | null {
   if (!p || p.cards.length === 0) return null;
   const cards: ResolvedCartCard[] = p.cards.map((c) => {
@@ -55,7 +70,16 @@ export function resolveCartPurchase(
     if (p.mode === "reload" && !c.accountNumber?.trim()) {
       throw new Error("A reload card is missing its account number");
     }
-    return { packageId: c.packageId, accountNumber: c.accountNumber?.trim() ?? "", pkg };
+    const credit = opts.employee
+      ? employeeGameZoneCredit(pkg)
+      : { tokens: pkg.tokens, bonusTokens: pkg.bonusTokens };
+    return {
+      packageId: c.packageId,
+      accountNumber: c.accountNumber?.trim() ?? "",
+      pkg,
+      credit,
+      perk: opts.employee ? EMPLOYEE_GZ_PERK : null,
+    };
   });
   // EVERY new card pays the one-time activation fee — checkout-upsell cards
   // included (owner 2026-07-21, reversing the earlier waiver: "add card
@@ -65,9 +89,9 @@ export function resolveCartPurchase(
     cards.reduce((s, c) => s + c.pkg.priceCents, 0) + activationFeeCents(p.mode, cards.length);
   const orderLines: ResolvedCartPurchase["orderLines"] = cards.map((c) => ({
     name:
-      p.mode === "new_card"
+      (p.mode === "new_card"
         ? `${c.pkg.label} (new card)`
-        : `${c.pkg.label} → card ${c.accountNumber}`,
+        : `${c.pkg.label} → card ${c.accountNumber}`) + (c.perk ? " · Employee · 2× tokens" : ""),
     quantity: "1",
     catalogObjectId: SQUARE_TOKEN_CATALOG_ID,
     amountCents: c.pkg.priceCents,
