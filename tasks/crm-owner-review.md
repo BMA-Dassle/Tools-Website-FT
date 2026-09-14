@@ -43,6 +43,24 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       guest / time / guests / centre).
 - [ ] **The deal drawer layout** — owner: "Hate this layout". Needs a proper
       pass against the Direction B prototype rather than piecemeal fixes.
+- [ ] **The deal HEADER needs a design pass** — owner: "mAKE THIS LOOK BETTER".
+      Observed on Juniper Landscaping / H2892. Specifics to fix, not just
+      "tidy it":
+      - A stray calendar glyph followed by an EMPTY pill sits after the centre
+        name. It renders as a grey stub with no content. Either it has data and
+        is not showing it, or it should not be drawn.
+      - Seven separate chips and labels compete on two lines: status, BMI state,
+        project number, no-touch timer, rep avatar, centre. No hierarchy — the
+        eye has nowhere to land first.
+      - The money is the largest thing on the header but is greyed almost to
+        the background, so the one number a planner wants reads as disabled.
+      - The meta row's icons are inconsistent in weight and size against the
+        action row's, which is what the owner meant by "Icons look off".
+      - The stage bar's labels (Assigned / Contacted / Quote / Contract /
+        Booked) are cramped under full-width segments and wrap badly at narrow
+        widths.
+      Reference: `direction-b.html` deal header. Match its hierarchy rather
+      than inventing one.
 
 ## Open — decisions the owner owes
 
