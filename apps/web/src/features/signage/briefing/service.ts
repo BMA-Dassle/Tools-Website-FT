@@ -21,6 +21,7 @@ import "server-only";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { crewBoardFrom } from "~/features/staff/crew.server";
 import type { CrewBoard } from "~/features/staff/crew-list";
+import { readReadyToPull, type ReadyToPullByTrack } from "./ready-to-pull.server";
 import { readPitLanes } from "../pit/lane.server";
 import type { PitLanes } from "../pit/pit-board";
 import { calledAtMsFor, sessionCheckinTimes } from "../service/checkin-progress";
@@ -819,6 +820,13 @@ export interface BriefingBoardStatus {
    */
   timing: TimingFeedStatus;
   /**
+   * THE DESK'S "READY TO PULL" MARK PER TRACK (owner 2026-09-13) — which called
+   * session, if any, a staff member has flagged ready for the room. The Called
+   * box draws its button pressed when the mark names ITS heat; the walls flash
+   * their CHECKING IN row on the same fact.
+   */
+  readyToPull: ReadyToPullByTrack;
+  /**
    * WHO IS ON TRACK OPS RIGHT NOW, what each of them is running, and how many
    * groups they have briefed today (owner 2026-09-07).
    *
@@ -977,6 +985,7 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     raceBookmarks,
     cameraPreview,
     timing,
+    readyToPull,
   ] = await Promise.all([
     readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null })),
     listBriefingAssignments(VENUE, businessDay).catch(() => []),
@@ -1002,6 +1011,9 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     // honest "we don't know", never a red DOWN that sends staff chasing a
     // feed that is fine.
     readTimingFeedStatus(now),
+    // The desk's own Ready to pull marks, so the Called box can show its
+    // button as pressed. Swallows to "no marks" — a blip must not fail the board.
+    readReadyToPull(),
   ]);
 
   const [groupsOut, briefedSessions, crew] = await Promise.all([
@@ -1101,5 +1113,79 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     cameraPreview: { mode: cameraPreview },
     timing,
     crew,
+    readyToPull,
+  };
+}
+
+/**
+ * THE BOARD'S FAST LANE — what moves when somebody presses something.
+ *
+ * Owner 2026-09-12: "I need track ops rotation and stats to update faster… show
+ * them available as soon as race is posted." The post press frees the marshal
+ * in the same lane write that empties the pit slot, so the server has the answer
+ * instantly; the desk and the tablets were reading it on a five-second poll that
+ * also folds the day's assignments and events out of Neon — too heavy to run
+ * every two seconds, and none of that half changes at a press.
+ *
+ * So the board is split the way the walls have been since the pulse existed:
+ * this is the Redis half — the rooms, the lanes and the crew — and
+ * `useBriefingControl` merges it over the full status when it is newer. The
+ * three travel TOGETHER on purpose: a Holding box that moved two seconds before
+ * the room box emptied would show one group in two places, which is the exact
+ * inconsistency the crew fold was built to prevent between the strip and the
+ * boxes ("a tag can never lag the Holding box six inches above it").
+ *
+ * WHAT IS NOT HERE, and why: `groupOut` needs the day's assignments (Neon), so
+ * the client keeps the full board's copy per room; the crew's counts and roster
+ * are served stale-while-revalidate inside crew.server, so nothing in this
+ * function waits on anything but Redis after an isolate's first read.
+ */
+export interface BriefingBoardPulse {
+  now: number;
+  rooms: Array<Omit<BriefingRoomStatus, "groupOut">>;
+  lanes: PitLanes;
+  crew: CrewBoard;
+  /** The Ready to pull marks — a press, so it rides the fast lane too. */
+  readyToPull: ReadyToPullByTrack;
+}
+
+export async function briefingBoardPulse(): Promise<BriefingBoardPulse> {
+  const now = Date.now();
+  const businessDay = businessDayYmdET();
+  const [rooms, lanes] = await Promise.all([
+    readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null })),
+    readPitLanes(),
+  ]);
+  const [roomHosts, crew, readyToPull] = await Promise.all([
+    readSessionHosts(BRIEFING_ROOMS.map((room) => rooms[room]?.sessionId ?? null)).catch(
+      (): Record<string, SessionHost> => ({}),
+    ),
+    crewBoardFrom({ lanes, rooms, nowMs: now, businessDay }).catch(
+      (): CrewBoard => ({
+        list: [],
+        unattributed: 0,
+        groups: 0,
+        briefers: 0,
+        rosterAvailable: false,
+      }),
+    ),
+    readReadyToPull(),
+  ]);
+  return {
+    now,
+    rooms: BRIEFING_ROOMS.map((room) => {
+      const state = rooms[room];
+      const timeline = briefingTimelineAt(state, now);
+      return {
+        room,
+        state,
+        phase: timeline.phase,
+        nextInMs: timeline.nextInMs,
+        host: state?.sessionId ? (roomHosts[state.sessionId]?.firstName ?? null) : null,
+      };
+    }),
+    lanes,
+    crew,
+    readyToPull,
   };
 }

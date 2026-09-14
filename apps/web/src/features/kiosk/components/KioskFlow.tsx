@@ -69,6 +69,7 @@ import {
   type QualificationPatch,
 } from "../service/qualification-refresh-client";
 import { useKioskConfig } from "../KioskConfigContext";
+import { KioskEmployeeSheet, useEmployeeRecognition } from "./KioskEmployeeSheet";
 import { useLocale, type MessageKey, type Translate } from "../i18n";
 import { gameZoneCapability, isTestKiosk } from "../config";
 import {
@@ -419,6 +420,9 @@ export function KioskFlow({
   const queryClient = useQueryClient();
   // Always-latest handleNext for steps' requestAdvance — the picker calls it
   // after an await, from a closure created renders ago; the ref guarantees the
+  // EMPLOYEE PERKS — code-free recognition of a linked team member who signed
+  // in as themselves (licence / phone / login code). Sheet mounts in `chrome`.
+  const employeeRecognition = useEmployeeRecognition(session, dispatch);
   // CURRENT session/item advance (and the unracered sheet still intercepts).
   // setTimeout(0) lets React flush the hold's final state first. Hooks live up
   // here (the config early-return sits below); the ref is assigned by a plain
@@ -1846,6 +1850,11 @@ export function KioskFlow({
         <KioskDispenserPrewarm enabled={!gzOpen} />
         {/* Before <IdleWatcher/>: the idle "Still there?" sheet is the same
           z-[80] — as the later sibling it must paint ON TOP of this confirm. */}
+        <KioskEmployeeSheet
+          employee={employeeRecognition.pending}
+          onAccept={employeeRecognition.accept}
+          onDecline={employeeRecognition.decline}
+        />
         {confirmSheet}
         <IdleWatcher
           // The merged cart+checkout screen is checkout dwell too (rewards
@@ -2229,6 +2238,9 @@ export function KioskFlow({
         // doesn't scan the same code twice and a Back/re-open starts clean.
         initialScan={entryScanHandoff?.target === "code-entry" ? entryScanHandoff.raw : undefined}
         onApplied={(promo) => dispatch({ type: "applyPromo", promo })}
+        // EMPLOYEE PERKS: the "Team member" door on the code screen. The server's
+        // SessionEmployee lands on the session and stamps the matched member.
+        onEmployeeVerified={(employee) => dispatch({ type: "setEmployee", employee })}
         voucherRedeem={voucherRedeem}
         appliedVoucherCodes={appliedVouchers.map((v) => v.code)}
         onVoucherAccepted={(code, name) =>
@@ -2333,6 +2345,8 @@ export function KioskFlow({
           brand={config.brand}
           capability={gameZoneCapability(config) === "swipe" ? "swipe" : "full"}
           initialVoucherCodes={gzVoucherCodes}
+          // EMPLOYEE PERKS: a verified team member's standalone cards load 2× (bonus).
+          employeeToken={session.employee?.token ?? null}
           // A game card scanned on the attract screen or the chooser — opens
           // straight on its balance rather than asking for the card again.
           initialCardAccount={

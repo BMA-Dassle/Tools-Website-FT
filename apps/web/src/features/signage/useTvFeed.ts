@@ -211,6 +211,14 @@ export function useTvFeed(screenId: string | null): {
       // last known answer stands rather than a full-screen alarm appearing
       // because one Redis call blipped.
       roomBlocked: pulse.roomBlocked ?? feed.roomBlocked,
+      // The Track Ops row rides the fast lane too (owner 2026-09-12): the post
+      // press frees the marshal in the same write that empties the lane, and a
+      // row that waited for the 15s feed lagged the Holding box beside it. Null
+      // on a dropped beat or a failed fold keeps the feed's copy, as the lanes do.
+      crew: pulse.crew ?? feed.crew,
+      // Pulse-only, like the fast roster: the desk's Ready to pull mark. A
+      // dropped beat keeps the last one rather than un-lighting a row.
+      readyToPull: pulse.readyToPull ?? feed.readyToPull,
       /**
        * THE CAMERA STRIP, on the fast lane so a registration clears in seconds
        * rather than on the next 15s poll (owner 2026-08-12).

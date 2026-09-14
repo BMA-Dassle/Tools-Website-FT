@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPunchIndex, isActiveUser, staffFirstName, staffFromUser } from "./punch-index";
+import {
+  buildPunchIndex,
+  buildStaffIndexes,
+  isActiveUser,
+  staffFirstName,
+  staffFromUser,
+  staffRecordFromUser,
+} from "./punch-index";
 import type { SevenShiftsUser } from "~/lib/api/sevenshifts";
 
 function user(over: Partial<SevenShiftsUser> & { id: number }): SevenShiftsUser {
@@ -121,5 +128,54 @@ describe("buildPunchIndex", () => {
       user({ id: 4, punch_id: "9" }),
     ]);
     expect(size).toBe(1);
+  });
+});
+
+describe("buildStaffIndexes (employee perks)", () => {
+  it("indexes every active user by id with a canonical mobile, punch id optional", () => {
+    const { byId, byPhone } = buildStaffIndexes([
+      user({
+        id: 1,
+        punch_id: null,
+        mobile_number: "(239) 555-4417",
+        email: "A@X.com",
+        birth_date: "1999-04-02",
+      }),
+      user({ id: 2, punch_id: "77", mobile_number: "garbage" }),
+    ]);
+    expect(byId["1"]).toMatchObject({
+      userId: 1,
+      punchId: null,
+      mobile: "+12395554417",
+      email: "a@x.com",
+      birthDate: "1999-04-02",
+    });
+    expect(byId["2"]).toMatchObject({ userId: 2, punchId: "77", mobile: null });
+    expect(byPhone["+12395554417"]).toBe(1);
+  });
+
+  it("excludes a mobile two active people share and drops inactive users entirely", () => {
+    const { byId, byPhone, phoneCollisions } = buildStaffIndexes([
+      user({ id: 1, mobile_number: "2395554417" }),
+      user({ id: 2, mobile_number: "12395554417" }),
+      user({ id: 3, mobile_number: "2395550000", active: false }),
+    ]);
+    expect(byPhone["+12395554417"]).toBeUndefined();
+    expect(phoneCollisions).toEqual(["+12395554417"]);
+    expect(byId["3"]).toBeUndefined();
+  });
+
+  it("requires a last name (the BMI match keys on it)", () => {
+    expect(staffRecordFromUser(user({ id: 1, last_name: "" }))).toBeNull();
+    expect(
+      staffRecordFromUser(user({ id: 1, first_name: "", preferred_first_name: "" })),
+    ).toBeNull();
+  });
+
+  it("keeps the legal first name beside the preferred one", () => {
+    const rec = staffRecordFromUser(
+      user({ id: 1, first_name: "Samantha", preferred_first_name: "Sam" }),
+    );
+    expect(rec).toMatchObject({ firstName: "Sam", legalFirstName: "Samantha" });
   });
 });

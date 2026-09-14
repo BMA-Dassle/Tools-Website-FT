@@ -542,3 +542,73 @@ describe("heatIsPastTheDesk", () => {
     expect(heatIsPastTheDesk(60, null)).toBe(false);
   });
 });
+
+/* ── READY TO PULL: the Checking-in row's three flash triggers (owner 2026-09-13) ── */
+describe("buildStageRail · pull", () => {
+  const base = (over: Partial<StageRailInput>): StageRailInput => ({
+    called: { heatNumber: 65, raceType: "Intermediate" },
+    rooms: [{ room: "red", state: null }],
+    lane: EMPTY_PIT_LANE,
+    nowMs: NOW,
+    checkinWindowMins: 8,
+    ...over,
+  });
+  const checkingIn = (input: StageRailInput) => buildStageRail(input)[0];
+
+  it("is absent while the grid is short, inside the window, with no press", () => {
+    const row = checkingIn(
+      base({ checkedIn: { checkedIn: 5, total: 8 }, calledForMs: 3 * 60_000 }),
+    );
+    expect(row.label).toBe("Checking in");
+    expect(row.pull).toBeUndefined();
+  });
+
+  it("fires on a complete grid", () => {
+    const row = checkingIn(
+      base({ checkedIn: { checkedIn: 8, total: 8 }, calledForMs: 3 * 60_000 }),
+    );
+    expect(row.pull).toEqual(["all-in"]);
+  });
+
+  it("fires once the check-in window has run out", () => {
+    const row = checkingIn(
+      base({ checkedIn: { checkedIn: 5, total: 8 }, calledForMs: 8 * 60_000 }),
+    );
+    expect(row.pull).toEqual(["window"]);
+  });
+
+  it("fires on the staff mark alone", () => {
+    const row = checkingIn(
+      base({ checkedIn: { checkedIn: 2, total: 8 }, calledForMs: 60_000, staffReady: true }),
+    );
+    expect(row.pull).toEqual(["staff"]);
+  });
+
+  it("never fires on an empty Checking-in row, whatever the inputs say", () => {
+    const row = checkingIn(
+      base({ called: null, checkedIn: { checkedIn: 8, total: 8 }, staffReady: true }),
+    );
+    expect(row.value).toBe("—");
+    expect(row.pull).toBeUndefined();
+  });
+
+  it("never fires for a called heat that has demonstrably moved on", () => {
+    const row = checkingIn(
+      base({
+        lane: {
+          ...EMPTY_PIT_LANE,
+          holding: { sessionId: "1", heatNumber: 65, raceType: "Pro", room: "red", atMs: NOW },
+        },
+        checkedIn: { checkedIn: 8, total: 8 },
+        staffReady: true,
+      }),
+    );
+    expect(row.value).toBe("—");
+    expect(row.pull).toBeUndefined();
+  });
+
+  it("the other rows never carry it", () => {
+    const rows = buildStageRail(base({ checkedIn: { checkedIn: 8, total: 8 }, staffReady: true }));
+    for (const r of rows.slice(1)) expect(r.pull).toBeUndefined();
+  });
+});

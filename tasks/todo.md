@@ -39,6 +39,388 @@ the build scratchpad; `docs/crm/README.md` is the distilled reference. **Nothing
         seed each rep's `crm_reps.threecx_extension` (none set, so every call has `rep_id` null);
         point the 3CX CRM template at production after merge; decision D7 on recordings.
 - [ ] Preview smoke log (URL + build SHA + pass/fail per §6.3 line) goes here per PR.
+## Camera boards: CHECKING IN row flashes when the group is ready to pull (2026-09-13) — branch `feat/rail-ready-to-pull` (stacked on `fix/track-ops-fast-lane`)
+
+Owner: on the screens outside the briefing rooms (camera view + rail) step 1 should "start blinking
+and highlight when ready", on any of three triggers: (1) all racers checked in, (2) past the 8-minute
+check-in window, (3) a staff press that says "ready to pull".
+
+- [x] `briefing/ready-to-pull.ts` (PURE, 7 tests) — `pullTriggers()` → `["all-in" | "window" | "staff"]`;
+      "window" is `checkinAlert === "late"` (past the venue's window, 8 min today), not the 60s lead.
+- [x] `briefing/ready-to-pull.server.ts` — the staff mark: `briefing:ready-to-pull:FT:{track}` =
+      `{sessionId, atMs}`, 2h TTL. Track-keyed so one MGET serves every pulse; consumers match the
+      sessionId so a stale mark can never light the next heat.
+- [x] `stage-rail.ts` — `staffReady` input; the Checking-in row carries `pull: PullTrigger[]` when armed
+      (7 tests). `StageRailView` blinks + highlights that row and wears a READY TO PULL pill (compact:
+      READY); red variant when the row's tone is alert (no time to brief), reduced-motion = colour only.
+- [x] TV pulse + feed carry `readyToPull` (pulse-only, merged like pitRosters); SceneCameraMonitor,
+      SceneBriefing, ScenePitBoard idle rail and the tablet rail pass `staffReady`.
+- [x] Desk: "Ready to pull" toggle button in the Called box beside Send (`action: "ready"` on
+      `/api/admin/briefing`); board status + board pulse carry `readyToPull`.
+- [x] Gates: vitest 524 files / 7733 tests green (same 6 env-only failures as the fast-lane branch:
+      next-auth / @auth/core not installed locally); tsc 54 errors = the pre-existing baseline, none
+      in touched files; eslint 0 errors on every changed file.
+- [x] Committed 62674a2d and MERGED to main 2026-09-13 (fast-forward, no PR), together with the
+      fast-lane commit 9c7c41b7 beneath it. Not live-verified. Open question for the owner: the desk's own Called box still flashes green
+      only on a complete grid; should it take the same three triggers?
+
+## Employee perks — 7shifts-verified, web + kiosk (2026-09-13) — branch `feat/employee-perks` — BUILT 2026-09-13, gates green, NOT live-verified
+
+Owner: "employee discounts for both web and kiosk … keep it generic … keep it with the other
+discount/voucher program code. Employees get 2 free races a week, 50% off everything. Game Zone
+cards double tokens: buy 100 → 100 regular + 100 bonus. Verified through 7shifts."
+
+### Owner decisions (2026-09-13)
+1. 50% applies to the employee's OWN items only.
+2. "Everything" = single races, gel blaster, laser tag. (Exactly today's Employee Pass categories.)
+3. Game Zone: FULL price, double tokens (never 50% on cards).
+4. Free races: SINGLE races only; the week is the Wed–Tue PAY week (`daily-events/week.ts`).
+5. Any ACTIVE 7shifts user is an employee.
+6. Keep the BMI "Employee Pass" membership as a fallback trigger for now (see § Fallback).
+7. Tie the employee to their BMI account — match on name and phone (see § Identity).
+8. Both surfaces (web + kiosk) on day one.
+
+### Grounding (read in full, not inferred)
+
+- `booking/service/membership-discounts.ts` + `checkout.ts` L900-975 — the **Employee Pass BMI
+  membership (kind 12754847) ALREADY gives 50% off racing/gel-blasters/laser-tag**, per racer, the
+  holder's own heats only, split lines `(Employee Pass −50%)` stamped `membershipDiscountPct`;
+  detected from `PartyMember.memberships` (BMI membership NAME strings). Only the RACING category
+  is wired to a charge line today; gel/laser are in the config but reach no line. Pandora deposit
+  kind 12754843 "Employee Pass" is reserved and unused. `bogo-scheduled.ts#racingPassBlocksBogo`:
+  pass holders never pair with BOGO.
+- `booking/service/unified-reserve.ts` — `buildCombinedLineItems` (L462-920) builds Square lines
+  AND display `pricedLines` side by side; race via `buildRaceChargeLines`; attractions L773-851
+  (`attr.price × chargedQty`, voucher coverage reduces qty, $0 lines tagged
+  `PricedLine.coverage.kind ∈ race-credit | race-pack | voucher | combo-inclusion | bogo-special`);
+  coverage order credits → packs → vouchers → BOGO (L598-641). `AttractionItem.assignedTo:
+  string[]` is universal (who is on the line); kiosk also has `participants`.
+- Kiosk = the web `BookingSession` verbatim (`kiosk/state/registry.ts`, schema v18) on the same
+  `unifiedReserve`; the terminal "price didn't add up" is a **$25 drift backstop**
+  (`KioskTerminalCheckoutGate.tsx:186-203`), not equality. The kiosk has a one-input code-entry
+  screen with a classifier (`kiosk/code-entry/classify.ts`).
+- `features/discount-codes/` — Neon codes, `AppliedPromo`, `discount_redemptions` idempotent on
+  `(code_id, external_ref)`; `promo-pricing.ts` is the promo seam. NOT used for the 50% in v2 of
+  this plan (own-items + per-racer categories = the membership model, not the cart promo model);
+  it stays the home for the ledger + program config so all discount programs live together.
+- `features/staff/` + `lib/api/sevenshifts.ts` — paced 7shifts transport; Redis punch index
+  (`staff:punch-index`, 10 min fresh / 24 h fail-open, collisions excluded); `StaffIdentity =
+  {userId, punchId, firstName, lastName}`; `userId` is THE key. 7shifts v2 User (checked
+  2026-09-13) carries `mobile_number`, `email`, `punch_id`, `employee_id`, `active`, `hire_date`.
+- `features/kiosk/staff-mode/` — Intercard staff card → Office → Pandora staff-roles (Manager-
+  only). BMI staff, card-only: not the employee-perk identity.
+- `features/game-cards/` — `TokenPackage {tokens, bonusTokens}`; Intercard credits the buckets
+  separately; `credit-plan.ts#creditPlanForRow(row)` is the ONE row → credit resolver used by
+  `loadCard`, retries and the reconcile cron. Web booking does NOT sell cards (`gameCardPurchase`
+  is kiosk-only); the standalone `/reload` web page credits inline.
+- OTP rails on file: `/api/sms-verify` (kiosk), `features/account` OTP store (hashed+peppered,
+  per-contact + per-IP caps, `normalizeContact`); `PartyMember.phoneVerified` (kiosk, OTP-proven;
+  owner 2026-07-21: never re-OTP a verified main contact). Kiosk party members carry `phone`
+  (Pandora mobile) and BMI ids; web party members carry ids from the returning-racer lookup, and
+  the CONTACT carries the phone.
+- Bowling-only + $0-credit-order rails exist but carry no racing/gel/laser lines → out of scope
+  by decision 2 (no bowling discount).
+- No per-person weekly counter exists anywhere; closest precedent is the KBF per-day query on
+  reservation history (`lib/bowling-db.ts:2966`). Hence a ledger.
+
+### Design v2
+
+**1. Identity: 7shifts user → proven by OTP → LINKED to a BMI person, persisted.**
+- Resolve: punch ID *or* mobile → ONE active 7shifts user (extended staff index: `staff:by-id`
+  userId → identity + E.164 mobile + email; `staff:phone-index` E.164 → userId; both built in
+  the same `rebuildPunchIndex`, collisions excluded like punch ids).
+- Prove: 6-digit code texted to the 7shifts `mobile_number` (masked on screen; never to a typed
+  number). Kiosk shortcut: a main person whose `phoneVerified` phone equals a 7shifts mobile
+  skips the code (already proven this session).
+- **Link to BMI (decision 7 + owner 2026-09-13 second safety check):** the proven employee must
+  match ONE party member: LAST NAME (normalized) equal to the 7shifts last name ALWAYS, then
+  EITHER E.164 phone equal to the 7shifts mobile OR a LENIENT first-name match (against 7shifts
+  legal AND preferred first name; case/accents stripped; a ≥3-letter prefix counts, so Sam ↔
+  Samantha). Neither leg → no link. Rationale (2026-09-13 exchange): last-name-only would link a
+  same-surname spouse/sibling when the employee is not racing; a strict first name would lock out
+  nicknames. Several candidates pass → the phone leg decides; still tied → no link. A phone hit
+  with a different surname does NOT link.
+  BMI-ACCOUNT LOOKUP IS THE INPUT (owner 2026-09-13): the match reads the BMI person RECORD (Office
+  / Pandora name + mobile) whenever the party member came from a lookup — kiosk licence scan, phone
+  lookup, login code, web returning-racer lookup. A hand-typed party name is never a BMI match. And
+  at VERIFY time, before anyone is on the booking, search BMI by the 7shifts mobile + last name
+  (Pandora `GET /bmi/person/search`, the kiosk licence-scan rail): exactly ONE hit that passes the
+  rule → pre-link, so the first licence scan already fires "Welcome back"; zero or several hits
+  (duplicate registrations) → no pre-link, match at party time instead. Finding an account is not
+  the check; it is what gets checked. Re-checked on
+  every code-free recognition (the linked person's current BMI last name vs 7shifts). Match → write `employee_bmi_links (seven_shifts_user_id, bmi_person_id,
+  matched_by 'phone'|'name'|'phone+name', linked_at, last_seen_at)` in Neon (persist-first). No
+  match → perks stay off with an honest line ("we couldn't match you to a racer on this
+  booking — sign in as yourself first"). A name-only match is accepted but flagged in the row;
+  the ledger keeps both ids so a wrong link is auditable and unlinkable.
+- **Recognition after the first link:** a party member whose `bmiPersonId` has a live link
+  (and whose 7shifts user is still active in the index) is recognised as the employee without a
+  new code — on the kiosk that is the licence/phone sign-in, on web the returning-racer lookup.
+  Ex-employees fall off when 7shifts deactivates them (index rebuild ≤10 min). A stale link
+  (no active user) is ignored, never deleted.
+- NO CODE WHEN THE SIGN-IN ALREADY PROVED IT (owner 2026-09-13, after the first preview: "if we know
+  the account is in BMI and it matches name and number why would we reverify"). A lookup-sourced
+  BMI person (licence scan, phone OTP, login code, web returning-racer lookup) whose LAST NAME AND
+  PHONE both match an active 7shifts record is linked automatically by `recognizeEmployee` —
+  matchedBy `auto:phone`, the phone being the proof — and gets the token with no text. The code
+  step remains for a BMI record whose phone differs from 7shifts (first-name leg alone never
+  auto-links). Kiosk asks via the sheet; web applies the chip directly (Remove undoes it).
+- UNIVERSAL CREDENTIAL (owner 2026-09-13: "cleanest way to verify that's universal"): the signed
+  employee token IS the proof everywhere. One mint path (code → token), one server check
+  `verifyEmployeeToken` that every rail calls — racing 50% + free races, gel/laser 50%, Game Zone
+  2×, web and kiosk alike. Only the FREE RACES need a ledger; the 50% and the 2× need nothing
+  but a valid token + the 7shifts user still active. Standalone kiosk Game Zone (no booking
+  session) carries the same token in the kiosk store and sends it as `x-employee-token` to
+  terminal-prepare, the staff-mode store pattern.
+- Session carrier: `session.employee = {userId, firstName, memberId, token, usedThisWeek}` +
+  signed HMAC token `{userId, memberId, bmiPersonId, sessionId, exp}`; the client copy is a
+  display hint, the server verifies the token at quote and charge (same doctrine as
+  `appliedPromo` step 0a and the kiosk staff token).
+
+**2. The 50% = the EXISTING per-racer membership-discount rail, second source.**
+`racingDiscountForMember(m)` → `entitlementsForMember(m, session)` (ONE helper, both sides):
+returns `MembershipDiscount[]` from (a) BMI membership names as today and (b) the verified
+employee stamp → the SAME `employee-pass` entry. Dedup by `key` ⇒ stacking is structurally
+impossible (a member is entitled or not). Racing lines split exactly as today
+(`(Employee Pass −50%)`, `membershipDiscountPct`) — zero new race math. NEW wiring for
+attractions: in `buildCombinedLineItems` L773-851, units of a gel-blaster / laser-tag line whose
+`assignedTo` includes an entitled member price at `percentOff` (own units only; other guests on
+the line pay full), emitted as a split line `Gel Blaster (Employee Pass −50%)` with
+`originalUnitCents`. CONFIRMED 2026-09-13: the WEB flow never writes `AttractionItem.assignedTo`
+(initialised `[]` at `types.ts:993`, only ever filtered in `machine.ts:287`); the kiosk writes
+`participants` + `assignedTo` at its people step. So: kiosk = units assigned to the employee;
+web = exactly ONE own unit per gel/laser line when the employee is in the party (a web qty-3
+line cannot say who the other two are).
+BOGO: `racingPassBlocksBogo` already reads the same helper → the employee never pairs.
+
+**3. Two free single races per PAY week (Wed–Tue) = $0 coverage from a Neon allowance.**
+`computeEmployeeFreeHeats(session, usedThisWeek)` — PURE, `bogo-scheduled` twin: the employee
+member's single-race heats (no package/combo/pack/credit/voucher-covered heats), session order,
+cheapest-first ties kept in order, up to `2 − usedThisWeek`. Runs in the coverage chain after
+vouchers and BEFORE BOGO (free race is free; the pass blocks BOGO anyway). New
+`PricedLine.coverage.kind = "employee-perk"`, label "Employee · free race". Free heats are
+excluded from the 50% split (a $0 heat has nothing to halve). Week key =
+`toDateStr(getWeekPeriod(now).start)` in ET. `usedThisWeek` is read server-side at quote and at
+charge; a charge-time count leaving fewer free heats than displayed **hard-fails** the reserve
+("your free races this week were already used") — explicit, because the $25 backstop would let a
+$17.99 heat through as a silent overcharge. Ledger rows written post-capture, idempotent on
+`(perk, external_ref, heat_ref)`; refund twin on cancellation.
+
+**4. Game Zone: double tokens = a credit-plan transform, persisted on the ledger row.**
+Charge stays `pkg.priceCents` (decision 3). Credit plan becomes `tokens: pkg.tokens,
+bonusTokens: pkg.bonusTokens + pkg.tokens` (100 → 100+100; 300+50 → 300+350). Written to the
+`game_card_transactions` row at prepare (new `perk` column, persist-first) so `loadCard`,
+retries and the reconcile cron agree; the client never sends token counts. Line name
+"(Employee · 2× tokens)". Surfaces: kiosk cart cards (`cart-purchase.ts` → ledger write at
+`unified-reserve.ts:2579`), kiosk standalone Game Zone (`terminal-purchase.ts`). Cards purchased
+in one session: no cap (owner did not ask for one; flagged).
+
+**5. Fallback (decision 6) — what keeping the BMI membership changes.**
+- Costs nothing structurally: both sources resolve to the one `employee-pass` entitlement, so no
+  stacking, no second code path for the 50%.
+- What the membership CANNOT unlock: free races and token doubling — both key on the 7shifts
+  user id (weekly ledger, active check). A membership-only racer gets 50% and nothing else.
+- Risk kept open: an ex-employee whose BMI membership nobody stopped keeps 50% until it is
+  stopped in BMI; a Manager card can add the membership to anyone from the kiosk staff-mode chip.
+  Retirement later is one line (`enabled: false`, the League Racer precedent) — its own PR.
+
+**6. Where it lives — co-located with the discount programs, no rename.**
+```
+features/discount-codes/
+  programs/employee.ts          program config (percent, categories, free races/week, GZ 2×),
+                                entitlement projection (→ MembershipDiscount), weekKey (PURE)
+  programs/employee.server.ts   token mint/verify (HMAC, staff-token pattern), OTP start/verify,
+                                resolve + link
+  data.ts                       + employee_bmi_links, employee_perk_redemptions (record/refund)
+features/staff/
+  punch-index.ts / service.ts   + mobile/email on StaffIdentity; by-id + phone hashes;
+                                resolveEmployee(punchId | phone); isActiveEmployee(userId)
+booking/service/
+  membership-discounts.ts       entitlementsForMember (two sources, dedup by key)
+  checkout.ts                   racingDiscountForMember → entitlementsForMember
+  employee-free-races.ts        computeEmployeeFreeHeats (PURE)
+  unified-reserve.ts            token verify; attraction own-unit split; coverage kind;
+                                hard-fail; ledger post-capture
+game-cards/                     credit-plan perk transform + ledger column
+app/api/booking/v2/employee/    start (punch|phone → code) · verify (code → token + link) · clear
+UI                              web: "Team member?" beside the checkout promo input →
+                                punch/phone → code; kiosk: code-entry screen accepts a punch ID
+                                (classifier) + auto-recognition on sign-in. Guest copy EN + ES.
+```
+Kill switch only: `EMPLOYEE_PERKS !== "false"` (default ON). Persist-first everywhere (link,
+ledger). Never `Number()` a BMI id. Admin read-only usage page = later PR.
+
+- FINAL MATCH RULE (owner 2026-09-13, after testing: "only checking last and phone for booked
+  products"): the BMI record's LAST NAME **and** PHONE must both equal 7shifts. The lenient
+  first-name leg was REMOVED — nicknames made it unreliable and the phone is the real second
+  factor. Two same-surname same-phone records (duplicate registration) → ambiguous, no link.
+
+### Threat model — how a non-employee is kept out (owner Q 2026-09-13)
+- Perks unlock ONLY for a 7shifts user id resolved from the index AND active; non-employees are
+  not in 7shifts, so there is nothing to resolve. Unknown punch/phone and wrong code return the
+  same neutral "we couldn't verify you" (no enumeration oracle).
+- Proof is possession of the phone 7SHIFTS holds. Guessing a punch ID only texts the real
+  employee; the attacker never sees the code. Codes hashed+peppered in Redis (account OTP store),
+  5-min TTL, 3 attempts then lockout, 60 s resend cooldown, hourly caps per contact, per IP and
+  per kiosk device key.
+- The token is HMAC-signed with a server secret, ~30 min TTL, bound to the booking session id
+  (or kiosk device for standalone GZ); the client cannot forge or extend it; every charge path
+  re-verifies it server-side and re-checks `active` — prices from the client are never trusted.
+- The BMI link is written only AFTER a successful code; the name/phone match decides WHICH party
+  member is the employee, it never grants anything. Code-free recognition later requires a
+  PROVEN sign-in of the linked person: kiosk licence scan (physical DL) or an OTP-proven phone
+  (`phoneVerified`); a bare name / login-code lookup does NOT count and asks for the code again.
+- Own-items rule bounds sharing: 50% and free races apply only to heats/units assigned to the
+  linked employee member. SOFT SPOT (flagged): doubled Game Zone cards are physical and can be
+  handed to a friend — every doubled load is ledgered to the 7shifts user id for a usage report;
+  a per-week card cap is a one-line config if abuse shows.
+- The BMI-membership fallback is the weaker rail (Manager card can add it) — unchanged from
+  today, retire once the 7shifts path is proven.
+
+### Build order (one branch `feat/employee-perks`, PR per step if large)
+- [x] A. Staff index: mobile/email/by-id/phone hashes + `resolveEmployee` + tests.
+- [x] B. discount-codes/programs/employee: config, projection, weekKey, Neon tables, tests.
+- [x] C. OTP start/verify/clear routes + token + BMI link + rate limits (per contact/IP/device).
+- [x] D. Pricing: entitlementsForMember two-source; attraction own-unit split; free-race
+      coverage + hard-fail; ledger writes; tests for display==charge on all three credit cases.
+- [x] E. Game Zone credit-plan transform + ledger column + load/reconcile agreement tests.
+- [x] F. UI web (CheckoutStep) + kiosk (code-entry classifier, sign-in recognition, StaffBar-
+      style chip), EN+ES.
+- [x] G. Gates: vitest, tsc, eslint, `next build`; smoke plan for the owner (both surfaces).
+
+Review (2026-09-13, evening) — BUILT on `feat/employee-perks` (worktree), gates green, NOT live-verified:
+- New: `features/discount-codes/programs/{employee,employee.server,employee-data,employee-client}.ts`
+  (program config + pure match rule; token/OTP/link/recognize/reconcile; Neon `employee_bmi_links` +
+  `employee_perk_redemptions`; typed client), `booking/service/employee-perks.ts` (pure free-race +
+  attraction-unit walks), `app/api/booking/v2/employee/route.ts` (start / verify / recognize),
+  kiosk `KioskTeamMemberEntry` ("Team member" MODE of the code-entry screen — a button, not the
+  classifier: a 10-digit mobile classifies as a game card) + `KioskEmployeeSheet` (recognition
+  sheet + Review & Pay bar), web `EmployeePerksInput` beside the promo field.
+- Changed: `staff/punch-index+service` (by-id + phone hashes in the SAME rebuild, `resolveEmployee`,
+  `getStaffRecord`; `SevenShiftsUser` gains `mobile_number`/`birth_date`), `membership-discounts`
+  (`entitlementsForMember`, two sources, dedup by key), `checkout.ts#racingDiscountForMember` +
+  `bogo-scheduled#racingPassBlocksBogo` read it (signature now takes the member), `unified-reserve`
+  (step 0a½ reconcile + `EmployeePerksChangedError` hard fail; free-race coverage after vouchers
+  before BOGO, kind `employee-perk`; attraction own-unit split line `(Employee Pass −50%)`; perk
+  ledger post-capture; GZ rows carry the doubled credit + `perk`), quote route reconciles first,
+  reserve-prepare/reserve-all map the 409, `cart-purchase` `{employee}` option, `transactions-log`
+  `perk` column, `credit-plan` doubles on `employee-2x`, standalone GZ `terminal-prepare` accepts
+  `employeeToken`, CheckoutStep/CartView/KioskCheckoutScreen mirrors, state `session.employee` +
+  `PartyMember.employeePerks` + `setEmployee` action, EN+ES `team.*` (38 keys), kiosk 1.36.0.
+- Gates: vitest 70 new tests green (7764 total; the 6 failing SUITES are pre-existing auth/sso/
+  middleware/waiver-short-link load failures — `/core` absent in this checkout); tsc clean on
+  touched files (same pre-existing `/core` / playwright errors); eslint 0 errors (2 warnings:
+  `Date.now` in a handler, a pre-existing KioskFlow deps warning); prettier.
+- Env: none required — signing falls back to `KIOSK_STAFF_SIGNING_SECRET` / `ADMIN_API_SIGNING_SECRET`
+  / `ADMIN_CAMERA_TOKEN`; optional `EMPLOYEE_PERKS_SIGNING_SECRET`; kill switch `EMPLOYEE_PERKS=false`.
+- NOT covered (flagged): the standalone web `/reload` page (no verification UI there); an admin
+  usage page (ledger is written, nothing reads it yet); a per-week card cap (owner declined a cap).
+- OWED: live smoke on a Fort Myers kiosk (Team member → code → perks; licence sign-in →
+  "Welcome back"; Review & Pay lines; GZ card loads 100+100) and on web checkout; first real
+  7shifts roster rebuild must show mobiles in `staff:phone-index` (check `[staff] punch index
+  rebuilt — … mobiles` in logs).
+
+## A signed contract re-signs when the DATE or VENUE moves, not just the price (2026-09-13) — branch `worktree-resign-on-material-change` — BUILT, gates green, NOT deployed
+
+Owner question: "https://headpinz.com/contract/c31e3aec — this contract changed date and it's not
+requiring them to sign?" Correct, and by design until today.
+
+**This changes WHAT a send does, never WHEN one happens.** The trigger is still, only, the planner
+setting the BMI project to "Send Contract" — `scanForNewEvents` filters to
+`stateId === center.sendContractStateId` and the cron detects nothing by itself
+(owner reconfirmed 2026-09-13; lessons.md § "Send Contract is the only contract trigger", 2026-06-08).
+A material change makes that planner-initiated send ask for a signature instead of just resending.
+
+**What happened.** Quote 230, "Strikes for Scholarships" (Kara Simmons, FGCU, HeadPinz Fort Myers,
+BMI project 30664800). Signed 2026-07-01. On 2026-09-13 14:25 ET the dispatch cron wrote version 2
+with `["date: Sep 13 4:30 PM → Sep 19 4:30 PM", "notes"]` — the event moved off that same evening
+to the following Saturday — with `total_cents` unchanged at 853884. The re-sign gate was
+`priceChanged && …`, so it fell to the non-price branch: BMI → Confirmation, status stays
+`deposit_paid`, guest gets a "Contract Updated" email + SMS. No signature asked for, and the
+executed PDF (`signed_pdf_url`, cut 2026-07-01, `signed_pdf_history` empty) still names Sep 13.
+`generateAndStorePdf` only runs at sign / deposit / resign-settle, so nothing would ever fix it.
+
+**Owner decisions 2026-09-13:** date → re-sign, venue → re-sign, and c31e3aec specifically must be
+asked to sign again.
+
+- [x] `lib/group-function-material-change.ts` (PURE) — `classifyMaterialChange` (price | date |
+      venue) + `canRequestResign` + `RESIGNABLE_STATUSES`. The rule lives outside the cron because a
+      Next `route.ts` may only export handlers, so it could not otherwise be tested. 7 tests
+      including a CONTROL that notes/contacts alone stay non-material.
+- [x] `group-quote-dispatch/route.ts` — `dateChanged` / `venueChanged` hoisted and shared by the
+      diff and the gate so they cannot disagree; `resignFlow = isMaterial && canRequestResign(status)`.
+      Log line and BMI private note now name which term moved instead of always saying "price".
+- [x] `lib/group-function-db.ts` — `center_name` added to `ContractSnapshot` /
+      `extractContractSnapshot` / `FIELD_LABELS` ("Venue"). Without it a pure venue move had NOTHING
+      to show: `diffSnapshots` only walks `FIELD_LABELS`, and the guest page hides the What Changed
+      card when `latestDiffs` is empty — the guest would have been asked to re-sign a relocated
+      event with no stated reason. `diffSnapshots` now skips a key absent from either side, so the
+      ~thousands of pre-existing JSONB snapshots don't emit a phantom `Venue: (empty) → …` on their
+      next edit. 3 new tests incl. a CONTROL on a pre-venue snapshot.
+- [x] `lib/group-function-resign-plan.ts` (PURE) + `ContractClient.tsx` — **pre-existing bug found
+      on the path this change sends contracts down.** `resignNeedsCard` gated on `isResign`, not on
+      "settles now": a post-paid or deposit-only event has `collected_cents < total_cents` by design
+      and no card on file, so re-signing routed the guest to a pay step demanding the FULL balance.
+      c31e3aec would have been asked for $8,538.84 on a card to re-confirm a date change; the server
+      (`resign-settle`, `wasPaidInFull` branch) would have charged nothing, so she simply could not
+      have finished. Now mirrors the server gate exactly. 10 tests, incl. a CONTROL pinning the old
+      formula. 5 signed contracts were exposed; none were sitting in `resign_required`, so no live
+      guest hit it. Latent because only a price change could trigger a re-sign, and paid-in-full
+      events — what a price change usually hits — have a card on file.
+- [x] `POST /api/admin/group-functions/request-resign` — ask a signed contract to re-sign by hand.
+      Needed because the cron cannot rescue c31e3aec on its own: the row is already synced to Sep 19,
+      so a re-flip to "Send Contract" computes `changes.length === 0` and takes the no-op resend
+      path. Idempotent, `isAdminCredential`-guarded, status guard lives in the UPDATE (shared status
+      list, not a second copy), BMI → Pending Signed Contract, portal webhook, `notifyContractUpdated`.
+      Reports `bmiMoved` / `notified` rather than failing silently.
+- [x] Gates: tsc clean on every changed file; 526 suites / 7903 tests pass; `next build` exit 0;
+      a11y gate zero violations; ContractClient lint warnings **11 before, 11 after** (measured
+      against the file at HEAD — the first cut regressed it to 14 by destructuring from an opaque
+      call, which made the React Compiler skip three `useCallback`s).
+- [ ] **Deploy**, then apply to c31e3aec via `request-resign` and confirm Kara gets the re-sign
+      email, the What Changed card reads `Event Date: Sep 13 4:30 PM → Sep 19 4:30 PM`, and the Sign
+      button says **Sign & Confirm** (NOT "Sign & Continue to Payment" — she must never be asked for
+      a card). After she signs, `resign-settle` should return `resigned_deposit`, BMI re-confirms,
+      and the PDF regenerates naming Sep 19.
+- [ ] **Owner question still open:** should a line-item swap at the SAME total (products change,
+      money doesn't) also require a re-sign? Same class as the date. Not built.
+- [ ] Non-material edits (notes / contacts / planner) still never regenerate the signed PDF, so a
+      corrected note leaves the executed document stale. Deliberately left alone — flagging it.
+## Track Ops + wait-time stats on the fast lane (2026-09-12) — branch `fix/track-ops-fast-lane`
+
+Owner: "I need track ops rotation and stats to update faster as I need to show them available as
+soon as race is posted." Diagnosis: the SERVER already frees the marshal at the post press —
+`markRacePitted` empties all four lane slots for the returning session, and the room was cleared
+at send-to-holding — so the lag is entirely in what reads it: the walls' TRACK OPS row rides the
+15s full feed, the desk/tablet board polls at 5s, and the Wait times panel polls at 60s.
+
+- [x] `~/lib/helpers/swr-cache.ts` (PURE, 8 tests) — one stale-while-revalidate cache: fresh →
+      value; stale with a last-good → the last-good NOW and a deduped background refresh; cold →
+      await the load; a failed refresh is remembered so a dead upstream costs one attempt per TTL,
+      never one per poll. Keyed, so the counts can roll with the business day.
+- [x] `staff/portal-roster.ts` (5 tests) + `staff/crew.server.ts` — the two slow crew inputs (portal GET,
+      Neon GROUP BY) go through it. Nobody polling a board ever waits on the portal again except the
+      very first read of an isolate; this is what makes the crew board affordable on a 2s pulse.
+- [x] TV pulse carries `crew` (FT only; lanes + rooms already in hand) and `useTvFeed` merges
+      `pulse.crew ?? feed.crew` — the briefing-room idle wall, camera boards and Mega tracker see
+      the marshal go green within ~2s of the post instead of ≤15s.
+- [x] `/api/admin/briefing?pulse=1` → `briefingBoardPulse()` = `{ now, rooms, lanes, crew }`, Redis
+      + cached inputs only. `useBriefingControl` polls it at 2s and merges it over the 5s board
+      (pulse wins only when newer; `groupOut` kept from the full board). Desk strip, Holding/On-track
+      boxes and the tablet's room panels move together.
+- [x] Wait times: poll 60s → 30s AND an immediate refetch whenever the lanes' occupancy signature
+      changes (a group promoted, a race back, a post played) — "Total experience" for the heat lands
+      the moment the race is posted rather than up to a minute later.
+- [x] Gates: vitest 521 files / 7677 tests green (the 6 failing files — auth.config, middleware.*,
+      waiver-short-link, sso/session — fail identically on the untouched tree: `next-auth` /
+      `@auth/core` are not installed in this checkout); tsc 54 errors before AND after, all the
+      same missing modules, none in touched files; eslint clean on every changed file.
+      `next build` could not run locally for the same missing-module reason — Vercel preview is
+      the build gate for this branch.
+- [ ] Not committed yet (owner to review the diff), not live-verified: watch a post press on the
+      desk strip, a briefing-room idle wall and the Wait times panel.
+- [ ] NOT in scope here: the portal pit board's own poll of `GET /api/portal/briefings` — that
+      endpoint is uncached; its cadence lives in Tools-Team-Member-Portal.
 
 ## Pit station: "PA busy" frozen-cache fix + cue sync (2026-09-10) — branches `fix/pit-pa-busy-frozen-cache`, `feat/pit-cue-sync`
 

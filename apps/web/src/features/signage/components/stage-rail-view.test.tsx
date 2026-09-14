@@ -563,3 +563,59 @@ describe("StageRailView", () => {
     expect(text).not.toContain("→");
   });
 });
+
+/* ── READY TO PULL: the CHECKING IN row flashes and says so (owner 2026-09-13) ── */
+describe("StageRailView · ready to pull", () => {
+  const rows = (over: { checkedIn?: { checkedIn: number; total: number }; staffReady?: boolean }) =>
+    buildStageRail({
+      called: { heatNumber: 65, raceType: "Intermediate" },
+      rooms: [{ room: "red", state: null }],
+      lane: EMPTY_PIT_LANE,
+      nowMs: NOW,
+      checkinWindowMins: 8,
+      calledForMs: 2 * 60_000,
+      checkedIn: over.checkedIn ?? { checkedIn: 5, total: 8 },
+      staffReady: over.staffReady,
+    });
+  const classes = (node: ReactNode) =>
+    walk(node)
+      .map((el) => (el.props as { className?: string } | undefined)?.className)
+      .filter((c): c is string => !!c);
+
+  it("an unready grid: no row flashes and no pill is worn", () => {
+    const tree = StageRailView({ rows: rows({}), density: "wall", accent: "#2b8fff", nowMs: NOW });
+    expect(classes(tree).some((c) => c.startsWith("rail-pull"))).toBe(false);
+    expect(textOf(tree)).not.toContain("READY");
+  });
+
+  it("everyone in: the CHECKING IN row takes the flash class and says READY TO PULL", () => {
+    const tree = StageRailView({
+      rows: rows({ checkedIn: { checkedIn: 8, total: 8 } }),
+      density: "wall",
+      accent: "#2b8fff",
+      nowMs: NOW,
+    });
+    expect(classes(tree).filter((c) => c === "rail-pull")).toHaveLength(1);
+    expect(textOf(tree)).toContain("READY TO PULL");
+  });
+
+  it("the staff press alone lights it, and compact says READY", () => {
+    const tree = StageRailView({
+      rows: rows({ staffReady: true }),
+      density: "compact",
+      accent: "#2b8fff",
+      nowMs: NOW,
+    });
+    expect(classes(tree).filter((c) => c === "rail-pull")).toHaveLength(1);
+    const words = textOf(tree);
+    expect(words).toContain("READY");
+    expect(words).not.toContain("READY TO PULL");
+  });
+
+  it("the keyframes ride with the rail, and the flash is never motion-only", () => {
+    const tree = StageRailView({ rows: rows({}), density: "wall", accent: "#2b8fff", nowMs: NOW });
+    const css = textOf(tree);
+    expect(css).toContain("@keyframes rail-pull");
+    expect(css).toContain("prefers-reduced-motion");
+  });
+});

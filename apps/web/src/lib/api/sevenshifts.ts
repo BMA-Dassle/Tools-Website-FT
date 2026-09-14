@@ -243,6 +243,10 @@ export interface SevenShiftsUser {
   preferred_first_name?: string | null;
   preferred_last_name?: string | null;
   email?: string | null;
+  /** E.164 or national — canonicalised by the staff index; never used raw. */
+  mobile_number?: string | null;
+  /** `YYYY-MM-DD`. Drives the employee-perks BMI pre-link search. */
+  birth_date?: string | null;
   photo_url?: string | null;
   type?: string | null;
   active?: boolean | null;

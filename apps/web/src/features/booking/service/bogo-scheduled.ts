@@ -50,7 +50,7 @@
  */
 import { bogoSaleActive } from "../data/packs";
 import { getRaceProductById, priceOnDate } from "./race-products";
-import { membershipDiscountsForNames } from "./membership-discounts";
+import { entitlementsForMember, type EntitledMember } from "./membership-discounts";
 import type { RaceHeatAssignment } from "../state/types";
 
 /**
@@ -64,8 +64,9 @@ import type { RaceHeatAssignment } from "../state/types";
  * Exported so the pay-mode banner can hide the ad from a party it won't apply
  * to.
  */
-export function racingPassBlocksBogo(memberships?: string[]): boolean {
-  return membershipDiscountsForNames(memberships ?? []).some(
+export function racingPassBlocksBogo(member?: EntitledMember | null): boolean {
+  // BOTH sources: BMI membership names AND the verified 7shifts employee stamp.
+  return entitlementsForMember(member).some(
     (d) => d.percentOff > 0 && d.categories.includes("racing"),
   );
 }
@@ -97,16 +98,14 @@ export function computeBogoScheduledFree(
     packageIdJunior?: string | null;
     heats?: RaceHeatAssignment[];
   }>,
-  party: Array<{ id: string; memberships?: string[] }>,
+  party: Array<{ id: string; memberships?: string[]; employeePerks?: unknown }>,
   alreadyCovered: ReadonlySet<RaceHeatAssignment>,
   now: Date = new Date(),
 ): BogoScheduledFree {
   const heats = new Set<RaceHeatAssignment>();
   const freeByMember = new Map<string, number>();
   // Racers whose pass pricing wins over the special (owner: never combined).
-  const passBlocked = new Set(
-    party.filter((m) => racingPassBlocksBogo(m.memberships)).map((m) => m.id),
-  );
+  const passBlocked = new Set(party.filter((m) => racingPassBlocksBogo(m)).map((m) => m.id));
 
   for (const item of items) {
     if (item.kind !== "race" || !item.heats || !item.date) continue;

@@ -8,9 +8,18 @@
  * `~/lib/api/sevenshifts` header), so the only way to resolve one is to hold
  * every user and match locally. Building that map is this file; caching it is
  * `service.ts`.
+ *
+ * EMPLOYEE PERKS (2026-09-13) added two more maps built from the SAME roster
+ * page: `byId` (user id → the fuller StaffRecord, with the mobile 7shifts holds)
+ * and `byPhone` (E.164 mobile → user id). They exist so a team member at a kiosk
+ * or on the web can be resolved from a punch ID OR their mobile, and so the
+ * one-time code always goes to the number 7shifts has on file — never one the
+ * person typed. Same collision rule as punch IDs: a mobile two active people
+ * share resolves nobody.
  */
 
 import type { SevenShiftsUser } from "~/lib/api/sevenshifts";
+import { canonicalizePhone } from "@/lib/participant-contact";
 
 /**
  * One staff member, as everything downstream knows them.
@@ -33,6 +42,28 @@ export interface StaffIdentity {
   lastName: string;
 }
 
+/**
+ * The fuller record the employee-perks resolver works from. A superset of
+ * StaffIdentity: a punch ID is OPTIONAL here (a team member with no time-clock
+ * code can still verify by mobile), and it carries the fields the match and
+ * the one-time code need.
+ */
+export interface StaffRecord {
+  userId: number;
+  punchId: string | null;
+  /** Preferred first name when set, else legal — what we call them. */
+  firstName: string;
+  /** LEGAL first name — a licence-scanned BMI record carries this one. */
+  legalFirstName: string;
+  lastName: string;
+  /** E.164 mobile from 7shifts, or null when none / unparseable. */
+  mobile: string | null;
+  email: string | null;
+  employeeId: string | null;
+  /** `YYYY-MM-DD` from 7shifts `birth_date`, or null. Drives the BMI pre-link search. */
+  birthDate: string | null;
+}
+
 /** punchId → the one person who holds it. */
 export type PunchIndex = Record<string, StaffIdentity>;
 
@@ -45,6 +76,14 @@ export interface BuiltPunchIndex {
   collisions: string[];
   /** How many active users carried a usable punch ID. */
   size: number;
+}
+
+export interface BuiltStaffIndexes {
+  /** String user id → record. Every active user with a first and last name. */
+  byId: Record<string, StaffRecord>;
+  /** E.164 mobile → user id. Mobiles two active people share are EXCLUDED. */
+  byPhone: Record<string, number>;
+  phoneCollisions: string[];
 }
 
 /**
@@ -103,6 +142,40 @@ export function staffFromUser(u: SevenShiftsUser): StaffIdentity | null {
   return { userId: u.id, punchId, firstName, lastName: staffLastName(u) };
 }
 
+/** `YYYY-MM-DD` when 7shifts gave a parseable birth date, else null. */
+function birthDateOf(u: SevenShiftsUser): string | null {
+  const raw = (u.birth_date ?? "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+/**
+ * A user reduced to the perks record, or null when they cannot hold one.
+ *
+ * Null for: inactive, or no first OR last name. Unlike `staffFromUser`, a
+ * missing punch ID is fine — the mobile is another way in — but a missing
+ * LAST name is not: the BMI match keys on it and an empty surname would match
+ * every record with an empty surname.
+ */
+export function staffRecordFromUser(u: SevenShiftsUser): StaffRecord | null {
+  if (!isActiveUser(u)) return null;
+  const firstName = staffFirstName(u);
+  const lastName = staffLastName(u);
+  if (!firstName || !lastName) return null;
+  const punchId = normalizePunchId(u.punch_id ?? "");
+  return {
+    userId: u.id,
+    punchId: punchId || null,
+    firstName,
+    legalFirstName: (u.first_name || "").trim() || firstName,
+    lastName,
+    mobile: canonicalizePhone(u.mobile_number ?? null),
+    email: (u.email ?? "").trim().toLowerCase() || null,
+    employeeId: (u.employee_id ?? "").trim() || null,
+    birthDate: birthDateOf(u),
+  };
+}
+
 /**
  * Build the punch ID → person map.
  *
@@ -136,4 +209,32 @@ export function buildPunchIndex(users: SevenShiftsUser[]): BuiltPunchIndex {
   }
 
   return { index, collisions: [...collisions].sort(), size: Object.keys(index).length };
+}
+
+/**
+ * Build the by-id and by-phone maps for employee perks. Same collision rule as
+ * punch IDs for mobiles: a number two ACTIVE people share resolves nobody, so a
+ * one-time code can never go to "whichever record sorted first".
+ */
+export function buildStaffIndexes(users: SevenShiftsUser[]): BuiltStaffIndexes {
+  const byId: Record<string, StaffRecord> = {};
+  const byPhone: Record<string, number> = {};
+  const seenPhones = new Set<string>();
+  const phoneCollisions = new Set<string>();
+
+  for (const u of users) {
+    const rec = staffRecordFromUser(u);
+    if (!rec) continue;
+    byId[String(rec.userId)] = rec;
+    if (!rec.mobile) continue;
+    if (seenPhones.has(rec.mobile)) {
+      phoneCollisions.add(rec.mobile);
+      delete byPhone[rec.mobile];
+      continue;
+    }
+    seenPhones.add(rec.mobile);
+    byPhone[rec.mobile] = rec.userId;
+  }
+
+  return { byId, byPhone, phoneCollisions: [...phoneCollisions].sort() };
 }

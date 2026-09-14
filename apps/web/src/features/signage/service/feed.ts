@@ -40,7 +40,8 @@ import { afterResponse } from "../after-response.server";
 import { nudgeStaySeated } from "../pit/audio.server";
 import { buildPitBoard } from "../pit/service";
 import { readPitLanes } from "../pit/lane.server";
-import { crewBoard } from "~/features/staff/crew.server";
+import { crewBoard, crewBoardFrom } from "~/features/staff/crew.server";
+import { readReadyToPull } from "../briefing/ready-to-pull.server";
 import { readFastPitRosters } from "../pit/fast-roster.server";
 import { buildWelcomeBoard } from "./welcome";
 import { resolveResultsBoard } from "./results-board.server";
@@ -128,6 +129,8 @@ export async function buildTvFeed(
     // PULSE-ONLY — the full feed never carries the fast roster; useTvFeed
     // merges the pulse's copy over this null.
     pitRosters: null,
+    // PULSE-ONLY too — the desk's Ready to pull mark, merged the same way.
+    readyToPull: null,
     // Filled below for the FastTrax screens that draw a stage rail; null on
     // every other screen, which has no Track Ops row to feed.
     crew: null,
@@ -841,6 +844,8 @@ export async function buildTvPulse(
       pitLanes: null,
       pitRosters: null,
       roomBlocked: null,
+      crew: null,
+      readyToPull: null,
     };
   }
 
@@ -898,10 +903,24 @@ export async function buildTvPulse(
    * that cannot read the gate must stay quiet rather than raise a full-screen
    * alarm on a room that may be perfectly clear.
    */
-  const roomBlocked =
+  /**
+   * WHO IS ON TRACK OPS, beside the gate — both from the lanes and rooms already
+   * in hand, so the row on the wall and the Holding box it sits under describe
+   * one read of the floor. The fold adds a single hosts MGET; its counts and
+   * roster are served stale-while-revalidate (crew.server), which is what makes
+   * it affordable on this beat. A failed fold is null and the feed's copy stands.
+   */
+  const [roomBlocked, crew, readyToPull] = await Promise.all([
     wantsBriefing && briefingRooms && pitLanes
-      ? await resolveRoomBlocked(briefingRooms, pitLanes).catch(() => null)
-      : null;
+      ? resolveRoomBlocked(briefingRooms, pitLanes).catch(() => null)
+      : Promise.resolve(null),
+    parsed.venue === "FT"
+      ? crewBoardFrom({ lanes: pitLanes, rooms: briefingRooms, nowMs: now }).catch(() => null)
+      : Promise.resolve(null),
+    // The desk's Ready to pull mark — one MGET, so a press at the desk lights
+    // the CHECKING IN row on every wall within a beat (owner 2026-09-13).
+    parsed.venue === "FT" ? readReadyToPull().catch(() => null) : Promise.resolve(null),
+  ]);
   return {
     now,
     kioskEvents,
@@ -912,6 +931,8 @@ export async function buildTvPulse(
     pitLanes,
     pitRosters,
     roomBlocked,
+    crew,
+    readyToPull,
   };
 }
 

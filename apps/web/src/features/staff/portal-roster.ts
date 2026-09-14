@@ -24,15 +24,23 @@ import "server-only";
  * then `null`, which the fold renders as the race hosts alone plus a dim
  * "roster unavailable" note.
  *
- * CACHED IN MODULE MEMORY, INCLUDING FAILURES. The check-in board polls every
- * five seconds and up to nineteen TVs poll every fifteen; without a cache this
- * one cross-service GET would be the busiest thing either of them does. And
- * caching the FAILURE matters as much as caching the success: without it, a
- * portal that is down puts the full five-second timeout in front of every
- * single poll, which would stall the TV feed rather than degrade it.
+ * CACHED IN MODULE MEMORY, INCLUDING FAILURES, AND SERVED STALE WHILE IT
+ * REFRESHES. The check-in board and the tablets poll every two seconds and up
+ * to nineteen TVs pulse at the same rate; without a cache this one cross-service
+ * GET would be the busiest thing any of them does. Caching the FAILURE matters
+ * as much as caching the success: without it, a portal that is down puts the
+ * full five-second timeout in front of every single poll. And serving STALE
+ * matters as much as either (2026-09-12): the poll that landed the instant the
+ * cache expired used to pay the read itself — a five-second stall on a two-
+ * second lane, once every thirty seconds, for as long as the portal was slow.
+ * Now the last answer is handed back at once and the refresh runs behind the
+ * response (~/lib/helpers/swr-cache). Only the very first read of an isolate
+ * waits, because there is nothing yet to serve.
  */
 import { businessDayYmdAtRolloverET } from "@/lib/race-business-day";
 import { PORTAL_ORIGIN, PORTAL_PIT_BOARD_LOCATION_ID } from "~/lib/constants/admin-tools";
+import { createSwrCache } from "~/lib/helpers/swr-cache";
+import { afterResponse } from "~/features/signage/after-response.server";
 
 /** The portal's business day rolls at 5 AM ET; the racing day rolls at 2. */
 const PORTAL_DAY_ROLLOVER_HOUR = 5;
@@ -40,7 +48,7 @@ const PORTAL_DAY_ROLLOVER_HOUR = 5;
 /** How long a good answer stands before we ask again. */
 const CACHE_MS = 30_000;
 /**
- * How long a good answer stands in AFTER a failed read.
+ * How long a good answer may still be SERVED past that while reads keep failing.
  *
  * Ten minutes because a Track Ops assignment lasts hours and a break lasts
  * fifteen minutes: past ten, the presence dots would be describing a floor that
@@ -126,46 +134,53 @@ function parseRoster(json: unknown): TrackOpsHolder[] {
   return [...byUser.values()];
 }
 
-let cache: { at: number; holders: TrackOpsHolder[] | null } | null = null;
-let lastGood: { at: number; holders: TrackOpsHolder[] } | null = null;
+/** The one read behind the cache: the portal's answer, parsed, or a throw. */
+async function loadRoster(date: string): Promise<TrackOpsHolder[]> {
+  const url = `${PORTAL_ORIGIN}/api/schedule/pit-board-now?date=${encodeURIComponent(date)}&locationId=${PORTAL_PIT_BOARD_LOCATION_ID}`;
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  // 404 = not built yet. Same handling as any other failure, and deliberately
+  // not louder: this endpoint is expected to be missing for a while.
+  if (!res.ok) throw new Error(`portal ${res.status}`);
+  return parseRoster(await res.json());
+}
+
+/**
+ * Keyed by the portal's business day, so the roster rolls over with it rather
+ * than serving last night's crew for thirty seconds after 5 AM. A failed read
+ * is remembered for CACHE_MS — one attempt per window, however many boards poll.
+ */
+const rosterCache = createSwrCache<TrackOpsHolder[]>({
+  ttlMs: CACHE_MS,
+  maxStaleMs: LAST_GOOD_MS,
+  retryAfterMs: CACHE_MS,
+  load: loadRoster,
+  schedule: afterResponse,
+});
 
 /**
  * The portal's current Track Ops crew, or `null` when it cannot be reached and
  * no recent answer survives.
+ *
+ * NEVER SLOWER THAN A CACHE HIT once an isolate has read the roster once: a
+ * stale answer is served and refreshed behind the response. See the header.
  *
  * @param date the PORTAL's business day (`portalBusinessDayYmdET`), not ours.
  */
 export async function fetchPortalTrackOpsNow(
   date: string = portalBusinessDayYmdET(),
 ): Promise<TrackOpsHolder[] | null> {
-  const now = Date.now();
-  if (cache && now - cache.at < CACHE_MS) return cache.holders;
-
   try {
-    const url = `${PORTAL_ORIGIN}/api/schedule/pit-board-now?date=${encodeURIComponent(date)}&locationId=${PORTAL_PIT_BOARD_LOCATION_ID}`;
-    const res = await fetch(url, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    // 404 = not built yet. Same handling as any other failure, and deliberately
-    // not louder: this endpoint is expected to be missing for a while.
-    if (!res.ok) throw new Error(`portal ${res.status}`);
-    const holders = parseRoster(await res.json());
-    cache = { at: now, holders };
-    lastGood = { at: now, holders };
-    return holders;
+    return await rosterCache.read(date);
   } catch {
-    const stale = lastGood && now - lastGood.at < LAST_GOOD_MS ? lastGood.holders : null;
-    // The failure is cached too — see the header. A short cache on a bad read
-    // means one slow poll per thirty seconds, not one per poll.
-    cache = { at: now, holders: stale };
-    return stale;
+    return null;
   }
 }
 
-/** Test seam: drop both caches. Never called in production. */
+/** Test seam: drop the cache. Never called in production. */
 export function __resetPortalRosterCache(): void {
-  cache = null;
-  lastGood = null;
+  rosterCache.reset();
 }

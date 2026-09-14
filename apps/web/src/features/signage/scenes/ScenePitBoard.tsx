@@ -433,6 +433,10 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
         // The venue's check-in window, so a short grid becomes PULL TO BRIEFING
         // NOW at its deadline rather than sitting on "waiting" for ever.
         checkinWindowMins: config.checkinWindowMins,
+        // The desk's Ready to pull press for THIS heat — see SceneCameraMonitor.
+        staffReady:
+          !!idleProgress &&
+          feed?.readyToPull?.[idleProgress.track]?.sessionId === idleProgress.sessionId,
         brief: idleBrief,
       }),
     // THE COMPLETE LIST. `idleProgress`, `idleBrief` and the window were read in
@@ -442,6 +446,7 @@ export function ScenePitBoard({ feed, config, nowMs }: SceneProps) {
     // array as its whole screen.
     [
       feed?.briefingRooms,
+      feed?.readyToPull,
       nowMs,
       status?.currentRaces,
       track,

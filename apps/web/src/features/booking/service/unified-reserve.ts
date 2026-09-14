@@ -98,6 +98,24 @@ import { buildRaceChargeLines, raceHeatsMetadata, racerNamesFromHeats } from "./
 import { bowlingBookedPricingStamp } from "./bowling-booked-pricing";
 import { promoFactor } from "./promo-pricing";
 import {
+  computeEmployeeFreeHeats,
+  discountedUnitCents,
+  employeeAttractionUnits,
+  employeeMember,
+  heatPriceCents,
+  type EmployeeFreeHeats,
+} from "./employee-perks";
+import {
+  applyEmployeeToSession,
+  readFreeRacesUsed,
+} from "~/features/discount-codes/programs/employee.server";
+import {
+  EMPLOYEE_PROGRAM,
+  freeRacesRemaining,
+  payWeekKey,
+} from "~/features/discount-codes/programs/employee";
+import { recordPerkRedemptions } from "~/features/discount-codes/programs/employee-data";
+import {
   recordRedemption,
   getDiscountCodeByCode,
   resolveAppliedPromo,
@@ -450,7 +468,13 @@ export interface PricedLine {
   catalogPricedCents?: number;
   /** Why a $0 line is $0. Absent = a genuinely charged (or $0-value) line. */
   coverage?: {
-    kind: "race-credit" | "race-pack" | "voucher" | "combo-inclusion" | "bogo-special";
+    kind:
+      | "race-credit"
+      | "race-pack"
+      | "voucher"
+      | "combo-inclusion"
+      | "bogo-special"
+      | "employee-perk";
     /** Display tag, e.g. "Credit" · "Race Pack" · "Voucher …Z4SX". */
     label: string;
   };
@@ -467,6 +491,10 @@ export function buildCombinedLineItems(session: BookingSession): {
   packCoverage: PackCoverage;
   /** BOGO Wednesdays: the scheduled heats the special priced to $0. */
   bogoFree: BogoScheduledFree;
+  /** EMPLOYEE PERKS: the team member's free single races priced to $0 this pay week. */
+  employeeFree: EmployeeFreeHeats;
+  /** Cents the team member's 50% removed (racing + attraction own units) — ledger only. */
+  employeeSavingsCents: number;
   /** The quote/display mirror — accumulated ADJACENT to every Square-line
    *  push above it, so the two can only drift if a diff reviewer misses it. */
   pricedLines: PricedLine[];
@@ -487,6 +515,9 @@ export function buildCombinedLineItems(session: BookingSession): {
   let totalPriceCents = 0;
   let totalDepositCents = 0;
   let promoSavingsCents = 0; // USA250 cents removed across all lines (for the ledger)
+  // EMPLOYEE PERKS: cents removed by the team member's 50% (racing split lines
+  // + attraction own units) — for the perk ledger, never a charge input.
+  let employeeSavingsCents = 0;
 
   // Combo special: the flat combo line (emitted inside buildRaceChargeLines
   // below) IS the whole race+bowl charge, so the bowling item's own line items
@@ -632,13 +663,25 @@ export function buildCombinedLineItems(session: BookingSession): {
   // otherwise be paid in cash — a credit/pack/voucher-covered heat neither
   // goes free nor anchors a pair. Combo carts are flat-priced, so the rule is
   // skipped there exactly like the voucher plan.
+  // EMPLOYEE PERKS — the verified team member's free SINGLE races this pay week
+  // (owner 2026-09-13: 2 per Wed–Tue week). After credits/packs/vouchers (the
+  // allowance covers only heats that would otherwise be paid in cash) and
+  // BEFORE BOGO. `session.employee.usedThisWeek` is what the display priced
+  // with; unifiedReserveInner has already hard-failed if the ledger moved.
+  const employeeFree: EmployeeFreeHeats = activeComboSpecial(session)
+    ? { heats: new Set(), memberId: null }
+    : computeEmployeeFreeHeats(session.items, session.party, coveredBeforeBogo, session.employee);
+  const coveredBeforeBogoAndPerks =
+    employeeFree.heats.size > 0
+      ? new Set([...coveredBeforeBogo, ...employeeFree.heats])
+      : coveredBeforeBogo;
   const bogoFree: BogoScheduledFree = activeComboSpecial(session)
     ? { heats: new Set(), freeByMember: new Map() }
-    : computeBogoScheduledFree(session.items, session.party, coveredBeforeBogo);
+    : computeBogoScheduledFree(session.items, session.party, coveredBeforeBogoAndPerks);
   const excludedHeats =
     bogoFree.heats.size > 0
-      ? new Set([...coveredBeforeBogo, ...bogoFree.heats])
-      : coveredBeforeBogo;
+      ? new Set([...coveredBeforeBogoAndPerks, ...bogoFree.heats])
+      : coveredBeforeBogoAndPerks;
 
   for (const bl of buildRaceChargeLines(session, excludedHeats)) {
     const totalCents = Math.round(bl.amount * 100);
@@ -651,6 +694,12 @@ export function buildCombinedLineItems(session: BookingSession): {
     // Race + combo savings (combo lines flow through here too, pre-stamped).
     promoSavingsCents +=
       bl.originalAmount != null ? Math.round((bl.originalAmount - bl.amount) * 100) : 0;
+    // EMPLOYEE PERKS: a racing split line at the entitlement percent — the
+    // pre-discount amount is `amount / (1 − pct)`; recorded for the ledger only.
+    if (bl.membershipDiscountPct && employeeMember(session.party)) {
+      const full = Math.round(totalCents / (1 - bl.membershipDiscountPct / 100));
+      employeeSavingsCents += Math.max(0, full - totalCents);
+    }
 
     sqLineItems.push({
       name: bl.name,
@@ -681,7 +730,7 @@ export function buildCombinedLineItems(session: BookingSession): {
     }
     const covered: Array<{
       set: ReadonlySet<RaceHeatAssignment>;
-      kind: "race-credit" | "race-pack" | "voucher" | "bogo-special";
+      kind: "race-credit" | "race-pack" | "voucher" | "bogo-special" | "employee-perk";
       labelFor: (h: RaceHeatAssignment) => string;
     }> = [
       { set: redeemedHeats, kind: "race-credit", labelFor: () => "Credit" },
@@ -697,6 +746,9 @@ export function buildCombinedLineItems(session: BookingSession): {
       // The Wednesday special's free heats — tagged so the review/e-ticket say
       // WHY the line is $0, same as every other covered heat.
       { set: bogoFree.heats, kind: "bogo-special", labelFor: () => "BOGO Wednesday" },
+      // The team member's free races (weekly allowance) — tagged so the review
+      // and the ledger say WHY the line is $0.
+      { set: employeeFree.heats, kind: "employee-perk", labelFor: () => "Employee · free race" },
     ];
     for (const { set, kind, labelFor } of covered) {
       const groups = new Map<
@@ -784,13 +836,40 @@ export function buildCombinedLineItems(session: BookingSession): {
     );
     const unitCents = factor === 1 ? fullUnitCents : Math.round(fullUnitCents * factor);
     const coveredUnits = voucherPlan?.attractionUnits.get(attr.id) ?? 0;
-    const chargedQty = Math.max(0, attr.qty - coveredUnits);
-    const lineTotal = unitCents * chargedQty;
+    const chargedQtyAll = Math.max(0, attr.qty - coveredUnits);
+    // EMPLOYEE PERKS — the team member's OWN gel-blaster / laser-tag units at
+    // their entitlement percent (Employee Pass 50%, either source). Kiosk lines
+    // name their players; a web line gives exactly one own unit. Those units
+    // split off into their own line below, named like the racing split lines.
+    const emp = employeeAttractionUnits(attr, session.party);
+    const empQty = Math.min(emp.units, chargedQtyAll);
+    const empUnitCents = empQty > 0 ? discountedUnitCents(unitCents, emp.percentOff) : unitCents;
+    const chargedQty = chargedQtyAll - empQty;
+    const attrEntity = FASTTRAX_ATTRACTION_SLUGS.has(attr.slug ?? "") ? "fasttrax" : "headpinz";
+    const lineTotal = unitCents * chargedQty + empUnitCents * empQty;
     totalPriceCents += lineTotal;
-    entityCents[FASTTRAX_ATTRACTION_SLUGS.has(attr.slug ?? "") ? "fasttrax" : "headpinz"] +=
-      lineTotal;
+    entityCents[attrEntity] += lineTotal;
     totalDepositCents += lineTotal; // 100% deposit for attractions
-    promoSavingsCents += (fullUnitCents - unitCents) * chargedQty;
+    promoSavingsCents += (fullUnitCents - unitCents) * chargedQtyAll;
+    employeeSavingsCents += (unitCents - empUnitCents) * empQty;
+    if (empQty > 0) {
+      sqLineItems.push({
+        name: `${attr.slug ?? "Attraction"} (Employee Pass −${emp.percentOff}%)`,
+        quantity: String(empQty),
+        ...(catalogId
+          ? {
+              catalogObjectId: catalogId,
+              basePriceMoney: { amount: empUnitCents, currency: "USD" },
+            }
+          : { basePriceMoney: { amount: empUnitCents, currency: "USD" } }),
+      });
+      pricedLines.push({
+        name: `${prettySlug(attr.slug) ?? "Attraction"} (Employee Pass −${emp.percentOff}%)`,
+        quantity: empQty,
+        unitCents: empUnitCents,
+        originalUnitCents: unitCents,
+      });
+    }
     // Fully voucher-covered: keep the line at $0 (original qty) instead of
     // dropping it — a cart covered entirely by vouchers used to build ZERO
     // Square lines and die on the "No line items to charge" guard (live
@@ -825,6 +904,10 @@ export function buildCombinedLineItems(session: BookingSession): {
       }
     }
     if (chargedQty === 0) {
+      // Nothing left at full price. Only keep a $0 line when NO other line
+      // represents this item on the order (fully voucher-covered) — the
+      // employee split line above already keeps the order real.
+      if (empQty > 0) continue;
       sqLineItems.push({
         name: attr.slug ?? "Attraction",
         quantity: String(attr.qty),
@@ -913,6 +996,8 @@ export function buildCombinedLineItems(session: BookingSession): {
     kioskPacks,
     packCoverage,
     bogoFree,
+    employeeFree,
+    employeeSavingsCents,
     pricedLines,
     totalPriceCents,
     entityCents,
@@ -1305,6 +1390,20 @@ export class BillExpiredError extends Error {
  * in another reservation (cross-reservation spacing — see conflict.ts). Raised
  * BEFORE any Square write, so nothing was charged.
  */
+/**
+ * EMPLOYEE PERKS: the weekly free-race allowance the review priced with is no
+ * longer available (used at another kiosk between quote and tap, or the pay
+ * week rolled over). Displayed ≠ what we would charge, so the sale stops here —
+ * never a silent overcharge. The client re-quotes and shows the guest.
+ */
+export class EmployeePerksChangedError extends Error {
+  readonly code = "EMPLOYEE_PERKS_CHANGED";
+  constructor(message: string) {
+    super(message);
+    this.name = "EmployeePerksChangedError";
+  }
+}
+
 export class ExistingBookingConflictError extends Error {
   code = "EXISTING_BOOKING_CONFLICT";
   constructor(message: string) {
@@ -1578,6 +1677,45 @@ async function unifiedReserveInner(
     }
     input = { ...input, session: { ...input.session, appliedPromo: fresh } };
   }
+  // ── 0a½. Server-authoritative EMPLOYEE PERKS ────────────────────────
+  // `session.employee` and every `party[].employeePerks` stamp are CLIENT
+  // claims. Strip them, verify the signed token, re-check the user is still on
+  // the active 7shifts roster, re-stamp the one member — or price as a plain
+  // guest, loudly. Then the weekly free-race allowance: the display priced with
+  // `usedThisWeek` as the server last read it; if the ledger now leaves FEWER
+  // free heats (used at another kiosk in between, or the pay week rolled), the
+  // reserve HARD-FAILS rather than charge more than the screen showed. The
+  // terminal rail's $25 drift backstop would otherwise let a $17.99 heat
+  // through as a silent overcharge.
+  {
+    const emp = await applyEmployeeToSession(input.session);
+    if (emp.dropped) {
+      console.error(
+        `[unified-reserve] EMPLOYEE PERKS DROPPED AT CHARGE: ${emp.dropped} ` +
+          `(bill ${input.session.bmiBillId ?? "n/a"}) — pricing as a guest`,
+      );
+    }
+    input = { ...input, session: emp.session };
+    if (emp.employee && input.session.employee) {
+      const weekNow = payWeekKey();
+      const usedNow = await readFreeRacesUsed(emp.employee.userId, weekNow).catch(() => null);
+      if (usedNow != null) {
+        const shownRemaining = freeRacesRemaining({
+          usedThisWeek: emp.employee.claimedUsedThisWeek,
+        });
+        // A rolled pay week reads the NEW week's count — usually 0 used, i.e. more
+        // generous than shown, which prices exactly as displayed (the session's
+        // `usedThisWeek` is still what the builder subtracts).
+        const realRemaining = freeRacesRemaining({ usedThisWeek: usedNow });
+        if (realRemaining < shownRemaining) {
+          throw new EmployeePerksChangedError(
+            `Free races this pay week changed: ${shownRemaining} shown, ${realRemaining} left`,
+          );
+        }
+      }
+    }
+  }
+
   // ── 0b. Server-authoritative VOUCHER verification ────────────────────
   // A voucher only reduces the charge when OUR ledger (written server-side by
   // /api/booking/v2/voucher at apply time) backs the session's claim for THIS
@@ -1945,8 +2083,15 @@ async function unifiedReserveInner(
   }
 
   // ── 2. Build combined Square line items ────────────────────────────
-  const { sqLineItems, depositPct, promoSavingsCents, kioskPacks, packCoverage } =
-    buildCombinedLineItems(session);
+  const {
+    sqLineItems,
+    depositPct,
+    promoSavingsCents,
+    kioskPacks,
+    packCoverage,
+    employeeFree,
+    employeeSavingsCents,
+  } = buildCombinedLineItems(session);
 
   if (sqLineItems.length === 0) {
     throw new Error("No line items to charge");
@@ -2440,7 +2585,11 @@ async function unifiedReserveInner(
   // non-terminal payment can never silently drop paid-for cards.
   const gzPurchase =
     session.context?.kiosk && kioskGzCartEnabled()
-      ? resolveCartPurchase(session.gameCardPurchase)
+      ? resolveCartPurchase(session.gameCardPurchase, {
+          // EMPLOYEE PERKS: doubled token credit for a verified team member —
+          // decided from the server-re-derived stamp (step 0a½), never a client flag.
+          employee: !!employeeMember(session.party),
+        })
       : null;
   const gzCents = gzPurchase?.totalCents ?? 0;
   // Checkout-upsell cards are capped at ONE per person on the transaction
@@ -2575,9 +2724,10 @@ async function unifiedReserveInner(
             locationCode: gzLocationCode,
             accountNumber: c.accountNumber,
             packageId: c.packageId,
-            tokens: c.pkg.tokens,
-            bonusTokens: c.pkg.bonusTokens,
+            tokens: c.credit.tokens,
+            bonusTokens: c.credit.bonusTokens,
             amountCents: c.pkg.priceCents,
+            perk: c.perk,
             tpiTransactionId: `${gzPurchase.mode === "new_card" ? "newcard" : "reload"}-${txnId}`,
             contact: {
               name: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || undefined,
@@ -2701,8 +2851,10 @@ async function unifiedReserveInner(
               txnId: c.txnId,
               packageId: c.packageId,
               accountNumber: c.accountNumber,
-              tokens: resolved?.pkg.tokens ?? 0,
-              bonusTokens: resolved?.pkg.bonusTokens ?? 0,
+              // The CREDIT (doubled for a team member), not the pack's buckets —
+              // what the ledger row was written with and what the card will load.
+              tokens: resolved?.credit.tokens ?? 0,
+              bonusTokens: resolved?.credit.bonusTokens ?? 0,
             };
           }),
         };
@@ -2891,6 +3043,50 @@ async function unifiedReserveInner(
       }
     } catch (err) {
       console.error("[unified-reserve] discount redemption record failed (non-fatal):", err);
+    }
+  }
+
+  // ── Record EMPLOYEE PERK usage (idempotent, soft-fail) ─────────────
+  // Keyed on the day-of order id + heat, so a retry never double-counts. The
+  // free-race rows are what next week's allowance is read from; the percent
+  // row is the audit trail Square cannot give us (price-key mechanism). NEVER
+  // fail a captured booking on this.
+  if (session.employee && employeeMember(session.party)) {
+    try {
+      const emp = session.employee;
+      const rows: Parameters<typeof recordPerkRedemptions>[0] = [];
+      for (const item of session.items) {
+        if (item.kind !== "race") continue;
+        for (const h of item.heats) {
+          if (!employeeFree.heats.has(h)) continue;
+          rows.push({
+            userId: emp.userId,
+            perk: "free-race",
+            weekKey: emp.weekKey,
+            externalRef: squareDayofOrderId,
+            unitRef: `${h.heatId ?? ""}:${h.assignedTo ?? ""}`,
+            qty: 1,
+            amountOffCents: heatPriceCents(h, item.date),
+            source: input.session.context?.kiosk ? "kiosk" : "web",
+            detail: { heatId: h.heatId, productId: h.productId, memberId: emp.memberId },
+          });
+        }
+      }
+      if (employeeSavingsCents > 0) {
+        rows.push({
+          userId: emp.userId,
+          perk: "percent-off",
+          weekKey: emp.weekKey,
+          externalRef: squareDayofOrderId,
+          qty: 1,
+          amountOffCents: employeeSavingsCents,
+          source: input.session.context?.kiosk ? "kiosk" : "web",
+          detail: { percentOff: EMPLOYEE_PROGRAM.percentOff, memberId: emp.memberId },
+        });
+      }
+      if (rows.length) await recordPerkRedemptions(rows);
+    } catch (err) {
+      console.error("[unified-reserve] employee perk ledger write failed (non-fatal):", err);
     }
   }
 

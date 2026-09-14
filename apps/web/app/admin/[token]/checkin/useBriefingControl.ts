@@ -22,8 +22,9 @@
  * and the panels became a pure renderer of it. The flash can take the whole
  * screen (it should) without costing anything underneath.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import { laneSignature, mergeBoardPulse, type BoardPulse } from "./board-pulse";
 // The kind list is named ONCE, in desk-alarm.ts. Retyping it here is how `pull`
 // came to exist on the board and not in the endpoint's shape check.
 import type { AlarmKind } from "~/features/signage/briefing/desk-alarm";
@@ -141,6 +142,13 @@ export interface BoardStatus {
    * on the previous build gets `undefined` and simply renders no strip.
    */
   crew?: CrewBoard;
+  /**
+   * THE DESK'S "READY TO PULL" MARK PER TRACK (owner 2026-09-13) — which called
+   * session a staff member has flagged ready for the room, if any. Drives the
+   * Called box's button state; the walls flash on the same fact. Optional for
+   * the same older-deploy reason as the fields above.
+   */
+  readyToPull?: Record<string, { sessionId: string; atMs: number } | null>;
 }
 
 /** Mirrors TimingFeedStatus in ~/features/racing/timing-feed.server.ts. */
@@ -284,6 +292,13 @@ export interface BriefingControl {
   /** "Race returned" — the finished race's karts are fully back in the lane.
    *  The ONLY thing that releases the pit board's hold. */
   markPitted: (track: string) => void;
+  /**
+   * "READY TO PULL" — tell every wall the called group is ready for the room
+   * before the roster or the clock would say so (owner 2026-09-13). `on: false`
+   * takes the press back. Session-scoped on the server, so it can never light
+   * the next heat on that track.
+   */
+  markReady: (args: { track: string; sessionId: string; on: boolean }) => void;
   /**
    * ARM OR DISARM THE CAMERA SWEEP that moves a group to holding by itself when
    * their room goes quiet (owner 2026-08-14).
@@ -480,6 +495,35 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     5_000,
     enabled,
   );
+
+  /**
+   * THE FAST LANE (owner 2026-09-12: "show them available as soon as race is
+   * posted"). The rooms, the lanes and the Track Ops crew — the half of the
+   * board that changes at a PRESS — every two seconds from a Redis-only read,
+   * merged over the full board when newer. Same split, same cadence and same
+   * merge rule as the walls' pulse; the rule itself is pure and tested in
+   * ./board-pulse. A dropped beat keeps the last pulse rather than clearing
+   * anything, and a beat still in flight after 8s is not going to be news.
+   */
+  const [pulse, setPulse] = useState<BoardPulse | null>(null);
+  useVisibleInterval(
+    async (signal) => {
+      try {
+        const res = await fetch(`/api/admin/briefing?token=${encodeURIComponent(token)}&pulse=1`, {
+          cache: "no-store",
+          signal,
+        });
+        if (!res.ok || signal.aborted) return;
+        setPulse((await res.json()) as BoardPulse);
+      } catch {
+        /* keep the last pulse */
+      }
+    },
+    2_000,
+    enabled,
+    8_000,
+  );
+  const merged = useMemo(() => mergeBoardPulse(board, pulse), [board, pulse]);
 
   const post = useCallback(
     async (
@@ -761,15 +805,31 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
+  const markReady = useCallback<BriefingControl["markReady"]>(
+    ({ track, sessionId, on }) => {
+      void post(
+        { action: "ready", track, sessionId, on },
+        on ? "marked ready to pull — the boards are flashing for this group" : "ready mark cleared",
+        `ready:${track}`,
+        { nameHost: false },
+      );
+    },
+    [post],
+  );
+
   /**
-   * The wait-time strip's own poll, at a MINUTE rather than the board's five
-   * seconds. These are today's averages over the whole night: they move when a
-   * heat finishes, not between two blinks, and each read folds the day's events
-   * — so polling it at board speed would be twelve times the work for a number
-   * that had not changed.
+   * The wait-time numbers: today's averages over the whole night. They move
+   * when a GROUP moves — a race goes green, a race is posted — not between two
+   * blinks, and each read folds the day's events out of Neon, so they are not
+   * polled at board speed. Instead (owner 2026-09-12: "stats… update faster"):
+   *
+   *   • a 30-second backstop poll, and
+   *   • an IMMEDIATE refetch whenever the lanes' occupancy changes (below) — so
+   *     the moment a post empties the pit slot, "Total experience" for that heat
+   *     is on the panel with the next paint, not up to a minute later.
    */
-  useVisibleInterval(
-    async (signal) => {
+  const loadWaitTimes = useCallback(
+    async (signal?: AbortSignal) => {
       try {
         const res = await fetch(`/api/admin/wait-times?token=${encodeURIComponent(token)}`, {
           cache: "no-store",
@@ -782,9 +842,27 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
         /* a dropped poll must not blank the strip */
       }
     },
-    60_000,
-    enabled,
+    [token],
   );
+  useVisibleInterval(loadWaitTimes, 30_000, enabled);
+
+  /**
+   * WHO IS WHERE, as one string; when it changes, the wait times are re-read.
+   * Skips the very first value — the poll above has already loaded once — and
+   * a floor that has not moved costs nothing.
+   */
+  const floor = laneSignature(merged?.lanes);
+  const lastFloor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    if (lastFloor.current === null) {
+      lastFloor.current = floor;
+      return;
+    }
+    if (lastFloor.current === floor) return;
+    lastFloor.current = floor;
+    void loadWaitTimes();
+  }, [floor, enabled, loadWaitTimes]);
 
   /**
    * The seven-day baseline, polled every TEN MINUTES.
@@ -848,7 +926,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   );
 
   return {
-    board,
+    board: merged,
     note,
     busy,
     pending,
@@ -863,6 +941,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     sendToHolding,
     reassignHost,
     markPitted,
+    markReady,
     setAutoHolding,
     setCheckinWindow,
     setGreetingByMotion,

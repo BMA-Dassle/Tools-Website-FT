@@ -15,6 +15,16 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.36.0 — TEAM MEMBER PERKS (owner 2026-09-13). A "Team member" door on the
+ *         code-entry screen: employee ID or mobile → one-time code texted to
+ *         the mobile 7SHIFTS holds → verified. Linked employees who sign in as
+ *         themselves get the "Welcome back" sheet with no code. Perks on their
+ *         OWN items only: 50% off single races, gel blaster and laser tag
+ *         (the Employee Pass split-line rail, so the BMI membership can never
+ *         stack); 2 free single races per Wed–Tue pay week (ledgered, hard
+ *         fail at charge if the count moved); Game Zone cards at full price
+ *         with the bought tokens loaded again as bonus. Green "perks on" bar
+ *         on Review & Pay. EN + ES.
  * 1.35.2 — RACING: adult Pro is bookable tonight only (Fri 2026-09-11, owner).
  *         Pro is a weekday/Mega product and Friday runs the weekend catalog,
  *         so the tier simply wasn't offered — BMI had the heats the whole
@@ -1389,7 +1399,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.35.2";
+export const KIOSK_VERSION = "1.36.0";
 
 let bootVersion: string | null = null;
 let captured = false;

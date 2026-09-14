@@ -60,6 +60,8 @@ import type { CheckinPartyMember } from "../checkin/types";
 import { kioskVoucherGzEnabled, kioskVoucherPrefillEnabled } from "../flags";
 import { clarityEvent, clarityTag } from "~/lib/clarity";
 import { useT, type Translate } from "../i18n";
+import { KioskTeamMemberEntry } from "./KioskTeamMemberEntry";
+import type { SessionEmployee } from "~/features/discount-codes/programs/employee";
 
 type MessageKey = Parameters<Translate>[0];
 
@@ -168,6 +170,7 @@ export function KioskCodeEntry({
   onPartyAdd,
   onPartyRemove,
   initialScan,
+  onEmployeeVerified,
 }: {
   /** Valid promo → parent dispatches applyPromo; this screen shows the
    *  success panel and the CTA returns to the categories. */
@@ -238,6 +241,10 @@ export function KioskCodeEntry({
   /** The session party — the booking-roster chips derive selected/disabled
    *  state from it (session truth, remount-proof). */
   party?: PartyMember[];
+  /** EMPLOYEE PERKS: the "Team member" door on this screen — the server's
+   *  SessionEmployee after the one-time code passed; the parent dispatches
+   *  setEmployee. Absent = the door is hidden. */
+  onEmployeeVerified?: (employee: SessionEmployee, linked: boolean) => void;
   /** Parent dispatches addPartyMember — the booking's roster AUTO-LINKS
    *  through this the moment it resolves (and a re-tapped chip re-adds), so
    *  every later people step is prefilled. */
@@ -254,7 +261,7 @@ export function KioskCodeEntry({
   const t = useT();
   const { config } = useKioskConfig();
   // SCAN is the primary action (owner 2026-07-27) — typing is the fallback.
-  const [mode, setMode] = useState<"scan" | "type">("scan");
+  const [mode, setMode] = useState<"scan" | "type" | "team">("scan");
   const [value, setValue] = useState("");
   const [checking, setChecking] = useState(false);
   // code → its already-SPENT legs from the last validate (receipt "used" rows).
@@ -1784,6 +1791,20 @@ export function KioskCodeEntry({
     </div>
   );
 
+  // EMPLOYEE PERKS — team-member verification as a MODE of this screen (owner
+  // 2026-09-13: the kiosk entry point is the existing code-entry screen).
+  if (mode === "team" && onEmployeeVerified) {
+    return (
+      <KioskTeamMemberEntry
+        party={party}
+        onVerified={onEmployeeVerified}
+        onBack={() => setMode("scan")}
+        // Verified → main menu, the way an applied coupon leaves this screen.
+        onDone={onBack}
+      />
+    );
+  }
+
   if (mode === "scan") {
     return (
       <div className="flex h-full flex-col items-center px-[64px] pb-[40px] pt-[96px] text-center">
@@ -1832,6 +1853,15 @@ export function KioskCodeEntry({
           >
             {t("codeEntry.typeInstead")}
           </button>
+          {onEmployeeVerified ? (
+            <button
+              type="button"
+              onClick={() => setMode("team")}
+              className="k-btn-ghost k-tap text-white/80"
+            >
+              {t("team.button")}
+            </button>
+          ) : null}
         </div>
       </div>
     );
@@ -1872,6 +1902,11 @@ export function KioskCodeEntry({
         <button type="button" onClick={() => setMode("scan")} className="k-btn-ghost k-tap">
           {t("codeEntry.scanInstead")}
         </button>
+        {onEmployeeVerified ? (
+          <button type="button" onClick={() => setMode("team")} className="k-btn-ghost k-tap">
+            {t("team.button")}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={submit}

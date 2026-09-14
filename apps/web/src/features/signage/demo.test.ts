@@ -36,6 +36,7 @@ function baseFeed(now: number): TvFeed {
     pitLanes: null,
     pitRosters: null,
     crew: null,
+    readyToPull: null,
     checkinProgress: null,
     checkinReturning: null,
     raceResults: null,

@@ -41,6 +41,10 @@
  * the last KbfItem leaves the cart.
  */
 import type { AppliedPromo } from "~/features/discount-codes";
+import type {
+  EmployeePerksStamp,
+  SessionEmployee,
+} from "~/features/discount-codes/programs/employee";
 
 /**
  * The session's scanned/applied BMI voucher (shared by kiosk + web — see
@@ -140,6 +144,14 @@ export interface PartyMember {
    *  (service/license.ts) — `isNewRacer` alone let a lapsed licence through. */
   licenseActive?: boolean;
   memberships?: string[];
+  /**
+   * EMPLOYEE PERKS (2026-09-13): this member IS the verified team member. A
+   * display hint on the client — the server strips every stamp and re-derives
+   * the one true stamp from `session.employee.token` before pricing
+   * (programs/employee.server.ts applyEmployeeToSession). Never set by hand;
+   * `stampEmployeeOnParty` is the only writer.
+   */
+  employeePerks?: EmployeePerksStamp;
   /** Pandora waiver validity — true when the racer has a current, unexpired waiver.
    *  Drives Express Lane eligibility (skip Guest Services at check-in). */
   waiverValid?: boolean;
@@ -866,6 +878,14 @@ export interface BookingSession {
    * until a BMI bill exists to apply to.
    */
   appliedVouchers?: AppliedVoucherState[];
+  /**
+   * EMPLOYEE PERKS (2026-09-13): the verified team member on this booking —
+   * 7shifts identity proven by a one-time code, carried as a signed token the
+   * server re-verifies at quote AND charge. `usedThisWeek` is the free-race
+   * count the display priced with; the charge hard-fails if the ledger moved.
+   * Set by the employee route (web) / code-entry + sign-in recognition (kiosk).
+   */
+  employee?: SessionEmployee | null;
   /**
    * Combo-special id (features/combos registry, e.g. "race-bowl") — stamped
    * ONCE at session creation by the /book/combo/[id]/v2 entry, like

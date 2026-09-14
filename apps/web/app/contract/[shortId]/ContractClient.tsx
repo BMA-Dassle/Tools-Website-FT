@@ -19,6 +19,7 @@ import {
   IconLink,
 } from "@tabler/icons-react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import { resignPlan } from "@/lib/group-function-resign-plan";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 
 const SQUARE_APP_ID = process.env.NEXT_PUBLIC_SQUARE_APP_ID || "";
@@ -160,16 +161,29 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 }
 
 function ContractClientActive({ quote }: { quote: QuoteProps }) {
-  const isResign = quote.status === "resign_required" && Boolean(quote.depositPaidAt);
-  // Re-sign money facts come from collected_cents — the same source resign-settle charges
-  // (delta = total - collected) — so the displayed amount always matches the actual charge,
-  // regardless of what balance_cents holds.
-  const resignDueCents = Math.max(0, quote.totalCents - quote.collectedCents);
-  // Mirrors resign-settle's `wasPaidInFull` gate EXACTLY (Boolean(balance_paid_at)). That
-  // flag is what decides whether signing settles the difference on the spot or hands the
-  // balance back to the 72h cron, so the sign-step copy MUST branch on the same fact —
-  // anything that merely looks equivalent will drift and promise the guest the wrong thing.
-  const resignSettlesNow = isResign && Boolean(quote.balancePaidAt);
+  // Every re-sign money fact comes from one place, which mirrors resign-settle's own
+  // gates — see lib/group-function-resign-plan.ts for why they must not be re-derived
+  // inline here (the post-paid card demand, c31e3aec, 2026-09-13).
+  // Pass the six facts the plan declares, not the whole quote: the React Compiler can
+  // then see primitives in and primitives out, and keeps optimizing the callbacks below.
+  const resign = resignPlan({
+    status: quote.status,
+    depositPaidAt: quote.depositPaidAt,
+    balancePaidAt: quote.balancePaidAt,
+    totalCents: quote.totalCents,
+    collectedCents: quote.collectedCents,
+    hasCardOnFile: quote.hasCardOnFile,
+  });
+  // Re-bound through explicit comparisons rather than destructured. `isResign` and
+  // `resignNeedsCard` are useCallback dependencies below, and the React Compiler treats a
+  // binding destructured from an opaque call as possibly-mutable — which makes it skip
+  // optimizing every callback that depends on one (three of them, measured). A comparison
+  // yields a value it can prove is an immutable primitive.
+  const isResign = resign.isResign === true;
+  const resignSettlesNow = resign.settlesNow === true;
+  const resignNeedsCard = resign.needsCard === true;
+  const resignDueCents = resign.dueCents;
+  const resignSignAction = resign.signAction;
   const isFullPayment = quote.balanceCents === 0;
   const isPostPaid = quote.isPostPaid;
   const hasLegacyDeposit = quote.priorDepositCents > 0 && !quote.depositPaidAt;
@@ -181,7 +195,6 @@ function ContractClientActive({ quote }: { quote: QuoteProps }) {
   // On re-sign of a paid-in-full event that's now priced UP, we charge the difference
   // (resignDueCents) to the card on file. If there's no card on file, the re-sign keeps the
   // pay step so the guest adds one; otherwise the delta is charged server-side on completion.
-  const resignNeedsCard = isResign && resignDueCents > 0 && !quote.hasCardOnFile;
   const STEPS = isResign
     ? buildSteps(true, false).filter((s) => s.key !== "pay" || resignNeedsCard)
     : buildSteps(isFullPayment, isPostPaid);
@@ -1738,13 +1751,14 @@ function ContractClientActive({ quote }: { quote: QuoteProps }) {
                 disabled={!allAgreed || !hasSig}
                 className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-4 text-lg font-bold shadow-lg shadow-cyan-500/20 disabled:opacity-40"
               >
-                {/* A settle-now re-sign with a card on file has NO pay step after this —
-                    handleSign settles the difference inline — so don't promise one. */}
-                {resignSettlesNow && !resignNeedsCard
-                  ? resignDueCents > 0
-                    ? `Sign & Pay ${fmtDollars(resignDueCents)}`
-                    : "Sign & Confirm"
-                  : "Sign & Continue to Payment"}
+                {/* Never promise a payment step that isn't in STEPS. A deposit-only or
+                    post-paid re-sign moves no money here and just confirms, leaving the
+                    balance on its existing rail. See resignPlan().signAction. */}
+                {resignSignAction === "pay"
+                  ? `Sign & Pay ${fmtDollars(resignDueCents)}`
+                  : resignSignAction === "confirm"
+                    ? "Sign & Confirm"
+                    : "Sign & Continue to Payment"}
               </button>
             </div>
           </>

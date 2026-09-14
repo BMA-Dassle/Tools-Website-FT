@@ -207,6 +207,9 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
       // The venue's check-in window, so a short grid becomes PULL TO BRIEFING
       // NOW at its deadline rather than sitting on 'waiting' for ever.
       checkinWindowMins: config.checkinWindowMins,
+      // The desk's Ready to pull press for THIS heat — see SceneCameraMonitor.
+      staffReady:
+        !!progress && feed?.readyToPull?.[progress.track]?.sessionId === progress.sessionId,
       brief: sendWindow({
         remainingMs: railClockNow?.remainingMs ?? null,
         onTrack: !!railClockNow || !!feed?.pitLanes?.[railTrack]?.racing,
@@ -224,6 +227,7 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
     feed?.now,
     feed?.briefing?.videos,
     feed?.checkinProgress,
+    feed?.readyToPull,
     nowMs,
     trackStatus?.currentRaces,
     liveTrack,

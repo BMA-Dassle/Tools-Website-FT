@@ -50,6 +50,7 @@ import type { SavedCard } from "@/components/square/SavedCardSelector";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
+import { EmployeePerksInput, useEmployeeRecognitionWeb } from "./EmployeePerksInput";
 import {
   planVoucherCoverage,
   sessionVouchers,
@@ -62,6 +63,10 @@ import { contactIsComplete } from "../ContactStep";
 import { kioskGzCartEnabled } from "~/features/kiosk/flags";
 import { playNowActive } from "~/features/booking/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import {
+  employeeMember,
+  computeEmployeeFreeHeats,
+} from "~/features/booking/service/employee-perks";
 import { centerCodeFor } from "~/config/intercard-centers";
 import {
   qamfCenterCode,
@@ -193,6 +198,11 @@ export function CheckoutStep({
     ((url: string) => {
       window.location.href = url;
     });
+  // EMPLOYEE PERKS — web code-free recognition, every checkout phase (owner
+  // 2026-09-13: "web should do the automatic check as well").
+  useEmployeeRecognitionWeb(session.party, session.employee, (employee) =>
+    dispatch({ type: "setEmployee", employee }),
+  );
   const [phase, setPhase] = useState<Phase>(() =>
     // Merged kiosk checkout skips the contact phase: mount on the booking
     // spinner (the auto-submit effect below runs the actual submit). Falls
@@ -697,6 +707,30 @@ export function CheckoutStep({
             const vHeats = planVoucherCoverage(session, base).raceHeats;
             if (vHeats.size > 0) base = new Set([...base, ...vHeats]);
           }
+          // EMPLOYEE PERKS — the team member's free single races this pay week,
+          // differenced from the same line builder (the BOGO pattern below), in
+          // the same coverage slot the charge uses: after vouchers, before BOGO.
+          const empFree = computeEmployeeFreeHeats(
+            session.items,
+            session.party,
+            base,
+            session.employee,
+          );
+          if (empFree.heats.size > 0) {
+            const sumLines = (ex: Set<RaceHeatAssignment>) =>
+              buildRaceChargeLines(session, ex).reduce((s, l) => s + l.amount, 0);
+            const free =
+              Math.round((sumLines(base) - sumLines(new Set([...base, ...empFree.heats]))) * 100) /
+              100;
+            if (free > 0) {
+              reviewLines.push({
+                name: `Team member — free race`,
+                quantity: 1,
+                amount: -free,
+              });
+            }
+            base = new Set([...base, ...empFree.heats]);
+          }
           const bogo = computeBogoScheduledFree(session.items, session.party, base);
           if (bogo.heats.size > 0) {
             const sumLines = (ex: Set<RaceHeatAssignment>) =>
@@ -877,7 +911,9 @@ export function CheckoutStep({
       let gzCartDollars = 0;
       if (session.context?.kiosk && kioskGzCartEnabled() && session.gameCardPurchase) {
         try {
-          const gz = resolveCartPurchase(session.gameCardPurchase);
+          const gz = resolveCartPurchase(session.gameCardPurchase, {
+            employee: !!employeeMember(session.party),
+          });
           if (gz) {
             for (const l of gz.orderLines) {
               const qty = Number(l.quantity) || 1;
@@ -1259,6 +1295,17 @@ export function CheckoutStep({
                 }
               : undefined
           }
+        />
+
+        {/* EMPLOYEE PERKS (owner 2026-09-13): "Team member?" beside the promo
+            field — employee ID or mobile → one-time code to the 7shifts mobile →
+            the server's SessionEmployee stamps the matched party member. The
+            review prices from the SAME server quote the reserve charges with. */}
+        <EmployeePerksInput
+          employee={session.employee}
+          party={session.party}
+          onVerified={(employee) => dispatch({ type: "setEmployee", employee })}
+          onClear={() => dispatch({ type: "setEmployee", employee: null })}
         />
 
         <div className="flex items-center justify-between pt-2">

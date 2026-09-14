@@ -21,7 +21,13 @@ export interface ServerQuoteLine {
   /** $0 unit but priced by the Square catalog (the $2.99 booking fee). */
   catalogPricedCents?: number;
   coverage?: {
-    kind: "race-credit" | "race-pack" | "voucher" | "combo-inclusion" | "bogo-special";
+    kind:
+      | "race-credit"
+      | "race-pack"
+      | "voucher"
+      | "combo-inclusion"
+      | "bogo-special"
+      | "employee-perk";
     label: string;
   };
   originalUnitCents?: number;

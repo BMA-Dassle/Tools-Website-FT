@@ -118,6 +118,11 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
       firstName: person.fullName.split(" ")[0] || person.fullName,
       lastName: person.fullName.split(" ").slice(1).join(" ") || undefined,
       bmiPersonId: person.personId,
+      // EMPLOYEE PERKS: carry the looked-up phone on the MEMBER too (not only
+      // the contact) — the team-member match keys on the BMI record's phone.
+      phone: person.phone || undefined,
+      phoneVerified: person.phoneVerified,
+      email: person.email || undefined,
       isNewRacer: false,
       category,
       isBillingCustomer: true,
@@ -159,6 +164,11 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
             patch.email = data.email;
           if (!person.phone && data.phone) patch.phone = String(data.phone);
           if (patch.email || patch.phone) dispatch({ type: "setContact", patch });
+          // The MEMBER gets the BMI record's phone too — a login-code lookup
+          // captures none, and the team-member match keys on it.
+          if (patch.phone) {
+            dispatch({ type: "updatePartyMember", id: member.id, patch: { phone: patch.phone } });
+          }
         })
         .catch(() => {});
     }
@@ -182,6 +192,11 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
       firstName: person.fullName.split(" ")[0] || person.fullName,
       lastName: person.fullName.split(" ").slice(1).join(" ") || undefined,
       bmiPersonId: person.personId,
+      // EMPLOYEE PERKS: carry the looked-up phone on the MEMBER too (not only
+      // the contact) — the team-member match keys on the BMI record's phone.
+      phone: person.phone || undefined,
+      phoneVerified: person.phoneVerified,
+      email: person.email || undefined,
       isNewRacer: false,
       category,
       memberships: person.memberships,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { quoteUnifiedSession } from "~/features/booking/service/unified-reserve";
 import type { BookingSession } from "~/features/booking/state/types";
+import { applyEmployeeToSession } from "~/features/discount-codes/programs/employee.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,23 @@ export async function POST(req: NextRequest) {
     if (!body?.session?.items?.length) {
       return NextResponse.json({ error: "No items in session" }, { status: 400 });
     }
-    return NextResponse.json(quoteUnifiedSession(body.session));
+    // EMPLOYEE PERKS: the quote prices the SAME server-re-derived employee state
+    // the charge will (token verified, roster re-checked, one member stamped) —
+    // so a forged or expired claim never shows a discount the reserve won't honour.
+    const emp = await applyEmployeeToSession(body.session);
+    if (emp.dropped) {
+      // Loud + returned: a team member who sees full price needs the reason in
+      // the logs AND on the screen, not a silent guest quote.
+      console.warn(
+        `[v2/quote] employee perks NOT applied: ${emp.dropped} (userId=${body.session.employee?.userId ?? "?"}, memberId=${body.session.employee?.memberId ?? "none"})`,
+      );
+    }
+    return NextResponse.json({
+      ...quoteUnifiedSession(emp.session),
+      ...(body.session.employee
+        ? { employee: { applied: !!emp.employee, dropped: emp.dropped } }
+        : {}),
+    });
   } catch (err) {
     console.error("[v2/quote] failed:", err);
     return NextResponse.json(

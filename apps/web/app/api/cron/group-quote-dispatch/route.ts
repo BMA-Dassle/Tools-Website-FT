@@ -18,6 +18,7 @@ import {
   extractContractSnapshot,
   type GroupFunctionQuote,
 } from "@/lib/group-function-db";
+import { classifyMaterialChange, canRequestResign } from "@/lib/group-function-material-change";
 import {
   notifyContractSent,
   notifyContractUpdated,
@@ -783,6 +784,13 @@ async function processQueueItem(
     // same total — and the `changes.length === 0` early-exit below would then
     // resend the contract while skipping the day-of reconcile that relocates the
     // order to the new center.
+    //
+    // The three MATERIAL facts — money, date, venue — are hoisted into consts here
+    // and reused verbatim by the re-sign gate below, so the diff the guest reads and
+    // the decision to re-ask for a signature can never disagree about what moved.
+    const dateChanged = existing.event_date_display !== newEventDisplay;
+    const venueChanged = centerChanges.length > 0;
+
     const changes: string[] = [...centerChanges];
     if (priceChanged) changes.push(`total: ${existing.total_cents} → ${totalCents}`);
     if (existing.tax_cents !== taxCents) changes.push(`tax: ${existing.tax_cents} → ${taxCents}`);
@@ -793,8 +801,7 @@ async function processQueueItem(
     if (existing.event_name !== item.event.name)
       changes.push(`event_name: ${existing.event_name} → ${item.event.name}`);
     if (norm(existing.event_number) !== norm(item.event.number)) changes.push("event_number");
-    if (existing.event_date_display !== newEventDisplay)
-      changes.push(`date: ${existing.event_date_display} → ${newEventDisplay}`);
+    if (dateChanged) changes.push(`date: ${existing.event_date_display} → ${newEventDisplay}`);
     if (norm(existing.notes) !== norm(item.event.notes)) changes.push("notes");
     if (norm(existing.guest_first_name) !== norm(item.customer.first)) changes.push("guest_first");
     if (norm(existing.guest_last_name) !== norm(item.customer.last)) changes.push("guest_last");
@@ -896,14 +903,15 @@ async function processQueueItem(
     const reconcileTarget = await getGfQuoteByShortId(existing.contract_short_id!);
     if (reconcileTarget) await reconcileDayofOrderSafe(reconcileTarget);
 
-    const resignFlow =
-      priceChanged &&
-      (existing.status === "deposit_paid" ||
-        existing.status === "balance_charged" ||
-        // Already awaiting re-sign and the price moved AGAIN (sales re-flipped to
-        // "Send Contract" after another product edit): re-notify the guest with the
-        // new total instead of silently syncing — the prior email shows stale money.
-        existing.status === "resign_required");
+    // MATERIAL CHANGE → re-signature. Price, date and venue are the terms of the
+    // agreement; see group-function-material-change.ts for the rule and why it is not
+    // inline here. Was price-only until 2026-09-13 (contract c31e3aec).
+    const { isMaterial, reasons: materialReasons } = classifyMaterialChange({
+      priceChanged,
+      dateChanged,
+      venueChanged,
+    });
+    const resignFlow = isMaterial && canRequestResign(existing.status);
 
     if (resignFlow) {
       // LOOP-BREAKER FIRST. The re-sign request IS a contract send, so it carries
@@ -953,8 +961,11 @@ async function processQueueItem(
       // 54033582, 2026-07-13.)
 
       console.log(
-        `[group-quote-dispatch] PRICE CHANGED for reservation=${item.reservationId} — resign_required ` +
-          `(was ${existing.total_cents} → now ${totalCents})`,
+        `[group-quote-dispatch] MATERIAL CHANGE (${materialReasons.join(", ")}) for ` +
+          `reservation=${item.reservationId} — resign_required ` +
+          `(total ${existing.total_cents} → ${totalCents}; ` +
+          `date ${existing.event_date_display} → ${newEventDisplay}` +
+          `${venueChanged ? `; ${centerChanges.join("; ")}` : ""})`,
       );
     } else {
       // Non-price change (date, notes, contacts, …) on a paid event: still a
@@ -979,7 +990,7 @@ async function processQueueItem(
       await appendProjectPrivateNote({
         centerCode: center.centerCode,
         projectId: item.reservationId,
-        note: `[${noteTimestamp()}] Contract updated${resignFlow ? " (price changed — resign required)" : " — resent to guest"}`,
+        note: `[${noteTimestamp()}] Contract updated${resignFlow ? ` (${materialReasons.join(" + ")} changed — resign required)` : " — resent to guest"}`,
         contractUrl,
       });
     } catch {
@@ -988,7 +999,7 @@ async function processQueueItem(
 
     console.log(
       `[group-quote-dispatch] post-sign update for reservation=${item.reservationId}` +
-        `${priceChanged ? " (PRICE CHANGED)" : ""}: ${changes.join("; ")}`,
+        `${materialReasons.length ? ` (MATERIAL: ${materialReasons.join(", ")})` : ""}: ${changes.join("; ")}`,
     );
     return {
       reservationId: item.reservationId,

@@ -1,5 +1,62 @@
 # Lessons Learned
 
+## A signed agreement has more than one term — gating "does this need re-signing?" on money alone quietly voids the other two (2026-09-13)
+
+**The bug.** `/contract/c31e3aec` (Strikes for Scholarships, FGCU) moved from Sep 13 to Sep 19
+after it was signed. No signature was requested. The gate in `group-quote-dispatch` read:
+
+```ts
+const resignFlow = priceChanged && (status === "deposit_paid" || …);
+```
+
+`priceChanged` is `existing.total_cents !== totalCents` — **money only**. A date move costs nothing,
+so the pass fell to the non-price branch, synced the row, emailed a "Contract Updated" notice and
+left the contract signed. The executed PDF still named Sep 13, and `generateAndStorePdf` only runs
+at sign / deposit / resign-settle, so nothing in the system would ever have corrected it.
+
+**The rule.** A contract is an agreement about **what it costs, when it happens, and where**. Any
+gate that asks "has this changed enough to re-ask the guest?" must be built from all the terms, not
+from the one that happens to be a number you already compute. Money is the easiest to diff, which is
+exactly why it becomes the accidental definition of "material". `classifyMaterialChange` in
+`lib/group-function-material-change.ts` is now the single home for that decision.
+
+**It changes WHAT a send does, not WHEN one happens — and say so in exactly those words.** The
+trigger is still only the planner flipping BMI to "Send Contract" (§ "Send Contract is the only
+contract trigger", 2026-06-08); `scanForNewEvents` filters to that state and the cron detects
+nothing on its own. I described the shipped change to the owner as "the cron runs every ~2 minutes,
+so any signed contract whose date moves in BMI stops and asks for a signature" — true of the effect,
+false about the trigger, and it read as though a robot had been handed the customer's mailbox. The
+owner pushed back immediately and was right to. **When a change lands inside a human-initiated gate,
+name the gate in the same sentence as the new behaviour.** "Every 2 minutes" describes a poll for a
+person's decision; do not let it describe the decision.
+
+**Two things that fell out of it, both worth generalising:**
+
+1. **A trigger you cannot render is not shippable.** Making a venue move require a re-sign was two
+   lines. But `ContractSnapshot` had no venue field, `diffSnapshots` only walks `FIELD_LABELS`, and
+   the guest page hides the What Changed card when there are no diffs — so a pure venue move would
+   have asked the guest to re-sign with **no stated reason on screen**. Whenever you add a reason to
+   interrupt someone, check the surface that has to explain it to them. And when you add a field to
+   a JSONB snapshot, every row already written lacks the key: diff on **presence**
+   (`!(key in a)`), not on value, or the first edit after deploy reports a change that never
+   happened (`Venue: (empty) → HeadPinz Fort Myers`).
+
+2. **A widened gate exposes whatever was already broken behind it.** `resignNeedsCard` in
+   ContractClient read `isResign && dueCents > 0 && !hasCardOnFile`, where the server
+   (`resign-settle`) only ever charges on `wasPaidInFull`. A post-paid or deposit-only event has
+   `collected_cents < total_cents` **by design** and no card on file, so re-signing one demanded the
+   full balance on a card — $8,538.84, to re-confirm a date. It never fired because only a price
+   change could start a re-sign, and price changes mostly land on paid-in-full events, which have a
+   card. **When a UI mirrors a server-side money decision, derive both from the same named fact and
+   test them against each other** — `resignPlan()` now does, with the old formula pinned as a
+   CONTROL test. Before widening a trigger, walk the whole path it now opens.
+
+**Also:** the dirty-tree lint baseline is real. The first cut of the ContractClient change took its
+values by destructuring the result of an imported call; the React Compiler treats such a binding as
+possibly-mutable and skipped optimizing **three** `useCallback`s — 11 warnings → 14. Re-binding
+through explicit comparisons (`plan.isResign === true`) restored it. Measure the baseline by linting
+the file at HEAD (`git show HEAD:path > scratch`), never by assuming the warnings were already there.
+
 ## A catalog split by price is not a catalog split by availability — and the BMI race SKUs are not day-restricted (2026-09-11)
 
 **Ask.** Owner, 5 PM Friday: "Allow pro races for tonight only." Pro is a weekday/Mega product;
@@ -5899,3 +5956,20 @@ happened to be "adult" — which is why it was only noticed on junior races.
 `dobIso`, prefill derives `category` via `resolveRaceClass` (unset when unknown) and keeps the date,
 the voucher-receipt chips carry it too, and the "Who's racing?" picker offers unknown-class racers.
 Kiosk 1.35.1. Not live-verified.
+
+## A commit can land on `main` while you believe you are on your branch (2026-09-13)
+
+`git checkout -b fix/track-ops-fast-lane` succeeded, the work was done, gates ran — and between the
+gates and `git commit`, HEAD moved to `main` from OUTSIDE the session (the reflog shows a checkout to
+`main` and an "Auto stash before merge of main and origin/main": the IDE's git pane pulled). The
+commit landed on local `main`; `git push -u origin fix/track-ops-fast-lane` then pushed the branch's
+OLD tip — an empty snapshot of main — and reported success. Nothing looked wrong until the next branch
+was cut from it and none of the files were there.
+
+- **Check the branch in the SAME command as the commit**: `git branch --show-current && git commit …`,
+  and read it back. A branch created ten minutes ago is not a fact about now.
+- **After a push, verify what the remote holds**: `git rev-parse --short origin/<branch>` must equal
+  HEAD. A successful push of the wrong tip prints exactly like a successful push of the right one.
+- **Recover with fast-forwards, never force**: `git merge --ff-only <sha>` on the branch moved the
+  commit onto it and `git push` fast-forwarded the remote; local `main` was left for the owner to
+  reset (dropping a commit from main is theirs to approve, not the assistant's).

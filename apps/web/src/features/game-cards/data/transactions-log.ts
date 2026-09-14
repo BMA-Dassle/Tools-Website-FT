@@ -59,6 +59,13 @@ export interface TxnStart {
    * staff card-load view labels those "unknown kiosk" rather than guessing.
    */
   kioskId?: string | null;
+  /**
+   * EMPLOYEE PERKS (2026-09-13): `employee-2x` when a verified team member
+   * bought this card — the credit plan loads the bought tokens again as bonus.
+   * Persisted at PREPARE so the load, a retry and the reconcile cron agree;
+   * the client never sends token counts.
+   */
+  perk?: string | null;
 }
 
 export interface TxnRow {
@@ -93,6 +100,8 @@ export interface TxnRow {
   voucherCode: string | null;
   /** Which kiosk rang it up (`FT:1`); NULL for web sales and pre-column rows. */
   kioskId: string | null;
+  /** `employee-2x` = team-member token doubling applies to this row's credit. */
+  perk?: string | null;
 }
 
 let schemaReady = false;
@@ -144,6 +153,8 @@ async function ensureSchema(): Promise<void> {
   // or a row that predates the column — the staff view distinguishes the two by
   // date, never by inventing an attribution.
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS kiosk_id TEXT`;
+  // Round 6: employee perks — `employee-2x` marks a doubled-token load.
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS perk TEXT`;
   await q`CREATE INDEX IF NOT EXISTS ict_acct ON intercard_transactions (account_number)`;
   // The staff card-load list: one kiosk's rows, newest first.
   await q`
@@ -178,11 +189,11 @@ export async function startTxn(ev: TxnStart): Promise<void> {
     INSERT INTO intercard_transactions (
       txn_id, group_id, kind, location_code, account_number, package_id,
       tokens, bonus_tokens, amount_cents, tpi_transaction_id, contact,
-      kiosk_id, state, load_state
+      kiosk_id, perk, state, load_state
     ) VALUES (
       ${ev.txnId}, ${ev.groupId}, ${ev.kind}, ${ev.locationCode}, ${ev.accountNumber}, ${ev.packageId},
       ${ev.tokens}, ${ev.bonusTokens}, ${ev.amountCents}, ${ev.tpiTransactionId},
-      ${ev.contact ? JSON.stringify(ev.contact) : null}, ${ev.kioskId ?? null}, 'started', 'pending'
+      ${ev.contact ? JSON.stringify(ev.contact) : null}, ${ev.kioskId ?? null}, ${ev.perk ?? null}, 'started', 'pending'
     )
     ON CONFLICT (txn_id) DO NOTHING
   `;
@@ -541,6 +552,7 @@ function rowToTxn(r: any): TxnRow {
     loadedVia: r.loaded_via ?? null,
     voucherCode: r.voucher_code ?? null,
     kioskId: r.kiosk_id ?? null,
+    perk: (r.perk as string | null | undefined) ?? null,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

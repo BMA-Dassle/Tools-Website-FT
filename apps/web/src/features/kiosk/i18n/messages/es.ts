@@ -300,6 +300,55 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.gamecard.notHere":
     "Esa es una tarjeta Game Zone — usa la pantalla de Game Zone para las tarjetas. Esta pantalla es para cupones y vales.",
   "codeEntry.apply": "Aplicar código",
+  // --- Beneficios para empleados ---
+  "team.button": "Empleado",
+  "team.eyebrow": "Empleado",
+  "team.title": "Ingresa tu ID de empleado",
+  "team.sub":
+    "Tu ID de empleado de 7shifts o el número de celular de tu perfil de 7shifts. Te enviaremos un código por mensaje de texto.",
+  "team.placeholder": "ID de empleado o celular",
+  "team.continue": "Continuar",
+  "team.codeTitle": "Revisa tu teléfono",
+  "team.codeSub":
+    "Enviamos un código de 6 dígitos al número de tu perfil de 7shifts que termina en {tail}. Vale por 5 minutos.",
+  "team.codeHint": "¿Número incorrecto? Actualízalo en 7shifts e inténtalo de nuevo.",
+  "team.verify": "Verificar",
+  "team.resend": "Reenviar código",
+  "team.resendIn": "Reenviar en {seconds}s",
+  "team.err.unverified":
+    "No pudimos verificarte. Revisa tu ID de empleado o celular e inténtalo de nuevo.",
+  "team.err.noMobile":
+    "Tu perfil de 7shifts no tiene celular. Agrégalo en 7shifts e inténtalo de nuevo.",
+  "team.err.rateLimited": "Demasiados intentos. Espera un momento.",
+  "team.err.unavailable": "No podemos verificar empleados en este momento. Pasa por recepción.",
+  "team.err.incorrect":
+    "Ese código no es correcto. {n, plural, one {Queda # intento} other {Quedan # intentos}}.",
+  "team.err.expired": "Ese código expiró. Vuelve a empezar para recibir uno nuevo.",
+  "team.err.locked": "Demasiados códigos incorrectos. Espera 15 minutos.",
+  "team.done.title": "Listo, {name}. Estás verificado.",
+  "team.done.linked":
+    "Tus beneficios están activos para tus propios artículos: 50% en carreras individuales, gel blaster y laser tag, más tus carreras gratis de esta semana de pago.",
+  "team.done.unlinked":
+    "Aún no pudimos vincularte con nadie en esta reserva. Inicia sesión como tú en la pantalla de corredores y tus beneficios se activarán.",
+  "team.done.cta": "Continuar",
+  "team.sheet.tag": "Empleado",
+  "team.sheet.recognized": "Reconocido por tu inicio de sesión",
+  "team.sheet.title": "Bienvenido de nuevo, {name}. ¿Usas tus beneficios hoy?",
+  "team.sheet.free":
+    "{n, plural, =0 {Sin carreras gratis} one {# carrera gratis} other {# carreras gratis}}",
+  "team.sheet.freeSub": "carreras individuales que te quedan esta semana de pago (mié–mar)",
+  "team.sheet.half": "50% de descuento",
+  "team.sheet.halfSub": "en tus otras carreras individuales, gel blaster y laser tag",
+  "team.sheet.tokens": "Tokens 2×",
+  "team.sheet.tokensSub": "en tarjetas de Game Zone, cargados como tokens de bono",
+  "team.sheet.ownItems":
+    "Los beneficios aplican solo a tus propios artículos. El resto de tu grupo paga el precio normal.",
+  "team.sheet.no": "Hoy no",
+  "team.sheet.yes": "Sí, usar mis beneficios",
+  "team.bar.on": "{name} · beneficios activos",
+  "team.bar.detail":
+    "{n, plural, =0 {No te quedan carreras gratis} one {Te queda # carrera gratis} other {Te quedan # carreras gratis}} esta semana de pago · solo tus artículos",
+  "team.bar.remove": "Quitar",
   "codeEntry.back": "‹ Atrás",
   "codeEntry.checking": "Verificando tu código…",
   "codeEntry.applied.cta": "Empezar a elegir",

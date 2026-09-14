@@ -346,6 +346,53 @@ export const en = {
   "codeEntry.gamecard.notHere":
     "That's a Game Zone card — use the Game Zone screen for cards. This screen is for coupons and vouchers.",
   "codeEntry.apply": "Apply code",
+  // --- Team member perks (employee verification via 7shifts) ---
+  "team.button": "Team member",
+  "team.eyebrow": "Team member",
+  "team.title": "Enter your employee ID",
+  "team.sub":
+    "Your 7shifts employee ID or the mobile number on your 7shifts profile. We'll text you a code.",
+  "team.placeholder": "Employee ID or mobile",
+  "team.continue": "Continue",
+  "team.codeTitle": "Check your phone",
+  "team.codeSub":
+    "We texted a 6-digit code to the number on your 7shifts profile ending in {tail}. It works for 5 minutes.",
+  "team.codeHint": "Wrong number on file? Update it in 7shifts, then try again.",
+  "team.verify": "Verify",
+  "team.resend": "Resend code",
+  "team.resendIn": "Resend in {seconds}s",
+  "team.err.unverified": "We couldn't verify you. Check your employee ID or mobile and try again.",
+  "team.err.noMobile":
+    "Your 7shifts profile has no mobile number. Add one in 7shifts, then try again.",
+  "team.err.rateLimited": "Too many tries. Please wait a moment.",
+  "team.err.unavailable": "We can't verify team members right now. Please see the front desk.",
+  "team.err.incorrect":
+    "That code isn't right. {n, plural, one {# try left} other {# tries left}}.",
+  "team.err.expired": "That code expired. Start again to get a new one.",
+  "team.err.locked": "Too many wrong codes. Please wait 15 minutes.",
+  "team.done.title": "You're verified, {name}.",
+  "team.done.linked":
+    "Your perks are on for your own items: 50% off single races, gel blaster and laser tag, plus your free races this pay week.",
+  "team.done.unlinked":
+    "We couldn't match you to anyone on this booking yet. Sign in as yourself on the racers screen and your perks will switch on.",
+  "team.done.cta": "Continue",
+  "team.sheet.tag": "Team member",
+  "team.sheet.recognized": "Recognized from your sign-in",
+  "team.sheet.title": "Welcome back, {name}. Use your perks today?",
+  "team.sheet.free": "{n, plural, =0 {No free races} one {# free race} other {# free races}}",
+  "team.sheet.freeSub": "single races left this pay week (Wed–Tue)",
+  "team.sheet.half": "50% off",
+  "team.sheet.halfSub": "your other single races, gel blaster and laser tag",
+  "team.sheet.tokens": "2× tokens",
+  "team.sheet.tokensSub": "on Game Zone cards, loaded as bonus tokens",
+  "team.sheet.ownItems":
+    "Perks apply to your own items only. Everyone else in your crew pays the regular price.",
+  "team.sheet.no": "Not today",
+  "team.sheet.yes": "Yes, use my perks",
+  "team.bar.on": "{name} · perks on",
+  "team.bar.detail":
+    "{n, plural, =0 {No free races left} one {# free race left} other {# free races left}} this pay week · your items only",
+  "team.bar.remove": "Remove",
   "codeEntry.back": "‹ Back",
   "codeEntry.checking": "Checking your code…",
   // Receipt primary when everything scanned rides the ORDER (vouchers/promo).

@@ -3,6 +3,7 @@ import {
   prepareUnifiedDeposit,
   ReserveInProgressError,
   BillExpiredError,
+  EmployeePerksChangedError,
   ExistingBookingConflictError,
   CrossCategoryHeatCollisionError,
 } from "~/features/booking/service/unified-reserve";
@@ -78,6 +79,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof BillExpiredError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof EmployeePerksChangedError) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof ExistingBookingConflictError) {

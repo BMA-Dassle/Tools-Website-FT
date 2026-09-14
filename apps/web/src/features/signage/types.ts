@@ -888,15 +888,23 @@ export interface TvFeed {
    */
   pitRosters: Record<"blue" | "red" | "mega", FastPitRoster | null> | null;
   /**
+   * THE DESK'S "READY TO PULL" MARK PER TRACK — PULSE-ONLY, like pitRosters.
+   * The server feed always writes null; useTvFeed merges the pulse's copy in.
+   * A rail lights its CHECKING IN row when the mark's `sessionId` is the heat
+   * it is drawing (owner 2026-09-13, the third trigger). Null on non-FT screens.
+   */
+  readyToPull: Record<"blue" | "red" | "mega", { sessionId: string; atMs: number } | null> | null;
+  /**
    * WHO IS ON TRACK OPS AND WHAT THEY ARE RUNNING — the row under PIT IN on
    * every session-status panel (owner 2026-09-07).
    *
    * ON THE 15s FEED, NOT THE PULSE, and that is a rule rather than a
-   * preference: the pulse is Redis-only by contract (it is three reads and
-   * nothing else, which is what lets every screen in the building have one
-   * every two seconds), and this needs a Neon `GROUP BY` and a cross-service
-   * GET. Both of those are cached to their own cost server-side, so the field
-   * is affordable here and would not be there.
+   * preference. It needs a Neon `GROUP BY` and a cross-service GET, and until
+   * 2026-09-12 that kept it off the pulse (Redis-only by contract). Both inputs
+   * are now served stale-while-revalidate (crew.server / portal-roster), so no
+   * pulse ever waits on them and the PULSE carries the live copy too —
+   * `useTvFeed` merges `pulse.crew ?? feed.crew`, the same way as the lanes.
+   * This copy is the first paint and the fallback for a dropped beat.
    *
    * FastTrax rail screens only — null everywhere else, including every
    * HeadPinz lobby screen, which has no Track Ops and no briefing rooms.
@@ -1193,4 +1201,22 @@ export interface TvPulse {
    * answer stays quiet rather than raising a full-screen alarm on a clear room.
    */
   roomBlocked: Record<"red" | "blue", { heatNumber: number | null } | null> | null;
+  /**
+   * WHO IS ON TRACK OPS, on the fast lane (owner 2026-09-12: "show them
+   * available as soon as race is posted").
+   *
+   * The post press frees the marshal server-side in the same write that empties
+   * the lane; a TRACK OPS row that then waited for the 15s feed lagged the
+   * Holding box beside it by up to fifteen seconds. Built from the lanes and
+   * rooms this pulse already read; its two slow inputs are served stale (see
+   * TvFeed.crew), so the pulse stays as fast as its Redis reads. FT only —
+   * null everywhere else, and null on a failed fold so the feed's copy stands.
+   */
+  crew: CrewBoard | null;
+  /**
+   * THE DESK'S "READY TO PULL" MARK PER TRACK (owner 2026-09-13). One MGET; a
+   * staff press at the desk reaches every wall's CHECKING IN row within a beat.
+   * FT only — null elsewhere.
+   */
+  readyToPull: Record<"blue" | "red" | "mega", { sessionId: string; atMs: number } | null> | null;
 }
