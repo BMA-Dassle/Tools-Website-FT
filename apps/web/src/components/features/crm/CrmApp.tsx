@@ -38,6 +38,7 @@ import { Sidebar } from "./shell/Sidebar";
 import { Toast } from "./shell/Toast";
 import { Topbar } from "./shell/Topbar";
 import { hrefFor, isScreenReady } from "./shell/nav-links";
+import { InstallPrompt } from "./shell/InstallPrompt";
 
 /**
  * The CRM's client root (brief §3.7, §1.5): the admin skin, the ported shell
@@ -196,6 +197,7 @@ export default function CrmApp(props: CrmAppProps) {
       {/* Theme CSS variables — static strings built from module constants. */}
       <style dangerouslySetInnerHTML={{ __html: baThemeCss(theme) + PORTAL_SKIN_CSS }} />
       <CrmContext.Provider value={ctx}>
+        <InstallPrompt />
         <div className="shell">
           <Sidebar
             user={user}

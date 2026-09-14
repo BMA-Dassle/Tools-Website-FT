@@ -293,15 +293,29 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       theory from a rig that never reproduced it and made things worse
       ("Scroll is f'ed up", "looks like shit").
 
-- [ ] **Install it as a PWA, and say so.** Owner: "We need to be able to add
-      this as a PWA app and strongly recommend it. Design a logo for it too."
-      Needs: a manifest scoped to `/admin/crm`, maskable icons at every size,
-      an iOS `apple-touch-icon` (iOS ignores the manifest icons), a service
-      worker that is a shell cache only — never a data cache, because a stale
-      lead board is worse than a slow one — and an install prompt that is
-      insistent rather than polite: reps live on their phones and the browser
-      chrome costs a third of the screen. **And a logo** — not the HeadPinz
-      mark, something that reads at 48px on a home screen beside it.
+- [x] **Installable as a PWA, with its own icon and an install prompt.** Owner:
+      "create the pwa app on my list with icon recommend installing it when
+      going into the page."
+      - `/admin/crm/manifest.webmanifest` — its OWN manifest, not the marketing
+        site's: CRM name, CRM icon, `scope: /admin/crm` so a headpinz.com link
+        does not open inside the app window, and `start_url` on My Day because
+        that is what a rep opens the app for. Plus shortcuts to My Day,
+        Pipeline and Lead queue.
+      - An ICON that is deliberately not the HeadPinz or FastTrax mark: it sits
+        beside both on a rep's phone and has to be told apart at 48px. Three
+        rising columns — a chart small, a kanban board large — in the shell's
+        own accent, the leading column amber for "done". Full-bleed so
+        Android's maskable crop cannot eat it. `icon.svg` is the source;
+        180/192/512 PNGs rendered from it with sharp.
+      - iOS needs `appleWebApp` + `apple-touch-icon` because it ignores the
+        manifest entirely — without them an iPhone saves a screenshot.
+      - The prompt asks on the SECOND visit, not the first, and stays quiet for
+        30 days once dismissed or refused. On iOS there is no install API at
+        all, so it shows the Share → Add to Home Screen words instead of a
+        button that could not work.
+      STILL OPEN: no service worker. Offline was not attempted — a stale lead
+      board is worse than a slow one, and caching the app shell safely behind
+      the SSO gate needs its own thinking. The install works without it.
 
 - [ ] **Collapse consecutive lanes into ranges** ("Lanes 1-24") on the Event
       tab's Schedule table, instead of one row per lane. Owner: "Take a look at

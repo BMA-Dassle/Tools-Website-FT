@@ -4377,3 +4377,78 @@ body:has(.crm-root) {
   border-color: var(--accent);
   color: #fff;
 }
+
+/* ── "Put the CRM on your home screen" ──────────────────────────────────────
+   Owner, 2026-09-14: "create the pwa app on my list with icon recommend
+   installing it when going into the page."
+
+   A BAR, not a modal. It has to be noticeable enough that a rep acts on it and
+   ignorable enough that it never stands between them and a lead — so it takes
+   the top of the shell, pushes nothing, and carries its own dismiss.
+
+   Above the board but BELOW the drawer and any sheet: it must never cover the
+   thing a rep opened. */
+.crm-root .install-prompt {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--card2);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.crm-root .install-prompt .ip-ico {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--accent-soft, rgb(57 135 229 / 18%));
+  color: var(--accent);
+  flex: none;
+}
+.crm-root .install-prompt .ip-body {
+  min-width: 0;
+  flex: 1;
+}
+.crm-root .install-prompt .ip-title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.crm-root .install-prompt .ip-sub {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.crm-root .install-prompt .ip-x {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+}
+.crm-root .install-prompt .ip-x:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+/* On a phone the sub-line is the instruction itself on iOS, so it keeps its
+   room; the title shortens instead. */
+@media (max-width: 768px) {
+  .crm-root .install-prompt {
+    padding: 10px 14px;
+    gap: 10px;
+  }
+  .crm-root .install-prompt .ip-title {
+    font-size: 13px;
+  }
+}

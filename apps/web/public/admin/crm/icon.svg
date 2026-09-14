@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Sales CRM">
+  <title>Sales CRM</title>
+  <!--
+    The Sales CRM home-screen mark.
+
+    NOT the HeadPinz or FastTrax logo: this sits on a rep's phone beside both of
+    them and has to be told apart at a glance, at 48px, by someone reaching for
+    it mid-shift. So it says what the app IS rather than who owns it — a
+    pipeline: three lanes of work rising left to right, with the nearest one
+    complete. It reads as a chart at small sizes and as a kanban board at large,
+    which is exactly the two things the app is.
+
+    The blue is the CRM shell's own accent (accent #3987e5) on its deep ground
+    (ba-bg #0b1220), so the icon and the app it opens are visibly the same
+    product. The amber on the leading column is the one warm note, and it is
+    load-bearing: it marks the column that is DONE, which is the app's whole
+    subject.
+
+    Full-bleed on purpose — Android maskable icons are cropped to a circle or a
+    squircle, so the artwork must survive a 20% trim on every edge. Everything
+    that matters sits inside the middle 60%.
+  -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#14223b" />
+      <stop offset="1" stop-color="#0b1220" />
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#g)" />
+
+  <!-- Three columns, rising: the pipeline. Rounded ends echo the board's cards. -->
+  <g>
+    <rect x="140" y="300" width="56" height="92" rx="22" fill="#3987e5" opacity="0.55" />
+    <rect x="228" y="232" width="56" height="160" rx="22" fill="#3987e5" opacity="0.8" />
+    <rect x="316" y="150" width="56" height="242" rx="22" fill="#f5a524" />
+  </g>
+
+  <!-- The baseline the columns stand on — the board's own rail. -->
+  <rect x="128" y="404" width="256" height="14" rx="7" fill="#3987e5" opacity="0.35" />
+</svg>
