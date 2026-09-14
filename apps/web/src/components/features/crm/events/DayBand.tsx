@@ -22,9 +22,11 @@ export interface DayBandProps {
   todayYmd: string;
   /** Opens the event; the screen creates the lead behind the scenes. */
   onOpenEvent: (row: EventRowView) => void;
+  /** Opens the same deal on the Contract tab, from the row's money pill. */
+  onOpenContract: (row: EventRowView) => void;
 }
 
-export function DayBand({ band, todayYmd, onOpenEvent }: DayBandProps) {
+export function DayBand({ band, todayYmd, onOpenEvent, onOpenContract }: DayBandProps) {
   return (
     <div className="card" data-testid={EVENT_TEST_IDS.band(band.date)}>
       <div className="card-h" style={{ padding: "10px 16px" }}>
@@ -49,7 +51,13 @@ export function DayBand({ band, todayYmd, onOpenEvent }: DayBandProps) {
       {band.events.length > 0 ? (
         <div className="list">
           {band.events.map((row) => (
-            <EventRow key={row.projectId} row={row} todayYmd={todayYmd} onOpenEvent={onOpenEvent} />
+            <EventRow
+              key={row.projectId}
+              row={row}
+              todayYmd={todayYmd}
+              onOpenEvent={onOpenEvent}
+              onOpenContract={onOpenContract}
+            />
           ))}
         </div>
       ) : null}

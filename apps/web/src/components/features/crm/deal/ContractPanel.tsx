@@ -3,6 +3,7 @@
 import {
   IconAlertTriangle,
   IconBolt,
+  IconCalendarEvent,
   IconCheck,
   IconClock,
   IconEye,
@@ -20,8 +21,9 @@ import { CONTRACT_TEST_IDS } from "~/features/crm/contracts/contracts";
 import { contractsKeys } from "~/features/crm/contracts/queries";
 import { fStamp } from "~/features/crm/core/dates";
 import { money, moneyExact, pct } from "~/features/crm/core/format";
+import { eventDayHref } from "~/features/crm/core/nav";
 import { GF_STATUS_META } from "~/features/crm/core/types";
-import { balanceNote, depositNote, sentBannerText } from "../contracts/model";
+import { balanceNote, depositNote, eventJumpTitle, sentBannerText } from "../contracts/model";
 import { fetchContract, postBackfillDayof, postRemind } from "../contracts/queries";
 import { errorMessage } from "../lib/crm-fetch";
 import { useCrmFetch, useCrmSheet, useCrmToast, useCrmUser } from "../lib/use-crm-user";
@@ -55,9 +57,24 @@ export interface ContractPanelProps {
   shortId: string;
   /** Rendered under the header — the deal's own link, when there is one. */
   footerLink?: { href: string; label: string } | null;
+  /**
+   * Where the EVENT behind this contract lives, from here.
+   *
+   * Owner, 2026-09-13: "Contracts should be more intergrated to events." Inside
+   * the deal the event is a sibling tab, so the caller passes a handler and the
+   * control switches tabs — no navigation, no reload, the drawer stays open.
+   * Opened as a sheet from the Contracts board there are no tabs, so the panel
+   * falls back to the Events board on the day the event happens, which works
+   * even for the contracts that predate the CRM and have no lead at all.
+   */
+  onOpenEvent?: (() => void) | null;
 }
 
-export function ContractPanel({ shortId, footerLink = null }: ContractPanelProps) {
+export function ContractPanel({
+  shortId,
+  footerLink = null,
+  onOpenEvent = null,
+}: ContractPanelProps) {
   const crmFetch = useCrmFetch();
   const toast = useCrmToast();
   const qc = useQueryClient();
@@ -95,6 +112,7 @@ export function ContractPanel({ shortId, footerLink = null }: ContractPanelProps
 
   const contract: ContractDetail = q.data.contract;
   const row = contract.row;
+  const eventHref = eventDayHref(row);
   const meta = GF_STATUS_META[row.status];
   const paidPct = pct(row.collectedCents, row.totalCents);
   const pageViews = contract.audit.filter((a) => a.event === "page_view").length;
@@ -345,11 +363,29 @@ export function ContractPanel({ shortId, footerLink = null }: ContractPanelProps
               ) : null}
             </div>
 
-            {footerLink ? (
-              <Link className="xs" href={footerLink.href}>
-                {footerLink.label}
-              </Link>
-            ) : null}
+            {/* The two ways out of a contract: the deal it belongs to, and the
+                day the event actually happens. Neither is a new screen — they
+                are the other two lenses on this one record. */}
+            <div className="hstack xs" style={{ gap: 12, flexWrap: "wrap" }}>
+              {footerLink ? (
+                <Link className="xs" href={footerLink.href}>
+                  {footerLink.label}
+                </Link>
+              ) : null}
+              {onOpenEvent ? (
+                <button type="button" className="linkish xs" onClick={onOpenEvent}>
+                  <IconCalendarEvent {...ICON} /> Open the event
+                </button>
+              ) : eventHref ? (
+                <Link className="xs" href={eventHref} title={eventJumpTitle(row)}>
+                  <IconCalendarEvent {...ICON} /> Open the event ↗
+                </Link>
+              ) : (
+                <span className="xs muted" title={eventJumpTitle(row)}>
+                  No centre recorded — the event cannot be opened by day
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

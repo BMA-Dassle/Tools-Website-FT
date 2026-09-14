@@ -8,6 +8,7 @@ import { CENTRES } from "~/features/crm/core/centres";
 import { fDateY, fTime } from "~/features/crm/core/dates";
 import { moneyExact, pct } from "~/features/crm/core/format";
 import { EVENT_TYPE_LABEL } from "~/features/crm/leads/contracts";
+import { GF_STATUS_META } from "~/features/crm/core/types";
 import { errorMessage } from "../lib/crm-fetch";
 import { useCrmFetch, useCrmToast } from "../lib/use-crm-user";
 import { Chip } from "../primitives/Chip";
@@ -26,7 +27,7 @@ import type { DealTabProps } from "./tabs";
  * people and the day-of line. Read-only except the waiver send, which goes
  * through the EXISTING reminder rail.
  */
-export default function EventTab({ detail }: DealTabProps) {
+export default function EventTab({ detail, setQuery }: DealTabProps) {
   const crmFetch = useCrmFetch();
   const toast = useCrmToast();
   const qc = useQueryClient();
@@ -76,7 +77,11 @@ export default function EventTab({ detail }: DealTabProps) {
   return (
     <div className="deal-grid" data-testid={EVENT_TEST_IDS.eventTab}>
       <div className="stack" style={{ gap: 16 }}>
-        <ProjectCard event={event} lead={detail.lead} />
+        <ProjectCard
+          event={event}
+          lead={detail.lead}
+          onOpenContract={() => setQuery({ tab: "contract" })}
+        />
 
         <div className="card">
           <div className="card-h">
@@ -244,12 +249,20 @@ export default function EventTab({ detail }: DealTabProps) {
   );
 }
 
+/**
+ * The BMI project's facts. Its last row is the CONTRACT, and that row is a way
+ * in, not a label: owner, 2026-09-13, "Contracts should be more intergrated to
+ * events." The Contract tab is a sibling, so this switches tabs rather than
+ * navigating — the same move the Contract tab makes back here.
+ */
 function ProjectCard({
   event,
   lead,
+  onOpenContract,
 }: {
   event: EventDetailView;
   lead: DealTabProps["detail"]["lead"];
+  onOpenContract: () => void;
 }) {
   return (
     <div className="card">
@@ -284,7 +297,14 @@ function ProjectCard({
             {
               label: "Contract",
               value: event.contract ? (
-                <Pill>{event.contract.shortId ?? event.contract.status}</Pill>
+                <button
+                  type="button"
+                  className="chip-button"
+                  onClick={onOpenContract}
+                  title={`Open the contract · ${GF_STATUS_META[event.contract.status].label}`}
+                >
+                  <Pill>{event.contract.shortId ?? event.contract.status}</Pill>
+                </button>
               ) : (
                 "none"
               ),

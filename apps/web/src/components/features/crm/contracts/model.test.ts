@@ -7,6 +7,7 @@ import {
   depositCell,
   depositNote,
   emptyMessage,
+  eventJumpTitle,
   notesText,
   pagerSummary,
   rowMeta,
@@ -137,6 +138,26 @@ describe("the row's cells", () => {
     expect(rowMeta(row())).toBe("FastTrax · #DH2879 · 42 guests");
     expect(rowMeta(row({ centre: null, eventNumber: null, guests: null }))).toBe(
       "FastTrax Fort Myers",
+    );
+  });
+
+  /**
+   * The Event control is an icon plus the word "Event", so this string is its
+   * accessible name as well as its tooltip: it has to say WHERE and WHEN on its
+   * own, with no surrounding row to read.
+   */
+  it("the Event jump names the centre and the day it opens", () => {
+    expect(eventJumpTitle(row())).toBe("Open the Events board for FastTrax on Fri, Sep 18");
+    expect(eventJumpTitle(row({ centre: "HPFM", eventDate: "2026-12-31" }))).toBe(
+      "Open the Events board for HP Fort Myers on Thu, Dec 31",
+    );
+  });
+
+  it("a contract whose centre is not one of ours says so instead of linking", () => {
+    // A legacy `center_code`: the Events board is per-centre, so there is no
+    // day to open. The control is disabled and this is why.
+    expect(eventJumpTitle(row({ centre: null, centerCode: "oldlanes" }))).toBe(
+      "No centre recorded on this contract (oldlanes) — open it to see the event",
     );
   });
 });

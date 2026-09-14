@@ -3823,3 +3823,84 @@
     padding: 0 10px;
   }
 }
+
+/* ── The whole card opens the record ──────────────────────────────────────
+   Owner, 2026-09-13: "Anywhere in all this stuff I should be able to click
+   anywhee on the lead tile to bring up event."
+
+   A card that carries its OWN buttons — Assign, Call, Text, Change status,
+   Start reach-out — cannot itself be a <button>: interactive content nested
+   inside a button is invalid HTML and collapses the accessibility tree, and a
+   <div onClick> is precisely what the a11y gate rejects. So the card's primary
+   action stays a real <button> (named by the title text it wraps) and its
+   ::after is stretched over the whole card. One focusable control per card,
+   announced properly, and the card is clickable edge to edge.
+
+   Nothing needs to stop propagation: the other buttons are SIBLINGS of the
+   overlay, not descendants, so their clicks never reach it. They are lifted
+   one layer above the sheet so their own clicks still land. */
+.crm-root .card-open {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.crm-root .card-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+/* The focus ring belongs round the CARD, not round the two words of title
+   the button happens to wrap. */
+.crm-root .card-open:focus-visible {
+  outline: none;
+}
+.crm-root .card-open:focus-visible::after {
+  outline: 2px solid var(--accent, #4f83ff);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+/* `.kcard` is already positioned (the centre stripe); a list row is not. */
+.crm-root .row-click {
+  position: relative;
+}
+/* Every other control in the card sits above the overlay sheet. */
+.crm-root .kcard button:not(.card-open),
+.crm-root .kcard a:not(.card-open),
+.crm-root .kcard input,
+.crm-root .kcard select,
+.crm-root .row-click button:not(.card-open),
+.crm-root .row-click a:not(.card-open),
+.crm-root .row-click input,
+.crm-root .row-click select {
+  position: relative;
+  z-index: 1;
+}
+/* A chip that is also a jump — the Events board's money pill opens the
+   contract behind it. Bare button, so the chip inside it looks unchanged. */
+.crm-root .chip-button {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  border-radius: 999px;
+}
+.crm-root .chip-button:focus-visible {
+  outline: 2px solid var(--accent, #4f83ff);
+  outline-offset: 2px;
+}
+.crm-root .chip-button:hover .chip {
+  border-color: var(--accent-soft2, var(--border));
+}

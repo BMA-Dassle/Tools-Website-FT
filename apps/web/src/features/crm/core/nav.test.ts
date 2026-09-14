@@ -7,6 +7,7 @@ import {
   SCREEN_META,
   allNavIds,
   canViewScreen,
+  eventDayHref,
   isDirectorOnlyScreen,
   isScreenId,
   moreForRole,
@@ -136,5 +137,33 @@ describe("every screen id is wired end to end", () => {
     expect(isScreenId("leads")).toBe(false); // the prototype's name, not ours
     expect(isScreenId("")).toBe(false);
     expect(isScreenId(undefined)).toBe(false);
+  });
+});
+
+/**
+ * The link a contract, and a mirrored past booking, use to reach the day the
+ * event actually happens. It has to be ONE spelling, because four screens link
+ * to it and the Events board only understands `centre` + `view` + `date`.
+ */
+describe("eventDayHref", () => {
+  it("opens the Events board on that centre and day", () => {
+    expect(eventDayHref({ centre: "HPFM", eventDate: "2026-09-19" })).toBe(
+      "/admin/crm/events?centre=HPFM&view=day&date=2026-09-19",
+    );
+    expect(eventDayHref({ centre: "FT", eventDate: "2026-12-31" })).toBe(
+      "/admin/crm/events?centre=FT&view=day&date=2026-12-31",
+    );
+  });
+
+  it("is null when the row cannot name a centre or a date", () => {
+    // A legacy `center_code` that is not one of ours, or a mirrored project
+    // with no schedule: the caller disables the control and says why rather
+    // than sending a planner to an arbitrary day.
+    expect(eventDayHref({ centre: null, eventDate: "2026-09-19" })).toBeNull();
+    expect(eventDayHref({ centre: "HPN", eventDate: null })).toBeNull();
+    expect(eventDayHref({ centre: "HPN", eventDate: "" })).toBeNull();
+    expect(eventDayHref({ centre: "HPN", eventDate: "19/09/2026" })).toBeNull();
+    // A timestamp is not a calendar day — the board would not match it.
+    expect(eventDayHref({ centre: "HPN", eventDate: "2026-09-19T18:00:00Z" })).toBeNull();
   });
 });

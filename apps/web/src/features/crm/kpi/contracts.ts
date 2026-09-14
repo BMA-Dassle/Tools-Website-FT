@@ -156,12 +156,26 @@ export interface DepositsDue {
   days: number;
 }
 
+/**
+ * Same-time-last-year reach-outs — how much of last year's book we have gone
+ * back to. It rides on ACCOUNTABILITY, not the KPI dashboard.
+ *
+ * Owner, 2026-09-13: "move same time last year reach outs to the accountability
+ * board." They are right, and the reason is that this is not money. Every other
+ * figure on the KPI dashboard is booked, quoted or collected value; this one
+ * counts how many phone calls the team has made, which is the same currency as
+ * the calls, texts and emails the accountability board already meters — and
+ * `reachouts` is already one of its four channels and one of every rep's four
+ * weekly targets. Sitting in a revenue dashboard it was a number nobody owned.
+ *
+ * The window is the accountability range (a week by default), not a month.
+ */
 export interface ReachOutProgress {
-  /** Reach-out activities logged in the window. */
+  /** Reach-out activities logged in the window, team-wide. */
   done: number;
   /** Hosts in the same window one year back (the denominator). */
   hosts: number;
-  /** Hosts with no 2026 lead yet. */
+  /** Hosts with no lead this year yet. */
   remaining: number;
 }
 
@@ -209,7 +223,6 @@ export type KpiResponse = ApiOk<{
   lostReasons: LostRow[];
   monthly: MonthlyGoalRow[];
   deposits: DepositsDue;
-  reachOuts: ReachOutProgress;
   /** Median minutes from `created_at` to `first_touch_at`; null with no data. */
   medianResponseMinutes: number | null;
   /** The previous window's median, for the tile's delta line. */
@@ -277,6 +290,16 @@ export type AccountabilityResponse = ApiOk<{
   window: AccountabilityWindow;
   /** One row for a rep; the whole assignable roster for a director. */
   reps: RepAccountability[];
+  /**
+   * Last year's hosts in this window, and how far through them we are.
+   *
+   * TEAM-WIDE, on purpose, and it is the one figure here that is. A host is not
+   * owned by a rep — the denominator is "every group event this week a year
+   * ago" — so narrowing the numerator to one person would print "3 of 118" on a
+   * rep's own page and read as a team in freefall. The per-rep meters beside it
+   * already say who has done what. This says whether the LIST is getting done.
+   */
+  reachOuts: ReachOutProgress;
   /** Director-only: the rep furthest behind, for the banner. Null when none is. */
   behind: {
     slug: string;
@@ -410,6 +433,7 @@ export const MEASURE_TEST_IDS = {
   footnote: "crm-kpi-footnote",
   accountability: "crm-accountability",
   accountabilityRange: "crm-accountability-range",
+  reachOuts: "crm-accountability-reachouts",
   repCard: (slug: string) => `crm-accountability-rep-${slug}`,
   teamTable: "crm-accountability-team",
   targetsSheet: "crm-targets-sheet",

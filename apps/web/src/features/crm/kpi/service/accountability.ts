@@ -16,6 +16,14 @@
  *
  * Targets are WEEKLY. A four-week range multiplies them by four rather than
  * comparing a month of work against one week's target.
+ *
+ * SAME-TIME-LAST-YEAR REACH-OUTS live here too, as of 2026-09-13 (owner: "move
+ * same time last year reach outs to the accountability board"). They were a
+ * tile on the KPI dashboard, which is a revenue page; a count of phone calls
+ * made to last year's hosts is effort, and effort is this page's whole subject
+ * — `reachouts` is already one of the four channels metered per rep. The tile
+ * is fed from the touch rows this function already reads, so the number is
+ * computed once, in one place, rather than in two services over two windows.
  */
 
 import { listReps } from "~/features/crm/reps";
@@ -28,10 +36,18 @@ import type {
   WeeklyActual,
   WeeklyTarget,
 } from "../contracts";
+import type { ReachOutProgress } from "../contracts";
 import { BUCKET_DEFAULT_TARGET, DEFAULT_TARGET, targetsAsOf } from "../data/targets-db";
-import { callsByWeek, leadsTouched, responseMinutesByRep, touchCounts } from "../data/measure-db";
+import {
+  callsByWeek,
+  lastYearHostCounts,
+  leadsTouched,
+  responseMinutesByRep,
+  touchCounts,
+  type TouchCountRow,
+} from "../data/measure-db";
 import { median } from "./pacing";
-import { accountabilityWindow, mondayOf, trailingWeeks } from "./windows";
+import { accountabilityWindow, lastYearYmd, mondayOf, trailingWeeks } from "./windows";
 
 /** How far behind a rep has to be before the director's banner names them. */
 const BEHIND_PCT = 60;
@@ -93,12 +109,15 @@ export async function accountability(
     if (picked.length > 0) roster = picked;
   }
 
-  const [targets, touches, touchedLeads, responses, weeklyCalls] = await Promise.all([
+  const [targets, touches, touchedLeads, responses, weeklyCalls, hosts] = await Promise.all([
     targetsAsOf(mondayOf(window.from)),
     touchCounts({ from: window.from, until: window.until }),
     leadsTouched({ from: window.from, until: window.until }),
     responseMinutesByRep({ from: window.from, until: window.until }),
     callsByWeek(trailingWindow(now)),
+    // The same days, one year back: last year's hosts are the LIST the
+    // reach-out target is a fraction of.
+    lastYearHostCounts({ from: lastYearYmd(window.from), until: lastYearYmd(window.until) }),
   ]);
 
   const byRepChannel = new Map<string, Map<string, number>>();
@@ -139,7 +158,34 @@ export async function accountability(
     };
   });
 
-  return { window, reps, behind: user.role === "director" ? worstBehind(reps) : null };
+  return {
+    window,
+    reps,
+    reachOuts: reachOutProgress(touches, hosts),
+    behind: user.role === "director" ? worstBehind(reps) : null,
+  };
+}
+
+/**
+ * The reach-out tile, counted off rows this function ALREADY has.
+ *
+ * It used to live on the KPI dashboard, where `reachOutCount` ran `touchCounts`
+ * a second time and threw away every column but one. Here the same rows are
+ * already in hand for the per-rep meters, so moving the tile costs one query
+ * (last year's hosts) and saves one — the figure is read in exactly one place,
+ * which is the point of moving it rather than copying it.
+ *
+ * The numerator is EVERY rep's reach-outs, including reps this caller cannot
+ * see: see the note on `reachOuts` in contracts.ts. The denominator is a count
+ * of last year's bookings, which belong to nobody.
+ */
+export function reachOutProgress(
+  touches: readonly TouchCountRow[],
+  hosts: { hosts: number; remaining: number },
+): ReachOutProgress {
+  let done = 0;
+  for (const t of touches) if (t.channel === "reachout") done += t.touches;
+  return { done, hosts: hosts.hosts, remaining: hosts.remaining };
 }
 
 function trailingWindow(now: Date): { from: string; until: string } {

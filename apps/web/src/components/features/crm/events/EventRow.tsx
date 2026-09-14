@@ -4,8 +4,7 @@ import { EVENT_TEST_IDS, type EventRowView } from "~/features/crm/events/contrac
 import { moneyExact, pct } from "~/features/crm/core/format";
 import { Chip } from "../primitives/Chip";
 import { Meter } from "../primitives/Meter";
-import { ICON } from "../primitives/icon-props";
-import { PILL_TITLE, eventMetaParts, rowTint } from "./model";
+import { PILL_TITLE, contractJumpTitle, eventMetaParts, rowTint } from "./model";
 
 /**
  * One `.row.evrow` on the Events board (`crm-events.js:251`): the BMI number,
@@ -22,38 +21,67 @@ import { PILL_TITLE, eventMetaParts, rowTint } from "./model";
  * a planner to create a sales lead in order to look at an event that already
  * exists is a question the screen should answer for itself, which is what
  * `onOpenEvent` now does.
+ *
+ * THE MONEY PILL IS THE CONTRACT. Owner, 2026-09-13: "Contracts should be more
+ * intergrated to events." The pill already said where the contract stands —
+ * PAID · DEPOSIT · UNSIGNED · its GF status · "no contract" — but it was a dead
+ * label, so the only way from an event to its contract was to remember the
+ * event number and go and search the Contracts board for it. It is now the jump:
+ * same drawer, Contract tab. When there is no contract there is nothing to open
+ * and the pill stays a plain chip that says so.
+ *
+ * The row is no longer itself a <button> — it carries one now, and a button
+ * inside a button is invalid HTML. The title is the real control and
+ * `.card-open` stretches it over the row, so clicking anywhere still opens the
+ * event and the pill still opens the contract.
  */
 export interface EventRowProps {
   row: EventRowView;
   todayYmd: string;
   /** Opens the event. Creates the lead behind the scenes when there is none. */
   onOpenEvent: (row: EventRowView) => void;
+  /** Opens the same deal on the Contract tab. Only called when `row.contract`. */
+  onOpenContract: (row: EventRowView) => void;
 }
 
-/** `.row` is a grid; a <button> needs the UA's own chrome taken off it. */
-const ROW_BUTTON: React.CSSProperties = {
-  font: "inherit",
-  color: "inherit",
-  background: "none",
-  border: 0,
-  textAlign: "left",
-  width: "100%",
-  display: "grid",
-};
-
-export function EventRow({ row, todayYmd, onOpenEvent }: EventRowProps) {
+export function EventRow({ row, todayYmd, onOpenEvent, onOpenContract }: EventRowProps) {
   const tint = rowTint(row, todayYmd);
   const meta = eventMetaParts(row);
   const collectedPct = pct(row.collectedCents, row.totalCents);
+  const title = row.title || row.personName || "Untitled event";
+  // Inside the jump button the help text rides on the BUTTON's tooltip, so a
+  // chip nested in it does not carry a second, competing `title`.
+  const pillHelp = row.pill.gfStatus ? undefined : (PILL_TITLE[row.pill.kind] ?? undefined);
 
-  const body = (
-    <>
+  const pill = (
+    <Chip
+      kind={row.pill.chip ?? undefined}
+      bmi={row.pill.chip === null}
+      title={row.contract ? undefined : pillHelp}
+    >
+      {row.pill.label}
+    </Chip>
+  );
+
+  return (
+    <div
+      className={["row", "evrow", "row-click", tint].filter(Boolean).join(" ")}
+      data-testid={EVENT_TEST_IDS.row(row.projectId)}
+    >
       <span className="mono xs muted" style={{ width: 56 }}>
         {row.number || "—"}
       </span>
       <div>
         <div className="title">
-          {row.title || row.personName || "Untitled event"}
+          {/* The row's primary action. `.card-open` covers the whole row. */}
+          <button
+            type="button"
+            className="card-open"
+            onClick={() => onOpenEvent(row)}
+            title={`Open ${row.number || "this event"}`}
+          >
+            {title}
+          </button>
           {row.personName && row.personName !== row.title ? (
             <span className="muted small">· {row.personName}</span>
           ) : null}
@@ -66,13 +94,19 @@ export function EventRow({ row, todayYmd, onOpenEvent }: EventRowProps) {
         </div>
       </div>
       <div className="right">
-        <Chip
-          kind={row.pill.chip ?? undefined}
-          bmi={row.pill.chip === null}
-          title={row.pill.gfStatus ? undefined : (PILL_TITLE[row.pill.kind] ?? undefined)}
-        >
-          {row.pill.label}
-        </Chip>
+        {row.contract ? (
+          <button
+            type="button"
+            className="chip-button"
+            data-testid={EVENT_TEST_IDS.contractJump(row.projectId)}
+            onClick={() => onOpenContract(row)}
+            title={contractJumpTitle(row)}
+          >
+            {pill}
+          </button>
+        ) : (
+          pill
+        )}
         {row.stateName ? (
           <Chip bmi title="BMI state">
             {row.stateName}
@@ -89,22 +123,6 @@ export function EventRow({ row, todayYmd, onOpenEvent }: EventRowProps) {
           </span>
         ) : null}
       </div>
-    </>
-  );
-
-  // EVERY row is clickable and every row opens the event. There is no second
-  // shape for "no lead yet" — the screen creates one behind the scenes. See the
-  // comment on `openEvent` in EventsScreen.tsx for why.
-  return (
-    <button
-      type="button"
-      className={["row", "evrow", tint].filter(Boolean).join(" ")}
-      style={ROW_BUTTON}
-      data-testid={EVENT_TEST_IDS.row(row.projectId)}
-      onClick={() => onOpenEvent(row)}
-      title={`Open ${row.number || "this event"}`}
-    >
-      {body}
-    </button>
+    </div>
   );
 }

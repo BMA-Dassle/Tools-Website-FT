@@ -20,6 +20,8 @@ const state = vi.hoisted(() => ({
   responses: new Map<string, number[]>(),
   weekly: [] as unknown[],
   touchFilters: [] as { from: string; until: string }[],
+  hosts: { hosts: 0, remaining: 0 },
+  hostFilters: [] as { from: string; until: string }[],
 }));
 
 vi.mock("~/features/crm/reps", () => ({
@@ -46,10 +48,21 @@ vi.mock("../data/measure-db", () => ({
   leadsTouched: async () => state.touched,
   responseMinutesByRep: async () => state.responses,
   callsByWeek: async () => state.weekly,
+  lastYearHostCounts: async (f: { from: string; until: string }) => {
+    state.hostFilters.push(f);
+    return state.hosts;
+  },
 }));
 
-const { accountability, measurableRoster, myWeek, pctOf, visibleRoster, worstBehind } =
-  await import("./accountability");
+const {
+  accountability,
+  measurableRoster,
+  myWeek,
+  pctOf,
+  reachOutProgress,
+  visibleRoster,
+  worstBehind,
+} = await import("./accountability");
 
 const NOW = new Date("2026-09-12T23:30:00Z"); // Saturday 12 Sep, ET
 
@@ -142,6 +155,8 @@ beforeEach(() => {
     { repId: "id-kelsea", weekStart: "2026-09-07", calls: 38 },
   ];
   state.touchFilters = [];
+  state.hosts = { hosts: 118, remaining: 96 };
+  state.hostFilters = [];
 });
 
 describe("rosters", () => {
@@ -232,6 +247,53 @@ describe("counts and targets", () => {
   it("builds the four-week sparkline oldest first, zero-filling silent weeks", async () => {
     const out = await accountability(user("rep", KELSEA), { now: NOW });
     expect(out.reps[0].actual.trend).toEqual([30, 0, 0, 38]);
+  });
+});
+
+/**
+ * Same-time-last-year reach-outs moved here from the KPI dashboard (owner,
+ * 2026-09-13). The tests that matter are that the numerator comes off the rows
+ * this service ALREADY read — the whole reason for moving it rather than
+ * copying it — and that it stays team-wide when the roster is narrowed.
+ */
+describe("same-time-last-year reach-outs", () => {
+  it("sums the reach-out channel off the touch rows, with last year's hosts as the denominator", async () => {
+    const out = await accountability(user("director", null), { now: NOW });
+    // Lori 4 + Guest Services 18. Kelsea logged calls and texts, not reach-outs.
+    expect(out.reachOuts).toEqual({ done: 22, hosts: 118, remaining: 96 });
+  });
+
+  it("looks last year's hosts up over the SAME days, one year back", async () => {
+    await accountability(user("director", null), { range: "last", now: NOW });
+    // The window it reports is 2026-08-31 → 2026-09-06.
+    expect(state.hostFilters.at(-1)).toEqual({ from: "2025-08-31", until: "2025-09-06" });
+  });
+
+  it("stays team-wide when the roster is narrowed to one person", async () => {
+    // A rep's page shows their own meters, but the reach-out list belongs to
+    // nobody: "4 of 118" on Lori's page would read as the team in freefall.
+    const out = await accountability(user("rep", LORI), { now: NOW });
+    expect(out.reps.map((r) => r.slug)).toEqual(["lori"]);
+    expect(out.reachOuts.done).toBe(22);
+  });
+
+  it("reports an empty list honestly rather than dividing by zero", () => {
+    expect(reachOutProgress([], { hosts: 0, remaining: 0 })).toEqual({
+      done: 0,
+      hosts: 0,
+      remaining: 0,
+    });
+    expect(pctOf(0, 0)).toBe(0);
+  });
+
+  it("counts only the reach-out channel, never calls or texts", () => {
+    const rows = [
+      { repId: "a", channel: "call", touches: 40, leads: 20 },
+      { repId: "a", channel: "reachout", touches: 6, leads: 6 },
+      { repId: "b", channel: "sms", touches: 12, leads: 9 },
+      { repId: "b", channel: "reachout", touches: 3, leads: 3 },
+    ];
+    expect(reachOutProgress(rows, { hosts: 20, remaining: 11 }).done).toBe(9);
   });
 });
 
