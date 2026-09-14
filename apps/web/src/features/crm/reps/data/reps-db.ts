@@ -342,3 +342,74 @@ export async function listReps(opts: { includeInactive?: boolean } = {}): Promis
   )) as RepRowRaw[];
   return rows.map(mapRepRow);
 }
+
+// ---------------------------------------------------------------------------
+// Contact routing — the 3CX extension and the texting DID
+// ---------------------------------------------------------------------------
+
+export interface RepContactPatch {
+  /** 3CX extension, digits only ("1042"). Empty string clears it. */
+  threecxExtension?: string | null;
+  /** Voxtelesys DID in E.164 ("+12395551234"). Empty string clears it. */
+  voxDid?: string | null;
+}
+
+/**
+ * Set a rep's calling and texting numbers.
+ *
+ * Owner, 2026-09-14: "Need a spot to enter 3cx ext and did for sms that we will
+ * use with voxtelesys." Both columns have existed since PR1 and both are
+ * already READ — `dial.ts` refuses a call with "No 3CX extension on your rep
+ * record", `consent.ts` refuses a text with `no_did`, and `sms/service/dids.ts`
+ * builds the inbound allow-list from the union of active DIDs. Calls and
+ * outbound SMS were dark for want of a form, not for want of a rail.
+ *
+ * `null` clears; an absent key leaves the column alone, so the screen can save
+ * one field without knowing the other.
+ */
+export async function patchRepContact(
+  repId: string,
+  patch: RepContactPatch,
+): Promise<CrmRep | null> {
+  if (!isDbConfigured()) return null;
+  await ensureRepsSchema();
+  const q = sql();
+  const rows = (await q.query(
+    `UPDATE crm_reps
+        SET threecx_extension = CASE WHEN $2::boolean THEN $3 ELSE threecx_extension END,
+            vox_did           = CASE WHEN $4::boolean THEN $5 ELSE vox_did END,
+            updated_at = NOW()
+      WHERE id = $1::bigint
+      RETURNING ${REP_COLUMNS.replace(/\br\./g, "")}`,
+    [
+      repId,
+      patch.threecxExtension !== undefined,
+      patch.threecxExtension ?? null,
+      patch.voxDid !== undefined,
+      patch.voxDid ?? null,
+    ],
+  )) as RepRowRaw[];
+  return rows[0] ? mapRepRow(rows[0]) : null;
+}
+
+/**
+ * Which OTHER active rep already texts from this DID, if any.
+ *
+ * A DID is the guest's side of a conversation: `inbound.ts` threads a reply by
+ * `(repDid, guest number)`, so two people on one number land in the same thread
+ * with no way to tell whose reply is whose. The owner flagged the case that
+ * makes this real — "Guest services team will share a DID number if that
+ * matters" — and it does: the shared number belongs to the Guest Services
+ * BUCKET rep, which every agent already acts as, NOT to each agent's own row.
+ */
+export async function repUsingDid(did: string, exceptRepId: string): Promise<CrmRep | null> {
+  if (!isDbConfigured() || !did.trim()) return null;
+  await ensureRepsSchema();
+  const q = sql();
+  const rows = (await q.query(
+    `SELECT ${REP_COLUMNS} FROM crm_reps r
+      WHERE r.active AND r.vox_did = $1 AND r.id <> $2::bigint LIMIT 1`,
+    [did.trim(), exceptRepId],
+  )) as RepRowRaw[];
+  return rows[0] ? mapRepRow(rows[0]) : null;
+}

@@ -22,6 +22,7 @@ import {
 import { ICON } from "../primitives/icon-props";
 import { EmptyState, ErrorState, LoadingState } from "../primitives/States";
 import { GuestServicesCard } from "./GuestServicesCard";
+import { ContactRoutingCard } from "./ContactRoutingCard";
 import { RosterCard } from "./RosterCard";
 import { RuleSheet } from "./RuleSheet";
 import { RulesList } from "./RulesList";
@@ -174,6 +175,9 @@ export default function RulesScreen({ query }: ScreenProps) {
             ) : null}
           </div>
           <RosterCard canEdit={canEdit} />
+          {/* Beside the roster on purpose: a shift and an extension are the two
+              things that decide whether a call can reach somebody at all. */}
+          {canEdit ? <ContactRoutingCard /> : null}
           <GuestServicesCard canEdit={canEdit} />
         </div>
         <div className="stack" style={{ gap: 12 }}>

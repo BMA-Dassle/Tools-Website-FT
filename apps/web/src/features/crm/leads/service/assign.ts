@@ -101,6 +101,18 @@ export interface AssignLeadInput {
    * same guest in the same second is the bug this flag exists to prevent.
    */
   introduceGuest?: boolean;
+  /**
+   * Post the new owner's Teams card. Default true — a hand-off has to tell the
+   * person it hands to.
+   *
+   * `createLead` passes FALSE, for exactly the reason it passes
+   * `introduceGuest: false`: it assigns and then calls `notifyNewLead`, which
+   * posts the owner's card itself with the capture's own context. Both rails
+   * firing put TWO cards in the same chat — the owner saw #H1336 posted twice
+   * to Guest Services on 2026-09-14, both of them "Edited", because each copy
+   * was being kept current as the lead moved. One record, one card.
+   */
+  tellOwner?: boolean;
 }
 
 export interface AssignResult {
@@ -263,7 +275,7 @@ export async function assignLead(
   //    the real planner's name and direct number. `sendGuestIntro` is
   //    once-only on `guest_intro_at`, so a reassign does not introduce a
   //    second planner to the same guest.
-  if (owner) await tellTheNewOwner(after, owner, input.actor, deps);
+  if (owner && input.tellOwner !== false) await tellTheNewOwner(after, owner, input.actor, deps);
   if (owner && input.introduceGuest !== false)
     await introduceIfHeld(after, owner, input.actor, deps);
 

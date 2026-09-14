@@ -350,6 +350,16 @@ describe("createLead", () => {
     expect(f.assigns[0]!.trace).toEqual([
       { ruleId: "3", code: "R3", label: "Kids' birthdays", hit: true },
     ]);
+    /**
+     * ONE CARD, ONE CHAT. Capture assigns and THEN notifies, and both rails
+     * post the owner's Teams card — so a kids' birthday routed to Guest
+     * Services landed in that chat twice, each copy separately edited as the
+     * lead moved. Owner, 2026-09-14: "Duplication in call center teams chat."
+     * Capture owns the card (it has the form's context), so the hand-off is
+     * told not to send its own — exactly as it is told not to introduce the
+     * guest.
+     */
+    expect(f.assigns[0]).toMatchObject({ tellOwner: false, introduceGuest: false });
     expect(r.assignment?.bmi).toEqual({ status: "synced" });
     expect(r.lead.rep).toBe(REPS.gs.id);
     expect(f.notifyArgs[0]!.assigned).toBe(true);

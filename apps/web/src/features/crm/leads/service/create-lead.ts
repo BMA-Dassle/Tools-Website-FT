@@ -349,7 +349,12 @@ export async function createLead(
         trace: suggestion.trace,
         // Step 7 does the guest's welcome, with the form's own contact
         // preference and the planner's card beside it.
+        // Step 7 does BOTH the guest's welcome and the planner's card, with
+        // the form's own contact preference and the capture's context. Letting
+        // the hand-off post its own card as well put two of them in the same
+        // chat (owner, 2026-09-14: "Duplication in call center teams chat").
         introduceGuest: false,
+        tellOwner: false,
       });
       lead = assignment.lead;
     } catch (err) {

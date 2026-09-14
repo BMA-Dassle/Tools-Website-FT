@@ -10,7 +10,15 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 
 ## Open — functional
 
-- [ ] **The PWA must stay signed in.** Owner, 2026-09-14: "persisent pwa login."
+- [x] **The PWA must stay signed in.** DONE 2026-09-14 — 30-day session rolled
+      after a day of use (matching the Portal, which made the same call:
+      `PWA_SESSION_TTL = 30d` vs `DEFAULT_SESSION_TTL = 28800`), manifest
+      `scope` widened to `/` so the `/sso/signin` round trip stays INSIDE the
+      installed app (on iOS a PWA has its own storage, so signing in via an
+      out-of-scope browser view left the app itself signed out), and a
+      `SessionKeepalive` that pings `/me` on mount, on foreground and on a slow
+      timer — the Portal's pattern, because a cookie cannot roll while an
+      installed app sits backgrounded making no requests. ORIGINAL NOTE: Owner, 2026-09-14: "persisent pwa login."
       An installed app that asks for Microsoft every time is an app a rep stops
       opening — and this one asks a lot.
       CAUSE, read from `apps/web/auth.ts:98`: `session: { strategy: "jwt",
@@ -40,7 +48,12 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       company-managed. The tenant's own Conditional Access may also cap this
       regardless of what we set.
 
-- [ ] **Events needs an "All centres" mode, with a location pill on each row.**
+- [x] **Events "All centres" with a location pill.** DONE 2026-09-14 — the
+      per-centre read is extracted so one centre and three go down the same
+      path, days merge sorted by start time, one centre's outage names itself
+      instead of blanking the day, and the pill shows only in All. STILL OPEN
+      from this item: the row's right-hand stack (money pill, BMI chip, payment
+      meter) still has no hierarchy. ORIGINAL NOTE:
       Owner, 2026-09-14: "I'd like an 'all' in top right also don't like how
       these look. Do we add a small pill with the lcoation when in 'all' mode?"
       Yes — and the pill is what makes All legible rather than confusing.
@@ -61,7 +74,12 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       things stacked in a narrow column with no hierarchy. Treat that with the
       same pass.
 
-- [ ] **The call-centre Teams chat gets the card TWICE.** Owner, 2026-09-14,
+- [x] **The call-centre Teams chat got the card TWICE.** DONE 2026-09-14 —
+      `createLead` assigns and THEN notifies, and both rails posted the owner's
+      card, so a kids' birthday routed to Guest Services landed there twice,
+      each copy separately edited as the lead moved. Capture owns the card (it
+      has the form's context); the hand-off is now told not to send its own,
+      exactly as it is already told not to introduce the guest. ORIGINAL NOTE: Owner, 2026-09-14,
       with a screenshot of #H1336 (Allison Diemert, HeadPinz Naples, Guest
       Services) posted twice — identical down to "Acknowledged by Stephanie
       Tajkowski · Sep 14, 1:42 PM", and BOTH marked "Edited".
@@ -77,8 +95,18 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       since that is where both copies landed and it is the one assignee that
       is not a person.
 
-- [ ] **A rep's Office user id is per-tenant and we are writing the wrong
-      one.** Seen on a real lead's timeline, 2026-09-14:
+- [x] **A rep's Office user id is per-tenant and we were writing the wrong
+      one.** DONE 2026-09-14 — `crm_reps.bmi_user_ids` is a `{clientKey: id}`
+      map, seeded with ids read off the mirror, and `bmiUserIdFor` resolves the
+      write. It was NOT a Guest Services bug: the same five people have ten
+      different ids (Kelsea 28267036 / 6338800, Lori 465247 / 41096, Stephanie
+      465242 / 1559644, Eric 75262 / 25228, Guest Services 30080112 / 6400642 —
+      and Naples calls that one "CallCenter"). EVERY Office write on a Naples
+      lead was refused; Guest Services just surfaced it because kids' birthdays
+      route there. The fallback to the single id is deliberate and is the one
+      risk worth naming: a centre whose map is not filled in still writes the
+      old guess, and `isPermanentOfficeRefusal` parks the failure rather than
+      retrying it twenty times. ORIGINAL NOTE: Seen on a real lead's timeline, 2026-09-14:
       `400 violation of FOREIGN KEY constraint "FK_PRJ_US_ID" … F_US_ID =
       30080112` — that is Guest Services' id, refused because it does not exist
       on the tenant the project lives on. A second row on the same lead reads
@@ -102,7 +130,10 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       as transient and retried, because wrongly parking a recoverable job loses
       a hand-off silently, which is the worse of the two failures.
 
-- [ ] **Availability: the BMI resources tab is a stub, and HeadPinz needs it
+- [x] **Availability's BMI resources tab.** DONE 2026-09-14 — the segment
+      switches for real and the heats panel renders whenever the tab asks, not
+      only when the engine picks it. No product keys were ever needed to READ.
+      STILL OPEN: the mega-track configuration below. ORIGINAL NOTE:
       most.** Owner, 2026-09-14: "under avaialability menu, headpinz locations.
       When you try to swtich to BMI board says not available yet. But yet we
       have it working on Fasttrax. FOr headpinz we just need hte arena, shuffly,
@@ -156,7 +187,14 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
         web-form rail both do it); this is a third caller with the availability
         request as its seed.
 
-- [ ] **Somewhere to enter each rep's 3CX extension and texting DID.** Owner,
+- [x] **Somewhere to enter each rep's 3CX extension and texting DID.** DONE
+      2026-09-14 — "Calling & texting" on the Rules screen beside the roster,
+      director-only and audited. DIDs are normalised to E.164 at the door
+      (`sms/service/dids.ts` canonicalises before it compares, so a typed
+      "239-555-1234" would look configured and silently receive nothing), and
+      the route REFUSES a DID already on another rep — the shared call-centre
+      number belongs on the Guest Services bucket row, which every agent
+      already acts as. ORIGINAL NOTE: Owner,
       2026-09-14: "Need a spot to enter 3cx ext and did for sms that we will use
       with voxtelesys. Guest services team will share a DID number if that
       matters."
