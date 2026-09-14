@@ -1,32 +1,50 @@
 "use client";
 
+import { DndContext, type UniqueIdentifier } from "@dnd-kit/core";
+import { useState, type CSSProperties } from "react";
 import type { CrmStatus } from "~/features/crm/core/types";
 import type { LeadView } from "~/features/crm/leads/contracts";
 import { PIPELINE_TEST_IDS, type BoardColumnView } from "~/features/crm/statuses/contracts";
+import {
+  crmAnnouncements,
+  crmCollisionDetection,
+  dragInstructions,
+  useCrmDragSensors,
+} from "../lib/dnd";
 import { Avatar } from "../primitives/Avatar";
 import { Column } from "./Column";
-import { DragLayer } from "./DragLayer";
 import { KanbanCard } from "./KanbanCard";
-import { leadIndex } from "./model";
+import { boardTracks, leadIndex, railColumnIds } from "./model";
+import { DragGhost } from "../leads/DragGhost";
 import { leadTitle } from "../leads/model";
-import { useBoardDrag } from "./use-board-drag";
 
 /**
  * The board itself (direction-b.html:70-72). Columns left to right; cards
  * inside, or one lane per rep when the director asks for `?by=rep`.
  *
- * Every card can be MOVED two ways, and both call the same mutation: drag it
- * (pointer events, so a tablet works), or press its "Change status" button and
- * pick from the sheet. The synthetic Booked / Closed columns refuse drops —
- * "Booked" is what a paid deposit means, not something a rep declares — and
- * they visibly dim while a drag is in flight so the refusal is legible before
- * the finger lands, not after.
+ * Every card can be MOVED three ways, and all three call the same mutation:
+ * drag it with a mouse, hold and drag it with a finger, or reach it from the
+ * keyboard — space on its grab bar, arrow keys, space again. A fourth way,
+ * "Change status", is a plain button that never involves a gesture at all
+ * (R13: drag is never the only path).
+ *
+ * The synthetic Booked / Closed columns refuse drops — "Booked" is what a paid
+ * deposit means, not something a rep declares — and a card dropped on one does
+ * NOTHING, rather than sliding into whichever neighbour would have taken it
+ * (see `crmCollisionDetection`).
+ *
+ * EMPTY columns collapse to a 52px rail unless `showAll` is on, so a board with
+ * one busy stage does not make a planner scroll past six empty ones. The column
+ * a card is currently over is never a rail — it widens as the card approaches,
+ * which is why `onDragOver` is tracked here and not just inside each column.
  */
 export interface BoardProps {
   columns: BoardColumnView[];
   leads: LeadView[];
   statuses: Map<string, CrmStatus>;
   byRep: boolean;
+  /** `?cols=all` — draw every column at full width, empty or not. */
+  showAll: boolean;
   now: Date;
   /** The lead currently being written — its card goes quiet until it settles. */
   pendingLeadId: string | null;
@@ -40,6 +58,7 @@ export function Board({
   leads,
   statuses,
   byRep,
+  showAll,
   now,
   pendingLeadId,
   onOpen,
@@ -47,18 +66,21 @@ export function Board({
   onMove,
 }: BoardProps) {
   const index = leadIndex(leads);
-  const droppable = new Set(columns.filter((c) => c.droppable).map((c) => c.id));
+  const sensors = useCrmDragSensors();
+  const [drag, setDrag] = useState<{ leadId: string; fromColumnId: string } | null>(null);
+  const [overColumnId, setOverColumnId] = useState<string | null>(null);
 
-  const { drag, cardProps } = useBoardDrag({
-    enabled: true,
-    canDrop: (id) => droppable.has(id),
-    onDrop: (leadId, columnId) => {
-      const lead = index.get(leadId);
-      if (lead) onMove(lead, columnId);
-    },
-  });
+  const dragged = drag ? (index.get(drag.leadId) ?? null) : null;
+  const rails = railColumnIds(columns, { showAll, overColumnId });
+  const tracks = boardTracks(columns, rails);
 
-  const dragged = drag?.active ? index.get(drag.leadId) : undefined;
+  /** A lead, a column — whatever is in flight, said the way a person says it. */
+  const nameOf = (id: UniqueIdentifier) => {
+    const key = String(id);
+    const lead = index.get(key);
+    if (lead) return leadTitle(lead);
+    return columns.find((c) => c.id === key)?.label ?? key;
+  };
 
   const card = (lead: LeadView, columnId: string, hideRep: boolean) => (
     <KanbanCard
@@ -66,7 +88,7 @@ export function Board({
       lead={lead}
       status={statuses.get(lead.status)}
       now={now}
-      dragProps={cardProps(lead.id, columnId)}
+      columnId={columnId}
       onOpen={onOpen}
       onChangeStatus={onChangeStatus}
       hideRep={hideRep}
@@ -75,14 +97,47 @@ export function Board({
   );
 
   return (
-    <>
-      <div className={byRep ? "board grouped" : "board"} data-testid={PIPELINE_TEST_IDS.board}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={crmCollisionDetection}
+      accessibility={{
+        announcements: crmAnnouncements(nameOf),
+        screenReaderInstructions: dragInstructions("the pipeline's columns"),
+      }}
+      onDragStart={({ active }) =>
+        setDrag({
+          leadId: String(active.id),
+          fromColumnId: String(active.data.current?.columnId ?? ""),
+        })
+      }
+      onDragOver={({ over }) => setOverColumnId(over ? String(over.id) : null)}
+      onDragCancel={() => {
+        setDrag(null);
+        setOverColumnId(null);
+      }}
+      onDragEnd={({ active, over }) => {
+        const from = String(active.data.current?.columnId ?? "");
+        setDrag(null);
+        setOverColumnId(null);
+        if (!over) return;
+        const toColumnId = String(over.id);
+        if (toColumnId === from) return;
+        const lead = index.get(String(active.id));
+        if (lead) onMove(lead, toColumnId);
+      }}
+    >
+      <div
+        className={boardClass(byRep, !!tracks)}
+        data-testid={PIPELINE_TEST_IDS.board}
+        style={tracks ? ({ "--board-tracks": tracks } as CSSProperties) : undefined}
+      >
         {columns.map((column) => (
           <Column
             key={column.id}
             column={column}
-            over={drag?.overColumnId === column.id && drag.fromColumnId !== column.id}
-            dragging={!!drag?.active}
+            fromColumnId={drag?.fromColumnId ?? null}
+            dragging={!!drag}
+            rail={rails.has(column.id)}
             empty={column.droppable ? "—" : emptyCopy(column.id)}
           >
             {column.lanes
@@ -117,9 +172,13 @@ export function Board({
           </Column>
         ))}
       </div>
-      <DragLayer drag={drag} title={dragged ? leadTitle(dragged) : ""} />
-    </>
+      <DragGhost testId={PIPELINE_TEST_IDS.dragGhost} lead={dragged} />
+    </DndContext>
   );
+}
+
+function boardClass(byRep: boolean, hasRails: boolean): string {
+  return ["board", byRep ? "grouped" : "", hasRails ? "has-rails" : ""].filter(Boolean).join(" ");
 }
 
 /** The two synthetic columns explain themselves when empty. */

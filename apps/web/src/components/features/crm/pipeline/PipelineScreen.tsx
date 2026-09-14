@@ -1,6 +1,6 @@
 "use client";
 
-import { IconFilter, IconFlag, IconPlus, IconSearch } from "@tabler/icons-react";
+import { IconFilter, IconFlag, IconLayoutColumns, IconPlus, IconSearch } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { createPortal } from "react-dom";
@@ -32,7 +32,7 @@ import { postLeadStatus } from "../deal/queries";
 import { useStatusIndex } from "../deal/use-deal";
 import { NewLeadSheet } from "../leads/NewLeadSheet";
 import { Board } from "./Board";
-import { boardSubtitle } from "./model";
+import { SHOW_ALL_COLUMNS, boardSubtitle } from "./model";
 import { fetchPipeline } from "./queries";
 
 /**
@@ -48,6 +48,11 @@ import { fetchPipeline } from "./queries";
  *
  * A director gets the `?by=rep` swimlane toggle; a rep's board is their own,
  * where a swimlane would be one lane.
+ *
+ * `?cols=all` widens the empty columns back out. It lives in the URL like every
+ * other filter here, so a link is a saved view (brief §3.1) — and it is a
+ * toggle, not a setting, because the default (collapse) is the one a planner
+ * wants nine days in ten.
  */
 export default function PipelineScreen({ query }: ScreenProps) {
   const crmFetch = useCrmFetch();
@@ -67,6 +72,7 @@ export default function PipelineScreen({ query }: ScreenProps) {
   // person collapses the lanes rather than drawing one lane with everything in
   // it. The route makes the same call.
   const byRep = isDirector && urlQuery.by === "rep" && !repSlug;
+  const showAllColumns = urlQuery.cols === SHOW_ALL_COLUMNS;
   const centre = (urlQuery.centre as CentreCode | undefined) ?? undefined;
   const params: Record<string, string> = {};
   if (byRep) params.by = "rep";
@@ -84,6 +90,7 @@ export default function PipelineScreen({ query }: ScreenProps) {
   // The FULL roster the response carries (`publicRoster()`), never narrowed by
   // the rep filter — options must not come from the thing they filter.
   const reps = q.data?.reps ?? [];
+  const emptyColumns = (q.data?.columns ?? []).filter((c) => c.count === 0).length;
 
   const move = useMutation({
     mutationFn: (v: { lead: LeadView; statusId: string }) =>
@@ -226,6 +233,28 @@ export default function PipelineScreen({ query }: ScreenProps) {
               </select>
             </>
           ) : null}
+          {/*
+            The empty-column toggle, shown only when there is something to
+            collapse — a control that provably does nothing is worse than no
+            control. `aria-pressed` rather than two labels, so a screen reader
+            hears one button with a state.
+          */}
+          {emptyColumns > 0 ? (
+            <button
+              type="button"
+              className={showAllColumns ? "btn btn-sm btn-primary" : "btn btn-sm"}
+              aria-pressed={showAllColumns}
+              title={
+                showAllColumns
+                  ? `Collapse the ${emptyColumns} empty columns back to a rail`
+                  : `${emptyColumns} empty columns are collapsed to a rail — you can still drop on them`
+              }
+              onClick={() => setUrlQuery({ cols: showAllColumns ? null : SHOW_ALL_COLUMNS })}
+            >
+              <IconLayoutColumns {...ICON} />{" "}
+              <span className="lbl">Show empty ({emptyColumns})</span>
+            </button>
+          ) : null}
           <span className="xs muted" style={{ marginLeft: "auto" }}>
             <IconFilter {...ICON} /> {BOARD_DRAG_HINT}
           </span>
@@ -252,6 +281,7 @@ export default function PipelineScreen({ query }: ScreenProps) {
                 leads={q.data.leads}
                 statuses={statuses}
                 byRep={q.data.byRep}
+                showAll={showAllColumns}
                 now={now}
                 pendingLeadId={pendingLeadId}
                 onOpen={openDeal}

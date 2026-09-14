@@ -1274,6 +1274,14 @@
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 272px;
+  /* The same 272px again, and the width an EMPTY column shrinks to. The board
+     reads these back in `grid-template-columns` when it has rails to draw
+     (`.board.has-rails`, in the ≥769px block near the end of this file):
+     `grid-auto-columns` sizes every implicit track alike, so a per-column width
+     has to come from an explicit template. Kept beside the value they mirror so
+     the two cannot drift apart unseen. */
+  --col-w: 272px;
+  --col-rail-w: 52px;
   gap: 12px;
   overflow-x: auto;
   /* Never vertically: the columns scroll, not the board. Without this the
@@ -3785,6 +3793,50 @@
   }
   .crm-root .board.lane-board {
     grid-auto-columns: 260px;
+  }
+}
+
+/* EMPTY COLUMNS COLLAPSE TO A RAIL (owner, 2026-09-13: "should pipeline hide
+   unused columns by default?").
+   Collapse, not hide. Six empty statuses cost most of the board's width and
+   make a planner scroll past nothing to reach the one column with cards in it —
+   but a column that is not on screen is a stage a deal cannot be dragged into,
+   which is a worse problem than the one it solves. So an empty column keeps its
+   place in the row, keeps its name and its zero, and keeps being a drop target;
+   it just stops spending 272px to say nothing. It springs back to full width the
+   moment a card is dragged over it, and "Show empty" restores them all.
+
+   ≥769px ONLY. On a phone `.board` is `grid-auto-columns: 86%` with scroll
+   snapping — one column per swipe — so an empty column costs nothing there, and
+   collapsing it would only make it harder to reach. Both the track list and the
+   rail's own styling live inside this query, so below it nothing collapses at
+   all: `.has-rails` sets a custom property, and a custom property with no rule
+   reading it does nothing. */
+@media (min-width: 769px) {
+  .crm-root .board.has-rails {
+    grid-template-columns: var(--board-tracks);
+  }
+  .crm-root .col.rail {
+    overflow: hidden;
+  }
+  /* The header turns on its side and becomes the whole column. `position:
+     static` because a sticky header inside a 52px box has nothing to stick to,
+     and `height: 100%` so the name runs the full drop target rather than
+     hovering at the top of it. */
+  .crm-root .col.rail .col-h {
+    position: static;
+    writing-mode: vertical-rl;
+    height: 100%;
+    padding: 12px 0;
+    gap: 10px;
+    justify-content: flex-start;
+    white-space: nowrap;
+  }
+  .crm-root .col.rail .col-h .sum {
+    margin-left: 0;
+  }
+  .crm-root .col.rail .col-body {
+    display: none;
   }
 }
 

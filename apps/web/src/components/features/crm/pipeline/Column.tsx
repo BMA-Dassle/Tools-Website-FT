@@ -1,5 +1,6 @@
 "use client";
 
+import { useDroppable } from "@dnd-kit/core";
 import type { ReactNode } from "react";
 import type { BoardColumnView } from "~/features/crm/statuses/contracts";
 import { PIPELINE_TEST_IDS } from "~/features/crm/statuses/contracts";
@@ -10,32 +11,52 @@ import { columnSum } from "./model";
  * One `.col` of the pipeline (direction-b.html:71): the status chip, the
  * count, the Σ of the column's values, and the cards.
  *
- * `data-col` is what the drag reads out of the DOM to find its drop target, so
- * it is on the OUTER element and covers the header as well as the body — a
- * card dropped on a column header lands in that column, which is what the
- * gesture looks like it should do.
+ * The whole column is the drop target — header included, so a card dropped on
+ * a column heading lands in that column, which is what the gesture looks like
+ * it should do. The synthetic Booked / Closed columns register as DISABLED
+ * droppables rather than not registering at all, so dnd-kit can still tell they
+ * are there and refuse them; they visibly dim while a drag is in flight so the
+ * refusal is legible before the hand lands, not after.
+ *
+ * An EMPTY column draws as a `rail`: same place in the row, same drop target,
+ * name and count turned on their side in 52px instead of 272 (see `crm.css`,
+ * "EMPTY COLUMNS COLLAPSE TO A RAIL"). It is still full height, so it is still
+ * a large target, and the board widens it again the moment a card is over it.
+ * `resizeObserverConfig.updateMeasurementsFor: []` is what makes that safe: an
+ * empty array asks dnd-kit to re-measure EVERY column when this one changes
+ * size, so the columns a rail pushed sideways are not still being matched
+ * against where they used to be.
  *
  * The drop highlight is inline rather than a CSS class: it is two properties
  * on one element, and every other PR in this wave is editing `crm.css`.
  */
 export interface ColumnProps {
   column: BoardColumnView;
-  /** True while a dragged card is over this column and the drop is allowed. */
-  over: boolean;
+  /** The column the card in flight came from — it does not highlight itself. */
+  fromColumnId: string | null;
   /** A drag is in flight somewhere on the board. */
   dragging: boolean;
+  /** Empty, and collapsed to a rail rather than 272px of nothing. */
+  rail: boolean;
   empty?: ReactNode;
   children: ReactNode;
 }
 
-export function Column({ column, over, dragging, empty, children }: ColumnProps) {
+export function Column({ column, fromColumnId, dragging, rail, empty, children }: ColumnProps) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: column.id,
+    disabled: !column.droppable,
+    resizeObserverConfig: { updateMeasurementsFor: [] },
+  });
   const sum = columnSum(column);
+  const over = isOver && column.id !== fromColumnId;
   const refusing = dragging && !column.droppable;
   return (
     <div
-      className="col"
-      data-col={column.id}
+      ref={setNodeRef}
+      className={rail ? "col rail" : "col"}
       data-testid={PIPELINE_TEST_IDS.column(column.id)}
+      title={rail ? `${column.label} — empty. Drop a card here, or show every column.` : undefined}
       style={{
         outline: over ? "2px solid var(--acc, #5b8cff)" : undefined,
         outlineOffset: over ? 2 : undefined,
