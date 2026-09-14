@@ -329,8 +329,12 @@ export async function resolveEmployee(input: {
 }): Promise<EmployeeResolveResult> {
   const punchId = normalizePunchId(input.punchId ?? "");
   if (punchId) {
+    // Keyed on BY_ID_KEY, not INDEX_KEY: right after this code first deploys the
+    // punch hash exists and is "fresh" but the by-id hash does not yet, and a
+    // punch hit with no record must trigger a rebuild rather than read as a
+    // wrong ID for the rest of the refresh window.
     const res = await resolveThroughIndex(
-      INDEX_KEY,
+      BY_ID_KEY,
       async () => {
         const id = await readIdentity(punchId);
         return id ? await readRecord(id.userId) : null;
