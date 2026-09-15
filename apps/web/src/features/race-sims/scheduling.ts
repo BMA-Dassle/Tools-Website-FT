@@ -37,24 +37,32 @@ import {
   getRaceBlockWindowsForDate,
   raceWindowAppliesToTrack,
 } from "@/lib/group-events";
-import { RACE_SIM_TRACKS, getRaceSimTrack } from "./products";
+import { RACE_SIM_TRACKS, getRaceSimTrack, type RaceSimTrackKey } from "./products";
 
 /** Fallback conflict label when a session has no resolvable track. */
 export const RACE_SIM_TRACK_FALLBACK = "Race Sim";
 
 /** The label a sim session carries in every conflict list AND in
- *  booking_metadata.racesims[].track — the track's display name ("Track A").
- *  Distinct from red/blue/mega, so heatsConflict treats sim-vs-kart as
- *  cross-track; isRaceSimTrackLabel recognizes it as a sim for the
- *  same-slot rule. */
+ *  booking_metadata.racesims[].track — the track KEY's stable label
+ *  ("Track A"), never the circuit running on it. Distinct from
+ *  red/blue/mega, so heatsConflict treats sim-vs-kart as cross-track;
+ *  isRaceSimTrackLabel recognizes it as a sim for the same-slot rule.
+ *
+ *  Guest-facing surfaces must NOT call this — they want
+ *  circuits.ts `circuitForTrack(key, date)`. This string outlives every
+ *  lineup on purpose: it is matched against rows written months ago. */
 export function raceSimConflictTrack(trackKey: string | null | undefined): string {
-  return getRaceSimTrack(trackKey ?? null)?.name ?? RACE_SIM_TRACK_FALLBACK;
+  return getRaceSimTrack(trackKey ?? null)?.conflictLabel ?? RACE_SIM_TRACK_FALLBACK;
 }
 
-/** True when a timed booking is a sim session (its track is a sim label). */
+/** True when a timed booking is a sim session (its track is a sim label).
+ *  Matches only the STABLE key labels, which is why they may never change:
+ *  every sim ever sold is recognised here, whatever circuit it ran. */
 export function isRaceSimTrackLabel(track: string | null | undefined): boolean {
   if (!track) return false;
-  return track === RACE_SIM_TRACK_FALLBACK || RACE_SIM_TRACKS.some((t) => t.name === track);
+  return (
+    track === RACE_SIM_TRACK_FALLBACK || RACE_SIM_TRACKS.some((t) => t.conflictLabel === track)
+  );
 }
 
 /** Wall-clock ISO ("2026-08-26T15:00:00", optional trailing Z) → epoch ms,
@@ -145,6 +153,82 @@ export function ownSessionsMissingFromGrid(
     }
   }
   return [...byStart.values()].sort((a, b) => wallClockMs(a.slot) - wallClockMs(b.slot));
+}
+
+// ── One session runs ONE circuit: the per-slot lock ────────────────────────
+//
+// There are four rigs and one shared capacity pool, so a 10:00 session is four
+// rigs running ONE circuit. The first booking on a slot therefore fixes which
+// $0 track key — and so which circuit — that slot runs; everyone who joins it
+// afterwards books the same key (owner 2026-09-15). Without this, two parties
+// could hold the same four rigs on Baku and Bristol and the desk would have to
+// tell one of them no, after they had paid.
+//
+// The grid reads locks to show "10:00 — BRISTOL" instead of an open picker;
+// guard 2f re-checks at reserve, because the grid's copy can be seconds stale
+// and the guest who picked second must be refused BEFORE the Square write.
+
+/** A slot already claimed by a live booking, and the track key it runs. */
+export interface SimSlotLock {
+  /** Wall-clock ISO slot start, exactly as persisted. */
+  slot: string;
+  trackKey: RaceSimTrackKey;
+}
+
+/** Locks keyed by slot-start epoch ms — the grid asks per card, so the lookup
+ *  has to be O(1) and tolerant of the Z-suffix drift between sources. */
+export function simSlotLockIndex(locks: readonly SimSlotLock[]): Map<number, RaceSimTrackKey> {
+  const index = new Map<number, RaceSimTrackKey>();
+  for (const lock of locks) {
+    const ms = wallClockMs(lock.slot);
+    if (!Number.isFinite(ms)) continue;
+    // First writer wins: the earliest booking owns the slot's circuit, and a
+    // later row must never silently re-point it.
+    if (!index.has(ms)) index.set(ms, lock.trackKey);
+  }
+  return index;
+}
+
+/** The track key a slot is locked to, or null when it is still unclaimed and
+ *  the guest may pick any circuit. */
+export function lockedTrackKeyForSlot(
+  index: Map<number, RaceSimTrackKey>,
+  startIso: string,
+): RaceSimTrackKey | null {
+  const ms = wallClockMs(startIso);
+  return Number.isFinite(ms) ? (index.get(ms) ?? null) : null;
+}
+
+/** The cart's OWN sim picks as locks. A guest who picks 10:00 Bristol has
+ *  claimed 10:00 for Bristol just as firmly as a stranger would have — this is
+ *  what stops one cart booking two circuits into one session. */
+export function cartSimSlotLocks(items: SessionItem[]): SimSlotLock[] {
+  const out: SimSlotLock[] = [];
+  for (const item of items) {
+    if (item.kind !== "racesim") continue;
+    for (const s of item.sessions) {
+      if (s.trackKey === "a" || s.trackKey === "b" || s.trackKey === "c") {
+        out.push({ slot: s.slot, trackKey: s.trackKey });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The first pick that wants a circuit the slot is already locked to something
+ * else for — the guard's and the wizard gate's shared check. Returns the
+ * offending session plus the key the slot actually runs, or null.
+ */
+export function findSimCircuitClash(
+  sessions: readonly RaceSimSession[],
+  index: Map<number, RaceSimTrackKey>,
+): { session: RaceSimSession; lockedTo: RaceSimTrackKey } | null {
+  for (const s of sessions) {
+    const locked = lockedTrackKeyForSlot(index, s.slot);
+    if (locked && locked !== s.trackKey) return { session: s, lockedTo: locked };
+  }
+  return null;
 }
 
 /** The wizard gate's self-check (racing's canAdvanceFor): two of the item's

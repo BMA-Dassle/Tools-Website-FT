@@ -43,6 +43,7 @@ import {
   RaceSimNotConfiguredError,
   RaceSimMixedCartError,
   RaceSimStaleHoldError,
+  RaceSimCircuitTakenError,
   RACE_SIM_SQUARE_CATALOG_ID,
 } from "~/features/race-sims/products";
 import {
@@ -53,7 +54,12 @@ import {
   isRaceSimTrackLabel,
   findRaceSimCrossBookingConflict,
   findRaceSimSelfConflict,
+  simSlotLockIndex,
+  cartSimSlotLocks,
+  findSimCircuitClash,
+  type SimSlotLock,
 } from "~/features/race-sims/scheduling";
+import { circuitForTrack, simSessionCircuitName } from "~/features/race-sims/circuits";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { after } from "next/server";
@@ -186,6 +192,7 @@ import {
   updateBowlingReservationConfirmFailed,
   updateBowlingReservationSquareIds,
   raceHeatsForPersonsOnDate,
+  simSlotCircuitLocks,
   getBowlingExperiences,
   type ReservationProductKind,
 } from "@/lib/bowling-db";
@@ -979,7 +986,11 @@ export function buildCombinedLineItems(session: BookingSession): {
     const unitCents = Math.round(raceSimPriceFor(product) * 100);
     for (const s of item.sessions) {
       const track = getRaceSimTrack(s.trackKey);
-      const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""} · ${heatClockLabel(s.slot)}`;
+      // Receipt line names the CIRCUIT the guest picked, resolved for the
+      // session's own date so a reprint after the lineup rotates still reads
+      // what was raced. Falls back to the key's stable label.
+      const circuitName = simSessionCircuitName(s.trackKey, s.slot, track?.conflictLabel ?? "");
+      const name = `Race Sims — ${product.name}${circuitName ? ` · ${circuitName}` : ""} · ${heatClockLabel(s.slot)}`;
       totalPriceCents += unitCents * qty;
       entityCents.fasttrax += unitCents * qty;
       totalDepositCents += unitCents * qty;
@@ -2301,6 +2312,49 @@ async function unifiedReserveInner(
     );
     if (hasHeadpinzItem) {
       throw new RaceSimMixedCartError();
+    }
+
+    // ── 2f. One session runs ONE circuit ─────────────────────────────
+    // Four rigs, one shared capacity pool: a 10:00 session is four rigs on a
+    // single circuit, so the first booking on a slot fixes which $0 track key
+    // it runs. The schedule shows locks, but its copy can be seconds stale —
+    // two kiosks can pick the same open slot on different circuits inside the
+    // same poll window. This is the authoritative check, and it runs BEFORE
+    // any Square write so the second guest is told to move instead of paying
+    // for a session that cannot run their circuit.
+    //
+    // The cart's own picks count as locks too (cartSimSlotLocks), which is
+    // what stops ONE cart putting two circuits into one session.
+    //
+    // Fail-open on a query error, deliberately: the same posture as the
+    // cross-reservation guard above. A Neon blip must not refuse a booking the
+    // rigs can actually run — the worst case is the desk picking one circuit
+    // for a shared session, which is where we were before this existed.
+    const simDates = [
+      ...new Set(racesimItems.flatMap((r) => r.sessions.map((s) => s.slot.slice(0, 10)))),
+    ];
+    for (const date of simDates) {
+      let lockRows: { slot: string; trackKey: string }[] = [];
+      try {
+        lockRows = await simSlotCircuitLocks({ date, excludeBillId: session.bmiBillId });
+      } catch (err) {
+        console.error("[unified-reserve] sim circuit locks failed (failing open):", err);
+        continue;
+      }
+      const index = simSlotLockIndex([
+        // Existing reservations first: a stranger's booking outranks our cart.
+        ...lockRows.filter(
+          (r): r is SimSlotLock => r.trackKey === "a" || r.trackKey === "b" || r.trackKey === "c",
+        ),
+        ...cartSimSlotLocks(session.items),
+      ]);
+      for (const item of racesimItems) {
+        const clash = findSimCircuitClash(
+          item.sessions.filter((s) => s.slot.slice(0, 10) === date),
+          index,
+        );
+        if (clash) throw new RaceSimCircuitTakenError(clash.session.slot, clash.lockedTo);
+      }
     }
   }
 
@@ -3788,8 +3842,9 @@ async function unifiedReserveInner(
         const unitPriceCents = product ? Math.round(raceSimPriceFor(product) * 100) : 0;
         return r.sessions.map((s) => {
           const track = getRaceSimTrack(s.trackKey);
+          const circuitName = simSessionCircuitName(s.trackKey, s.slot, track?.conflictLabel ?? "");
           return {
-            label: `Race Sims — ${product?.name ?? "Race"}${track ? ` · ${track.name}` : ""} · ${heatClockLabel(s.slot)}`,
+            label: `Race Sims — ${product?.name ?? "Race"}${circuitName ? ` · ${circuitName}` : ""} · ${heatClockLabel(s.slot)}`,
             quantity: Math.max(1, r.racerCount),
             unitPriceCents,
           };
@@ -3869,7 +3924,13 @@ async function unifiedReserveInner(
         return r.sessions.map((s) => ({
           slug: r.productSlug,
           trackKey: s.trackKey,
-          track: getRaceSimTrack(s.trackKey)?.name ?? null,
+          // STABLE key label — this is the string the conflict rules match on
+          // when they read these rows back (isRaceSimTrackLabel). It must NOT
+          // become the circuit name: that rotates, and these rows are matched
+          // months later. The circuit is recorded beside it for day-of tooling.
+          track: getRaceSimTrack(s.trackKey)?.conflictLabel ?? null,
+          circuitId: circuitForTrack(s.trackKey, s.slot.slice(0, 10))?.id ?? null,
+          circuit: circuitForTrack(s.trackKey, s.slot.slice(0, 10))?.name ?? null,
           slot: s.slot,
           racerCount: Math.max(1, r.racerCount),
           participants,

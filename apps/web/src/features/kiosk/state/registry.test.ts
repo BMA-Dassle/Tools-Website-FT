@@ -24,7 +24,6 @@ describe("racesim step registries", () => {
       "racesim-party",
       "contact",
       "racesim-product",
-      "racesim-track",
       "racesim-slot",
     ]);
   });

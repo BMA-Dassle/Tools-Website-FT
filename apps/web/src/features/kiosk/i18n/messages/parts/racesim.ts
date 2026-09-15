@@ -1,8 +1,9 @@
 /** Race Sims (racing simulators, FastTrax FM) — the kiosk tile + the wizard's
- *  product and track steps. PLACEHOLDER PHASE 2026-08: prices and track names
- *  ("Track A/B/C") are stand-ins from features/race-sims/products.ts; the tile
- *  is a locked "Coming Soon" card for guests (staff PIN opens the flow — the
- *  PIN sheet itself is a staff surface and stays hardcoded English).
+ *  product and schedule steps. LIVE TO GUESTS since 2026-09-15: the tile is a
+ *  normal offering, and the circuit picker lives on the schedule (one circuit
+ *  per time block). Circuit NAMES are real venues and stay English in both
+ *  locales, same rule as FastTrax / HeadPinz — only the copy around them is
+ *  translated. Circuit data: features/race-sims/circuits.ts.
  *
  *  Keys live under `racesim.*` plus this screen's `stepTitle.*`/`stepReason.*`
  *  entries for KioskFlow's English→key lookup maps. Mirror every key in es.
@@ -26,7 +27,7 @@ export const racesimEn = {
   // "Everyone starts here").
   "racesim.product.sectionMeta": "Everyone rides here",
   // Card track line (mirrors karting's "Runs on … Track" dot row).
-  "racesim.product.trackLine": "Runs on 3 rotating tracks — pick yours next",
+  "racesim.product.trackLine": "Three circuits in rotation — pick yours with your time",
   // Product display names key by catalog slug (race-sims/products.ts).
   "racesim.product.sim-single": "1 Race",
   "racesim.product.single.sub": "One race on the track of your choice.",
@@ -38,12 +39,16 @@ export const racesimEn = {
     "{unit} × {count, plural, one {# racer} other {# racers}} = {total} total",
   "racesim.product.selected": "Selected",
 
-  // --- Track step (Track A/B/C, rotating lineup) ---
-  "racesim.track.intro": "Three tracks in rotation — a fresh lineup every week or two.",
-  "racesim.track.a": "Track A",
-  "racesim.track.b": "Track B",
-  "racesim.track.c": "Track C",
-  "racesim.track.tagline": "Rotating layout — a new lineup every week or two.",
+  // --- Circuits (the rotating lineup, picked per block on the schedule) ---
+  // The circuit NAMES are real venues and stay English in both locales, same
+  // rule as FastTrax / HeadPinz. Only the words around them translate.
+  "racesim.circuit.thisWeek": "Racing this week",
+  /** {length} = miles, {turns} = corner count. */
+  "racesim.circuit.stats": "{length} mi · {turns, plural, one {# turn} other {# turns}}",
+  /** Shown on a block someone has already fixed the circuit for. */
+  "racesim.circuit.locked": "Running",
+  /** No circuit can be offered on this block (every key's fetch missed it). */
+  "racesim.circuit.none": "Not available",
 
   // --- Time step (racing heat-picker layout) ---
   "racesim.slot.heading": "Pick a Time",
@@ -61,10 +66,6 @@ export const racesimEn = {
   "racesim.slot.privateEvent.title": "Private Event",
   "racesim.slot.privateEvent.body":
     "Today is reserved for a private event and is not available for public booking.",
-  /** Track switcher helper under the cards — {track} = "Track A". */
-  "racesim.slot.trackHint": "Showing {track} sessions — tap another track to switch.",
-  /** Same start already picked on another sim track — {track} = that track. */
-  "racesim.slot.pickedOtherTrack": "Picked on {track}",
   /** Status line on a picked card BMI stopped proposing (our hold took the rigs). */
   "racesim.slot.picked": "Picked",
   "racesim.slot.pickedCount": "{count, plural, one {# session picked} other {# sessions picked}}",
@@ -74,9 +75,7 @@ export const racesimEn = {
   "stepReason.racesimSelfConflict":
     "You picked the same time on two tracks — remove one to continue.",
   "stepTitle.raceOptions": "Race Options",
-  "stepTitle.track": "Track",
   "stepReason.racesimProduct": "Pick a race to continue.",
-  "stepReason.racesimTrack": "Pick a track.",
 } as const;
 
 export const racesimEs: Record<keyof typeof racesimEn, string> = {
@@ -88,7 +87,7 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
   "racesim.product.heading": "Elige tu carrera",
   "racesim.product.helper": "Elige la carrera que le convenga a tu grupo.",
   "racesim.product.sectionMeta": "Todos corren aquí",
-  "racesim.product.trackLine": "Corre en 3 pistas rotativas — elige la tuya después",
+  "racesim.product.trackLine": "Tres circuitos en rotación — elige el tuyo junto con tu hora",
   "racesim.product.sim-single": "1 carrera",
   "racesim.product.single.sub": "Una carrera en la pista que elijas.",
   "racesim.product.perRacer": "piloto",
@@ -96,11 +95,10 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
     "{unit} × {count, plural, one {# piloto} other {# pilotos}} = {total} en total",
   "racesim.product.selected": "Seleccionado",
 
-  "racesim.track.intro": "Tres pistas en rotación — alineación nueva cada una o dos semanas.",
-  "racesim.track.a": "Pista A",
-  "racesim.track.b": "Pista B",
-  "racesim.track.c": "Pista C",
-  "racesim.track.tagline": "Trazado rotativo — alineación nueva cada una o dos semanas.",
+  "racesim.circuit.thisWeek": "Esta semana se corre en",
+  "racesim.circuit.stats": "{length} mi · {turns, plural, one {# curva} other {# curvas}}",
+  "racesim.circuit.locked": "Se corre en",
+  "racesim.circuit.none": "No disponible",
 
   "racesim.slot.heading": "Elige una hora",
   "racesim.slot.bookingFor": "Reserva para {count, plural, one {# piloto} other {# pilotos}}",
@@ -116,8 +114,6 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
   "racesim.slot.privateEvent.title": "Evento privado",
   "racesim.slot.privateEvent.body":
     "Hoy está reservado para un evento privado y no está disponible para reservas públicas.",
-  "racesim.slot.trackHint": "Mostrando sesiones de {track} — toca otra pista para cambiar.",
-  "racesim.slot.pickedOtherTrack": "Elegida en {track}",
   "racesim.slot.picked": "Elegida",
   "racesim.slot.pickedCount": "{count, plural, one {# sesión elegida} other {# sesiones elegidas}}",
   "stepReason.racesimConflict": "Esa hora está muy cerca de otra actividad — elige otra.",
@@ -125,7 +121,5 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
     "Elegiste la misma hora en dos pistas — quita una para continuar.",
 
   "stepTitle.raceOptions": "Opciones de carrera",
-  "stepTitle.track": "Pista",
   "stepReason.racesimProduct": "Elige una carrera para continuar.",
-  "stepReason.racesimTrack": "Elige una pista.",
 };

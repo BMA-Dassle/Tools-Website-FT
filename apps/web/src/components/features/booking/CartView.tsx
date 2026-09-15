@@ -36,6 +36,7 @@ import {
 } from "~/features/booking/service/addon-charge";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { getRaceSimProduct, getRaceSimTrack, raceSimPriceFor } from "~/features/race-sims/products";
+import { simSessionCircuitName } from "~/features/race-sims/circuits";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import {
   employeeMembers,
@@ -1601,7 +1602,11 @@ function otherItemSummary(item: SessionItem): string {
         ...[...item.sessions]
           .sort((a, b) => a.slot.localeCompare(b.slot))
           .map((s) =>
-            `${fmtCartIsoTime(s.slot) ?? ""} ${getRaceSimTrack(s.trackKey)?.name ?? ""}`.trim(),
+            `${fmtCartIsoTime(s.slot) ?? ""} ${simSessionCircuitName(
+              s.trackKey,
+              s.slot,
+              getRaceSimTrack(s.trackKey)?.conflictLabel ?? "",
+            )}`.trim(),
           ),
         `${item.racerCount} racer${item.racerCount === 1 ? "" : "s"}`,
       ]

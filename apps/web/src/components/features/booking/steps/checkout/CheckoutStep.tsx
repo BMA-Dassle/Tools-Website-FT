@@ -32,6 +32,7 @@ import { applyPromoToAmount } from "~/features/booking/service/promo-pricing";
 import { calculateTax } from "~/features/booking/service/race-pricing";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
 import { getRaceSimProduct, getRaceSimTrack, raceSimPriceFor } from "~/features/race-sims/products";
+import { simSessionCircuitName } from "~/features/race-sims/circuits";
 import {
   fetchServerQuote,
   overviewFromServerQuote,
@@ -568,9 +569,13 @@ export function CheckoutStep({
         const qty = Math.max(1, item.racerCount);
         const unit = raceSimPriceFor(product);
         for (const s of item.sessions) {
-          const track = getRaceSimTrack(s.trackKey);
+          const circuitName = simSessionCircuitName(
+            s.trackKey,
+            s.slot,
+            getRaceSimTrack(s.trackKey)?.conflictLabel ?? "",
+          );
           reviewLines.push({
-            name: `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""}`,
+            name: `Race Sims — ${product.name}${circuitName ? ` · ${circuitName}` : ""}`,
             quantity: qty,
             amount: (Math.round(unit * 100) * qty) / 100,
             time: s.slot,
