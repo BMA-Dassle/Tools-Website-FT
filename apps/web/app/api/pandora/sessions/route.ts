@@ -79,7 +79,28 @@ const ALLOWED_LOCATIONS = new Set([
 // "HP Arena" is the single CF_RSC_NAME covering BOTH Nexus Laser Tag and
 // Nexus Gel Blaster sessions at HeadPinz FM (verified by live probe
 // 2026-06-11 — "Nexus Laser Tag"/"Gel Blaster" variants all 404).
-const ALLOWED_RESOURCES = new Set(["Blue Track", "Red Track", "Mega", "Mega Track", "HP Arena"]);
+// Race Sims (FastTrax FM) — the CF_RSC_NAME the $0 sim track keys draw from.
+// Several spellings are allowed because the arena rollout proved the BMI-side
+// product name and the dayplanner RESOURCE name need not match ("Nexus Laser
+// Tag" 404'd; only "HP Arena" worked). Allowing a candidate costs nothing —
+// the upstream 404s on a name that does not exist — and it is what makes the
+// real name discoverable by probe instead of by guess.
+const RACE_SIM_RESOURCE_CANDIDATES = [
+  "Race Sim",
+  "Race Sims",
+  "Race Simulator",
+  "Race Simulators",
+  "Sim Racing",
+  "Simulator",
+] as const;
+const ALLOWED_RESOURCES = new Set([
+  "Blue Track",
+  "Red Track",
+  "Mega",
+  "Mega Track",
+  "HP Arena",
+  ...RACE_SIM_RESOURCE_CANDIDATES,
+]);
 
 export interface PandoraSession {
   sessionId: string; // string per Pandora schema
@@ -136,7 +157,9 @@ export async function GET(req: NextRequest) {
   }
   if (!resourceName || !ALLOWED_RESOURCES.has(resourceName)) {
     return NextResponse.json(
-      { error: "Invalid resourceName (Blue Track / Red Track / Mega Track / HP Arena)" },
+      {
+        error: "Invalid resourceName (Blue Track / Red Track / Mega Track / HP Arena / Race Sim)",
+      },
       { status: 400 },
     );
   }
