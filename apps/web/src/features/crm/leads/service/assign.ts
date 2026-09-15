@@ -406,17 +406,18 @@ export async function introduceIfHeld(
  * that is correct. For these two, seen on a real lead's timeline, it is 20
  * requests that were never going to succeed:
  *
- *   404  "project 8756741 does not exist in Office" — the project is gone.
- *        No amount of asking again brings it back.
  *   400  violation of FOREIGN KEY constraint "FK_PRJ_US_ID" … F_US_ID =
  *        30080112 — the rep's `bmi_user_id` does not exist ON THAT SERVER.
  *        Office user ids are PER TENANT (a fact this codebase has been bitten
  *        by before), so a Naples id written to the Fort Myers tenant fails
  *        this way every single time.
  *
- * Both need a human — re-mint the project, or fix the rep's per-tenant id —
- * so they are recorded loudly and NOT queued. The lead still shows the failure
- * on its timeline; what stops is the pointless traffic.
+ * That needs a human — fix the rep's per-tenant id — so it is recorded loudly
+ * and NOT queued. The lead still shows the failure on its timeline; what stops
+ * is the pointless traffic.
+ *
+ * A 404 "does not exist in Office" is NOT in this set. It looks permanent and
+ * is not; see the body for what that cost.
  *
  * Matched on the wire text because that is all Office gives us: a `Kind`, a
  * `Message` and an HTTP status, with no error code to switch on. Deliberately
@@ -426,10 +427,38 @@ export async function introduceIfHeld(
  */
 export function isPermanentOfficeRefusal(error: string): boolean {
   const e = error.toLowerCase();
-  if (e.includes("does not exist in office")) return true;
+
+  /**
+   * A FOREIGN-KEY VIOLATION IS THE ONLY ONE THAT IS TRULY PERMANENT.
+   *
+   * `F_US_ID = 30080112` is refused because that user does not exist on that
+   * tenant. Office ids are per server, so the row is wrong until somebody
+   * corrects the data — asking again twenty times cannot change it.
+   */
   if (e.includes("violation of foreign key constraint")) return true;
-  // Office says this when the project id is well-formed but unknown to it.
-  if (e.includes("404") && e.includes("not found")) return true;
+
+  /**
+   * "DOES NOT EXIST IN OFFICE" IS NOT PERMANENT, AND TREATING IT AS SUCH WAS A
+   * REGRESSION I SHIPPED ON 2026-09-14.
+   *
+   * It reads like a settled fact and it is not. Pandora creates the project in
+   * the CLOUD; Office's read side is a different store and converges in
+   * minutes — a caveat this codebase already carries in the builder's own
+   * notes ("cloud→local convergence is minutes, so the day-of floor may lag").
+   * The responsible write happens seconds after the mint, so the project it
+   * asks for genuinely is not there YET.
+   *
+   * MEASURED, which is how this was caught: every one of these 404s fired 3 or
+   * 4 seconds after capture — L-240 +3s, L-238 +3s, L-237 +3s, L-235 +4s, and
+   * so on back through 2026-09-14. That is not a missing project, it is a race
+   * with replication. Parking it stopped the retry that used to heal it, and
+   * left 18 leads with the wrong responsible in Office.
+   *
+   * So it retries, and the existing backoff is exactly the right shape for it:
+   * 30s, 60s, 90s… against a store that catches up in minutes. If a project is
+   * REALLY gone the retries run out and the job parks itself, which is the
+   * same end state, reached honestly.
+   */
   return false;
 }
 

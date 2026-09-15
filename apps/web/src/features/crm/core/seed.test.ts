@@ -57,6 +57,8 @@ describe("seed content", () => {
       bmiUserId: "28267036",
       bmiUserIds: { headpinzftmyers: "28267036", headpinznaples: "6338800" },
       bmiUsername: "Kelsea Kosco",
+      // Naples names the same people by first name alone — see below.
+      bmiUsernames: { headpinzftmyers: "Kelsea Kosco", headpinznaples: "Kelsea" },
       phoneE164: PLANNERS.kelsea.phone,
       teamsChatId: PLANNERS.kelsea.teamsChatId,
       // Owner, 2026-09-13: "they all do all". The FastTrax form offered one
@@ -87,6 +89,22 @@ describe("seed content", () => {
     expect(naples("eric")).toBe("25228");
     // Jacob has never been a responsible on a Naples project; no id to invent.
     expect(naples("jacob")).toBeNull();
+
+    /**
+     * AND THE DISPLAY NAME IS PER TENANT TOO — the half that took Naples off
+     * the air on 2026-09-15. Pandora picks the salesperson with
+     * `name.includes(agent)`, and Naples calls them by first name alone, so
+     * "Stephanie" never contained "Stephanie Wegman": every Naples non-kids web
+     * lead died with 500 "Failed to assign an agent for this lead."
+     */
+    const naplesName = (slug: string) =>
+      REP_SEED.find((r) => r.slug === slug)?.bmiUsernames?.headpinznaples ?? null;
+    expect(naplesName("kelsea")).toBe("Kelsea");
+    expect(naplesName("lori")).toBe("Lori");
+    expect(naplesName("stephanie")).toBe("Stephanie");
+    expect(naplesName("gs")).toBe("CallCenter");
+    expect(naplesName("eric")).toBe("Eric");
+    expect(naplesName("jacob")).toBeNull();
     // Every mapped id differs from the Fort Myers one — the whole point.
     for (const slug of ["kelsea", "lori", "stephanie", "gs", "eric"]) {
       const r = REP_SEED.find((x) => x.slug === slug)!;
@@ -280,13 +298,14 @@ describe("runSeed idempotency (SQL boundary)", () => {
         "bmi_user_ids = COALESCE(crm_reps.bmi_user_ids, EXCLUDED.bmi_user_ids)",
       );
       expect(arm).toContain(
-        "WHERE (crm_reps.bmi_user_id IS NULL AND EXCLUDED.bmi_user_id IS NOT NULL) OR (crm_reps.bmi_user_ids IS NULL AND EXCLUDED.bmi_user_ids IS NOT NULL) OR (crm_reps.bmi_username IS NULL AND EXCLUDED.bmi_username IS NOT NULL) OR (crm_reps.seven_shifts_user_id IS NULL AND EXCLUDED.seven_shifts_user_id IS NOT NULL) RETURNING id",
+        "WHERE (crm_reps.bmi_user_id IS NULL AND EXCLUDED.bmi_user_id IS NOT NULL) OR (crm_reps.bmi_user_ids IS NULL AND EXCLUDED.bmi_user_ids IS NOT NULL) OR (crm_reps.bmi_usernames IS NULL AND EXCLUDED.bmi_usernames IS NOT NULL) OR (crm_reps.bmi_username IS NULL AND EXCLUDED.bmi_username IS NOT NULL) OR (crm_reps.seven_shifts_user_id IS NULL AND EXCLUDED.seven_shifts_user_id IS NOT NULL) RETURNING id",
       );
       // The SET list names nothing else: display name, email, role, centres, phone… stay as set.
       const setList = arm.slice("ON CONFLICT (slug) DO UPDATE SET".length, arm.indexOf(" WHERE "));
       expect(setList.match(/\w+ =/g)).toEqual([
         "bmi_user_id =",
         "bmi_user_ids =",
+        "bmi_usernames =",
         "bmi_username =",
         "seven_shifts_user_id =",
         "updated_at =",
@@ -315,13 +334,14 @@ describe("runSeed idempotency (SQL boundary)", () => {
     // seven_shifts_user_id sits right after bmi_username in the column list…
     for (const s of reps) {
       expect(s.text).toContain(
-        "bmi_user_id, bmi_user_ids, bmi_username, seven_shifts_user_id, teams_chat_id",
+        "bmi_user_id, bmi_user_ids, bmi_username, bmi_usernames, seven_shifts_user_id",
       );
     }
     // …and is bound as a NUMBER (the column is INTEGER), never a digit string.
-    // params[9], not [8]: `bmi_user_ids` was inserted at $8 when Office user
-    // ids became per-tenant, shifting everything after it along one.
-    const idOf = (slug: string) => reps.find((s) => s.params[0] === slug)?.params[9];
+    // params[10]: `bmi_user_ids` ($8) and then `bmi_usernames` ($10) were each
+    // inserted when Office identity turned out to be per-tenant — first the id,
+    // then the display name — shifting everything after them along.
+    const idOf = (slug: string) => reps.find((s) => s.params[0] === slug)?.params[10];
     expect(idOf("kelsea")).toBe(10832991);
     expect(idOf("lori")).toBe(6568770);
     expect(idOf("stephanie")).toBe(8204948);

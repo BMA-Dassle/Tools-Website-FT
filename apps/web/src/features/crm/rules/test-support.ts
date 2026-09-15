@@ -46,6 +46,7 @@ function rep(
     bmiUserId: null,
     bmiUserIds: null,
     bmiUsername: displayName,
+    bmiUsernames: null,
     sevenShiftsUserId: null,
     voxDid: null,
     threecxExtension: null,

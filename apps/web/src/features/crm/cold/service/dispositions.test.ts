@@ -46,6 +46,7 @@ const USER: CrmUser = {
     bmiUserId: "28267036",
     bmiUserIds: null,
     bmiUsername: "Kelsea",
+    bmiUsernames: null,
     sevenShiftsUserId: 10832991,
     voxDid: null,
     threecxExtension: "141",

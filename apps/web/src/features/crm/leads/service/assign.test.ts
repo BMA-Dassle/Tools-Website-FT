@@ -498,13 +498,28 @@ describe("isPermanentOfficeRefusal", () => {
    * being queued for the default 20 attempts on a 30s-step backoff — about 20
    * Office PUTs over 1¾ hours, none of which could ever have worked.
    */
-  it("parks a project Office says is gone", async () => {
+  /**
+   * THE ONE I GOT WRONG on 2026-09-14, and the measurement that caught it.
+   *
+   * "does not exist in Office" reads like a settled fact and is not. Pandora
+   * creates the project in the CLOUD; Office's read side is a different store
+   * that converges in minutes, and the responsible write happens SECONDS after
+   * the mint — so it asks for a project that is not there yet.
+   *
+   * Measured on production: every one of these 404s fired 3 or 4 seconds after
+   * capture (L-240 +3s, L-238 +3s, L-237 +3s, L-235 +4s, back through 9/14).
+   * That is a race with replication, not a missing project. Parking it stopped
+   * the retry that used to heal it and left 18 leads with the wrong responsible
+   * in Office. If a project really is gone, the attempts run out and the job
+   * parks itself — the same end state, reached honestly.
+   */
+  it("RETRIES a project Office cannot see YET — replication, not absence", async () => {
     const { isPermanentOfficeRefusal } = await import("./assign");
     expect(
       isPermanentOfficeRefusal(
         "Failed to fetch project: 404 — project 8756741 does not exist in Office",
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("parks a foreign-key violation — a per-tenant user id is not a transient fault", async () => {
@@ -528,6 +543,9 @@ describe("isPermanentOfficeRefusal", () => {
       "socket hang up",
       "ETIMEDOUT",
       'Office project 123 PUT failed: 403 {"IsQuestion":true,"Kind":4}',
+      // The cloud→local race, in both the shapes Office words it.
+      "Failed to fetch project: 404 — project 8756741 does not exist in Office",
+      "Office project 123 GET failed: 404 Not found",
     ]) {
       expect(isPermanentOfficeRefusal(transient), transient).toBe(false);
     }

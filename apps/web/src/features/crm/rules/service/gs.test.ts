@@ -51,6 +51,7 @@ const rep = (id: string, slug: string, displayName: string, role: Rep["role"]): 
   bmiUserId: null,
   bmiUserIds: null,
   bmiUsername: displayName,
+  bmiUsernames: null,
   sevenShiftsUserId: null,
   voxDid: null,
   threecxExtension: null,

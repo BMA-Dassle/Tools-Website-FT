@@ -33,6 +33,7 @@ function user(partial: Partial<CrmUser["rep"]> | null): CrmUser {
           bmiUserId: null,
           bmiUserIds: null,
           bmiUsername: null,
+          bmiUsernames: null,
           sevenShiftsUserId: null,
           voxDid: null,
           threecxExtension: "9025",
