@@ -4300,43 +4300,6 @@ async function unifiedReserveInner(
         });
       }
 
-      // RACE SIM packs: money verified + booking confirmed → grant the sim
-      // credits onto the buyer's Pandora ledger, on the sims' OWN deposit kind
-      // ("Credit - Race Simulator") so a sim credit can never spend on a kart
-      // heat. NX-idempotent per (bill, person, pack) and sweep-recovered; never
-      // throws, because the guest has already paid and the only acceptable end
-      // state is that the credits arrive.
-      //
-      // The pack price is a FLAT bundle price (the product step shows one
-      // number and suppresses the per-racer total), so the credits land on ONE
-      // person: the billing customer, falling back to the first party member
-      // Pandora knows. A party member with no bmiPersonId cannot be granted at
-      // all — there is no ledger to write to — so that is logged, not guessed.
-      const simPackItems = racesimItems.filter(
-        (r) => getRaceSimProduct(r.productSlug)?.kind === "pack",
-      );
-      if (simPackItems.length > 0) {
-        const buyer =
-          session.party.find((m) => m.isBillingCustomer && m.bmiPersonId) ??
-          session.party.find((m) => m.bmiPersonId) ??
-          null;
-        if (!buyer?.bmiPersonId) {
-          console.error(
-            "[race-sim-pack] purchased but NO party member has a bmiPersonId — " +
-              `bill ${bmiBillId}; credits must be granted by hand`,
-          );
-        } else {
-          await grantRaceSimPacks({
-            purchaseKey: baseKey,
-            packs: simPackItems.map((r) => ({
-              slug: r.productSlug ?? "",
-              personId: buyer.bmiPersonId as string,
-              personName: formatPersonName(`${buyer.firstName ?? ""} ${buyer.lastName ?? ""}`),
-            })),
-          });
-        }
-      }
-
       // Retail add-ons: money verified + booking confirmed → grant each
       // selected racer's Pandora credit (headsock etc.). NX-idempotent,
       // sweep-recovered; racers with no BMI person yet park as
@@ -4571,6 +4534,50 @@ async function unifiedReserveInner(
       qamfReservationId: item.qamfReservationId ?? null,
       squareDayofOrderId,
     });
+  }
+
+  // ── RACE SIM packs: grant the credits ────────────────────────────────
+  // OUTSIDE the BMI block on purpose. A pack books NOTHING on BMI, so a
+  // pack-only cart never creates a bill — and everything inside
+  // `if (hasBmi && session.bmiBillId)` is therefore skipped for it. Granting
+  // in there would mean a guest paying for credits and receiving none, which
+  // is the single worst outcome this rail can have.
+  //
+  // Keyed on `baseKey` (the reserve's own idempotency seed, not the bill id)
+  // so a retried reserve cannot double-grant whether or not a bill exists.
+  // Runs after the money is captured; never throws.
+  //
+  // The pack price is a FLAT bundle price (the product step shows one number
+  // and suppresses the per-racer total), so the credits land on ONE person:
+  // the billing customer, else the first party member Pandora knows. Nobody
+  // with a bmiPersonId means there is no ledger to write to — logged loudly
+  // rather than guessed at, so it can be granted by hand.
+  {
+    const simPackItems = session.items.filter(
+      (i): i is RaceSimItem =>
+        i.kind === "racesim" && getRaceSimProduct(i.productSlug)?.kind === "pack",
+    );
+    if (simPackItems.length > 0) {
+      const buyer =
+        session.party.find((m) => m.isBillingCustomer && m.bmiPersonId) ??
+        session.party.find((m) => m.bmiPersonId) ??
+        null;
+      if (!buyer?.bmiPersonId) {
+        console.error(
+          "[race-sim-pack] purchased but NO party member has a bmiPersonId — " +
+            `reserve ${baseKey}; credits must be granted by hand`,
+        );
+      } else {
+        await grantRaceSimPacks({
+          purchaseKey: baseKey,
+          packs: simPackItems.map((r) => ({
+            slug: r.productSlug ?? "",
+            personId: buyer.bmiPersonId as string,
+            personName: formatPersonName(`${buyer.firstName ?? ""} ${buyer.lastName ?? ""}`),
+          })),
+        });
+      }
+    }
   }
 
   return {
