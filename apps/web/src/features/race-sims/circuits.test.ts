@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   RACE_SIM_LINEUPS,
   SIM_CIRCUITS,
+  circuitForBmiSimLine,
   circuitForTrack,
   circuitLengthLabel,
   getSimCircuit,
   simLineupFor,
   simSessionCircuitName,
+  simSessionDisplayLabel,
 } from "./circuits";
 import { RACE_SIM_TRACKS } from "./products";
 import { isRaceSimTrackLabel, raceSimConflictTrack } from "./scheduling";
@@ -102,6 +104,42 @@ describe("race-sim circuits", () => {
       expect(c.es.blurb, `${c.id} es.blurb is untranslated`).not.toBe(c.blurb);
       expect(c.signatureEs, `${c.id} signatureEs is untranslated`).not.toBe(c.signature);
     }
+  });
+
+  it("translates a scanned BMI sim line into the circuit staff should read", () => {
+    // The owner's ask: a QR scan comes back with BMI's "Track A/B/C" view, and
+    // the person at the rig needs the real circuit.
+    expect(circuitForBmiSimLine({ productId: "59537905", date: "2026-09-16T10:00:00" })?.name).toBe(
+      "Bristol Motor Speedway",
+    );
+    // Id wins over a name that disagrees — the id is what we sent BMI.
+    expect(
+      circuitForBmiSimLine({
+        productId: "59535405",
+        name: "Race Sim - Track C",
+        date: "2026-09-16",
+      })?.id,
+    ).toBe("baku");
+    // Name-only lines still resolve, whatever separator BMI was typed with.
+    for (const name of ["Race Sim - Track C", "Race Sim – Track C", "race sim track c"]) {
+      expect(circuitForBmiSimLine({ name, date: "2026-09-16" })?.id, name).toBe("indianapolis");
+    }
+    // Not ours, or before the first lineup → null, never a guessed circuit.
+    expect(circuitForBmiSimLine({ productId: "12345678", date: "2026-09-16" })).toBeNull();
+    expect(circuitForBmiSimLine({ name: "Gel Blaster", date: "2026-09-16" })).toBeNull();
+    expect(circuitForBmiSimLine({ productId: "59535405", date: "2026-08-30" })).toBeNull();
+  });
+
+  it("never leaves a check-in screen with a blank activity", () => {
+    // A vague label beats an empty one where staff read what someone booked.
+    expect(simSessionDisplayLabel({ productId: "59537953", date: "2026-09-16" })).toBe(
+      "Indianapolis Motor Speedway",
+    );
+    // Unresolvable → fall back to what BMI called it, then to a generic name.
+    expect(simSessionDisplayLabel({ name: "Race Sim - Track Q", date: "2026-09-16" })).toBe(
+      "Race Sim - Track Q",
+    );
+    expect(simSessionDisplayLabel({ date: "2026-09-16" })).toBe("Race Sim");
   });
 
   it("formats a lap length without trailing-zero noise", () => {

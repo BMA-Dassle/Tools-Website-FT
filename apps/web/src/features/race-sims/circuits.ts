@@ -33,6 +33,8 @@
  * not estimates. Do not "tidy" a number without re-checking the source.
  */
 
+import { raceSimTrackKeyForProductId, raceSimTrackKeyFromBmiName } from "./products";
+
 export type SimCircuitLayout = "street" | "oval";
 
 export interface SimCircuit {
@@ -205,6 +207,47 @@ export function simSessionCircuitName(
   fallback: string,
 ): string {
   return circuitForTrack(trackKey, slotIso.slice(0, 10))?.name ?? fallback;
+}
+
+/**
+ * THE SCAN TRANSLATOR: what BMI hands back → the circuit a human should read.
+ *
+ * A scanned e-ticket / check-in lookup returns BMI's own view of the booking —
+ * a product id, and/or a product name like "Race Sim - Track A". Neither means
+ * anything to the guest or to the staff member standing at the rig: what they
+ * need is "Bristol Motor Speedway".
+ *
+ * Resolve by id first (authoritative — it is what we sent BMI to hold the
+ * seat), then by name (renameable, so second). The DATE is the session's own
+ * date, not today, so checking in a booking made under last week's lineup
+ * still names the circuit it was sold as.
+ *
+ * Returns null when the line is not one of ours, when the date predates the
+ * first lineup, or when neither id nor name resolves — callers should fall
+ * back to whatever BMI called it rather than inventing a circuit.
+ */
+export function circuitForBmiSimLine(line: {
+  productId?: string | null;
+  name?: string | null;
+  /** YYYY-MM-DD, or a slot ISO — only the first 10 chars are used. */
+  date: string;
+}): SimCircuit | null {
+  const key = raceSimTrackKeyForProductId(line.productId) ?? raceSimTrackKeyFromBmiName(line.name);
+  return key ? circuitForTrack(key, line.date.slice(0, 10)) : null;
+}
+
+/**
+ * The line staff should read for a sim session, whatever we managed to
+ * resolve: the circuit when we know it, otherwise BMI's own label, otherwise
+ * the generic product name. Never returns an empty string, because a check-in
+ * screen with a blank where the activity should be is worse than a vague one.
+ */
+export function simSessionDisplayLabel(line: {
+  productId?: string | null;
+  name?: string | null;
+  date: string;
+}): string {
+  return circuitForBmiSimLine(line)?.name ?? line.name?.trim() ?? "Race Sim";
 }
 
 /** Lap length for a card: "0.533 mi · 0.86 km". Two surfaces wanted this and

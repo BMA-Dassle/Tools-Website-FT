@@ -86,6 +86,46 @@ export function getRaceSimTrack(key: string | null): RaceSimTrack | null {
   return RACE_SIM_TRACKS.find((t) => t.key === key) ?? null;
 }
 
+/**
+ * BMI product id → our track key. The id is AUTHORITATIVE: it is what we sent
+ * BMI when the seat was held, so it round-trips exactly.
+ *
+ * This is the front half of "a scanned QR says Track A, show me the circuit" —
+ * pair it with circuits.ts `circuitForTrack(key, date)`.
+ */
+export function raceSimTrackKeyForProductId(
+  productId: string | null | undefined,
+): RaceSimTrackKey | null {
+  if (!productId) return null;
+  const raw = String(productId).trim();
+  return RACE_SIM_TRACKS.find((t) => t.bmiProductId === raw)?.key ?? null;
+}
+
+/** Is this BMI product one of our sim track keys at all? */
+export function isRaceSimProductId(productId: string | null | undefined): boolean {
+  return raceSimTrackKeyForProductId(productId) != null;
+}
+
+/**
+ * BMI product NAME → our track key, for the paths that only carry a label
+ * (a bill line's description, a scanned session's product name).
+ *
+ * Deliberately permissive about the separator and spacing, because the name is
+ * typed by hand in BMI and "Race Sim - Track A" / "Race Sim – Track A" /
+ * "Race Sim Track A" are all the same thing to a human. Anchored on the
+ * trailing key letter so it cannot match some other product that merely
+ * mentions a sim. Prefer `raceSimTrackKeyForProductId` whenever an id is
+ * available — a name can be renamed in BMI, an id cannot.
+ */
+export function raceSimTrackKeyFromBmiName(
+  name: string | null | undefined,
+): RaceSimTrackKey | null {
+  if (!name) return null;
+  const m = /race\s*sim\b.*?\btrack\s*([abc])\b/i.exec(name);
+  const letter = m?.[1]?.toLowerCase();
+  return letter === "a" || letter === "b" || letter === "c" ? letter : null;
+}
+
 /** The (productId, pageId) a sim booking hits BMI with — bmiBookingTarget
  *  parity. Null until the track's key AND the shared page are armed; the
  *  slot step shows nothing and guard 2e refuses while this is null. */
