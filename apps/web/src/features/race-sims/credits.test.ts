@@ -7,7 +7,7 @@ import {
   simCreditBalance,
 } from "./credits";
 import { RACE_SIM_DEPOSIT_KIND } from "./products";
-import type { BookingSession, RaceSimItem } from "~/features/booking/state/types";
+import type { BookingSession, RaceSimItem, RaceSimSession } from "~/features/booking/state/types";
 
 const SIM_KIND = RACE_SIM_DEPOSIT_KIND.anytime!;
 
@@ -43,8 +43,14 @@ function simItem(over: Partial<RaceSimItem> = {}): RaceSimItem {
   } as RaceSimItem;
 }
 
-function sess(slot: string) {
-  return { trackKey: "a", slot, slotProposal: {}, bmiLineId: null, heldQty: null };
+function sess(slot: string): RaceSimSession {
+  return {
+    trackKey: "a",
+    slot,
+    slotProposal: {} as RaceSimSession["slotProposal"],
+    bmiLineId: null,
+    heldQty: null,
+  };
 }
 
 function session(items: RaceSimItem[], party: BookingSession["party"]): BookingSession {

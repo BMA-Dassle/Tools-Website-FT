@@ -35,6 +35,7 @@ import {
   RACE_SIM_PRODUCTS,
   raceSimPackPerRace,
   raceSimProductBookable,
+  raceSimSinglePrice,
   raceSimPriceFor,
   type RaceSimProduct,
 } from "~/features/race-sims/products";
@@ -78,7 +79,8 @@ const KioskRaceSimProductStepComponent: StepDef<RaceSimItem>["Component"] = ({
   // second flag to disagree with it); until then it renders with its price and
   // saving but cannot be picked, because a pack that charges with nowhere to
   // bank the credits takes money and gives nothing back.
-  const sellable = RACE_SIM_PRODUCTS;
+  const singles = RACE_SIM_PRODUCTS.filter((p) => p.kind === "single");
+  const packs = RACE_SIM_PRODUCTS.filter((p) => p.kind === "pack");
 
   /**
    * Switch product — and RELEASE any held sim sessions when moving to a PACK.
@@ -212,8 +214,78 @@ const KioskRaceSimProductStepComponent: StepDef<RaceSimItem>["Component"] = ({
               {t("racesim.product.sectionMeta")}
             </span>
           </div>
-          <div className="grid gap-3">{sellable.map((p) => card(p))}</div>
+          <div className="grid gap-3">{singles.map((p) => card(p))}</div>
         </div>
+
+        {/* RACE PACKS — rendered exactly like karting's RacePackPicker tiles
+            (owner 2026-09-15: "I want the race packs to show like karting
+            does"). Squat 3-across tiles: the race COUNT is the headline, then
+            the price, then the saving in amber. Deliberately not the stacked
+            product cards above — a pack is a different kind of purchase and
+            karting already taught guests what this row means. */}
+        {packs.length > 0 && (
+          <div>
+            <div className="mb-2 flex items-center gap-2.5">
+              <span
+                className="text-xs font-bold tracking-[0.16em] uppercase"
+                style={{ color: ACCENT_TEXT }}
+              >
+                {t("racesim.product.packsHeading")}
+              </span>
+              <div className="h-px flex-1 bg-white/10" />
+              <span className="text-xs whitespace-nowrap text-white/35">
+                {t("racesim.product.packsMeta")}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {packs.map((p) => {
+                const selected = item.productSlug === p.slug;
+                const buyable = raceSimProductBookable(p);
+                // Saving against buying that many singles — the same
+                // "count x single - price" karting prints.
+                const save = raceSimSinglePrice() * p.raceCount - p.price;
+                return (
+                  <button
+                    key={p.slug}
+                    type="button"
+                    disabled={!buyable}
+                    aria-pressed={selected}
+                    onClick={() => buyable && pick(p)}
+                    className={`relative rounded-xl border-2 px-3 py-2.5 text-center transition-all duration-150 ${
+                      !buyable
+                        ? "cursor-not-allowed border-white/10 bg-white/[0.03] opacity-50"
+                        : selected
+                          ? "border-[#00E2E5] bg-[#00E2E5]/5"
+                          : "border-white/10 bg-white/[0.03] hover:border-white/30"
+                    }`}
+                  >
+                    <div className="flex items-baseline justify-center gap-2">
+                      <span className="text-2xl font-extrabold italic leading-none">
+                        {p.raceCount}
+                      </span>
+                      <span className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-white/45">
+                        {t("racePack.picker.racesWord")}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-baseline justify-center gap-1.5 leading-tight">
+                      <span className="text-xl font-extrabold tabular-nums">
+                        ${p.price.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-amber-400">
+                      {t("racePack.picker.save", { amount: `$${save.toFixed(2)}` })}
+                    </div>
+                    {!buyable && (
+                      <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-400/80">
+                        {t("racesim.product.packSoon")}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

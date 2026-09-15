@@ -66,6 +66,17 @@ export interface SimCircuit {
   /** Card accent. Belongs to the CIRCUIT, not the key, so a track card looks
    *  the same wherever that circuit appears in the rotation. */
   accent: string;
+  /**
+   * Hero image for the expanded chooser, as a full URL (blob storage, same as
+   * every other kiosk photo).
+   *
+   * OPTIONAL and deliberately unset: we have no licensed photography of these
+   * venues, and a kart-track stock shot standing in for Baku would be a claim
+   * about the product that is not true. The chooser renders a typographic card
+   * with the real specs when this is absent, so adding art later is one line
+   * per circuit and nothing else changes.
+   */
+  image?: string;
 }
 
 /**
