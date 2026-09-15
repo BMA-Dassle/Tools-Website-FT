@@ -61,6 +61,11 @@ import {
   type SimSlotLock,
 } from "~/features/race-sims/scheduling";
 import { circuitForTrack, simSessionCircuitName } from "~/features/race-sims/circuits";
+import {
+  computeRaceSimCoverage,
+  coveredSeatsFor,
+  raceSimRedemptions,
+} from "~/features/race-sims/credits";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { after } from "next/server";
@@ -986,6 +991,10 @@ export function buildCombinedLineItems(session: BookingSession): {
   // line (owner 2026-08-23) with the price as a per-line override and the
   // track + time riding the line name — the race-pack pattern. Guard 2e
   // refuses BEFORE any Square write until every session's key is armed.
+  // Sim credit coverage for the whole cart, computed ONCE so the running
+  // per-member balance is shared across items (a member with 2 credits and
+  // sessions on two items covers 2 seats in total, not 2 per item).
+  const simCoverage = computeRaceSimCoverage(session);
   for (const item of session.items) {
     if (item.kind !== "racesim") continue;
     const product = getRaceSimProduct(item.productSlug);
@@ -1020,20 +1029,44 @@ export function buildCombinedLineItems(session: BookingSession): {
       // what was raced. Falls back to the key's stable label.
       const circuitName = simSessionCircuitName(s.trackKey, s.slot, track?.conflictLabel ?? "");
       const name = `Race Sims — ${product.name}${circuitName ? ` · ${circuitName}` : ""} · ${heatClockLabel(s.slot)}`;
-      totalPriceCents += unitCents * qty;
-      entityCents.fasttrax += unitCents * qty;
-      totalDepositCents += unitCents * qty;
-      sqLineItems.push({
-        name,
-        quantity: String(qty),
-        ...(RACE_SIM_SQUARE_CATALOG_ID
-          ? {
-              catalogObjectId: RACE_SIM_SQUARE_CATALOG_ID,
-              basePriceMoney: { amount: unitCents, currency: "USD" },
-            }
-          : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
-      });
-      pricedLines.push({ name, quantity: qty, unitCents });
+      // CREDIT COVERAGE: a sim session is ONE line for the whole party, so a
+      // party where only some riders hold credits has to SPLIT — a paid line
+      // for the uncovered seats and a $0 line for the covered ones. Charging
+      // the whole session at full price and "refunding" later is not an
+      // option: Square would collect money the guest was told they would not
+      // pay. Covered seats are deducted from the ledger after capture.
+      const covered = Math.min(qty, coveredSeatsFor(simCoverage, item.id, s.slot));
+      const paidQty = qty - covered;
+      if (paidQty > 0) {
+        totalPriceCents += unitCents * paidQty;
+        entityCents.fasttrax += unitCents * paidQty;
+        totalDepositCents += unitCents * paidQty;
+        sqLineItems.push({
+          name,
+          quantity: String(paidQty),
+          ...(RACE_SIM_SQUARE_CATALOG_ID
+            ? {
+                catalogObjectId: RACE_SIM_SQUARE_CATALOG_ID,
+                basePriceMoney: { amount: unitCents, currency: "USD" },
+              }
+            : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
+        });
+        pricedLines.push({ name, quantity: paidQty, unitCents });
+      }
+      if (covered > 0) {
+        const freeName = `${name} (credit)`;
+        sqLineItems.push({
+          name: freeName,
+          quantity: String(covered),
+          ...(RACE_SIM_SQUARE_CATALOG_ID
+            ? {
+                catalogObjectId: RACE_SIM_SQUARE_CATALOG_ID,
+                basePriceMoney: { amount: 0, currency: "USD" },
+              }
+            : { basePriceMoney: { amount: 0, currency: "USD" } }),
+        });
+        pricedLines.push({ name: freeName, quantity: covered, unitCents: 0 });
+      }
     }
   }
 
@@ -4534,6 +4567,21 @@ async function unifiedReserveInner(
       qamfReservationId: item.qamfReservationId ?? null,
       squareDayofOrderId,
     });
+  }
+
+  // ── RACE SIM credits: deduct the seats we charged $0 for ─────────────
+  // Same rail karting uses (deductCreditRedemptions is kind-agnostic), keyed
+  // per (bill, person, session) so a retried reserve cannot double-deduct.
+  // Outside the BMI block for the same reason the grant is: a sim cart may
+  // have no bill at all. Runs BEFORE the grant so a cart that both spends old
+  // credits and buys new ones cannot spend the ones it just bought.
+  {
+    const simRedemptions = raceSimRedemptions(session);
+    if (simRedemptions.length > 0) {
+      await deductCreditRedemptions(simRedemptions, {
+        billId: session.bmiBillId ?? baseKey,
+      });
+    }
   }
 
   // ── RACE SIM packs: grant the credits ────────────────────────────────
