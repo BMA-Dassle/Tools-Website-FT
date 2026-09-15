@@ -124,7 +124,7 @@ describe("race-sims catalog", () => {
     // Pins the live wiring so a stray edit can't silently unarm (or re-arm
     // with a wrong id) what the owner provided: shared Square id, one $0 key
     // per track, one shared public-booking page.
-    expect(RACE_SIM_SQUARE_CATALOG_ID).toBe("PZXWYNOY4MUAPXACMBMTFYMD");
+    expect(RACE_SIM_SQUARE_CATALOG_ID).toBe("7IDM4CB3CUPH7RTTTD73LLXW");
     expect(RACE_SIM_PAGE_ID).toBe("59716066");
     expect(RACE_SIM_TRACKS.map((t) => t.bmiProductId)).toEqual([
       "59535405",

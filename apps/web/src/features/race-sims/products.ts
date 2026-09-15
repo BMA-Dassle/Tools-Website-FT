@@ -8,11 +8,11 @@
  * the SAME sessions (shared resource/dayplanner, minitrack-shaped schedule),
  * so the track choice picks WHICH key books, never which times exist.
  *
- * ARMING CHECKLIST — ALL DONE 2026-08-26; singles are LIVE (behind the kiosk
- * tile's staff PIN gate until the guest-launch PR removes it):
- *   1. RACE_SIM_SQUARE_CATALOG_ID — DONE 2026-08-23 (owner-pasted, shared by
- *      every sim line; per-line price is overridden at charge time because
- *      one catalog id carries singles AND every pack size).
+ * ARMING CHECKLIST — singles are LIVE TO GUESTS since 2026-09-15 (the staff
+ * PIN gate on the kiosk tile is gone):
+ *   1. RACE_SIM_SQUARE_CATALOG_ID — 7IDM4CB3CUPH7RTTTD73LLXW, owner-pasted
+ *      2026-09-15 (shared by every sim line; per-line price is overridden at
+ *      charge time because one catalog id carries singles AND every pack size).
  *   2. RACE_SIM_PAGE_ID — DONE 2026-08-26 (59716066).
  *   3. RACE_SIM_TRACKS[*].bmiProductId — DONE 2026-08-26 (59535405 / 59537905
  *      / 59537953, "Race Sim - Track A/B/C").
@@ -22,12 +22,17 @@
  * a $0/credit deposit key — a money key gets the bill's schedules stripped
  * (W57040); the dayplanner draws the SAME capacity pool the desk sees.
  *
- * Packs (3/5/10-race) carry the owner's 2026-09-01 prices and are PREPAID
- * CREDIT BUNDLES, race-pack parity (data/packs.ts): one price buys N credits
- * onto the Pandora ledger, redeemed later at $0/session. They stay
- * `bookable: false` until RACE_SIM_DEPOSIT_KIND.anytime is minted — guard 2e
- * refuses them on the missing deposit kind in its own right, because charging
- * for credits with nowhere to bank them takes money and gives nothing back.
+ * The CIRCUIT each key runs (Baku / Bristol / Indianapolis this week) is NOT
+ * here — it rotates, so it lives in circuits.ts with a dated lineup. Read that
+ * file's header before touching a track label: the label persisted for the
+ * conflict rules and the circuit a guest reads must never be one string.
+ *
+ * Packs (3/5/10-race) are PREPAID CREDIT BUNDLES, race-pack parity
+ * (data/packs.ts): one price buys N credits onto the Pandora ledger, redeemed
+ * later at $0/session. They are not sellable until RACE_SIM_DEPOSIT_KIND.anytime
+ * is minted — sellability is DERIVED from that id (raceSimProductBookable), so
+ * nobody can arm a charge that banks nothing, and pasting the id is the whole
+ * launch step.
  *
  * Catalog lives HERE in code, never in Square — same rule as race-products.ts
  * and data/packs.ts.
@@ -76,11 +81,18 @@ export const RACE_SIM_TRACKS: readonly RaceSimTrack[] = [
 export const RACE_SIM_PAGE_ID: string | null = "59716066";
 
 /**
- * ONE Square catalog variation for EVERY sim line (owner 2026-08-23) — the
- * human-readable variant ("1 Race · Track A") rides the line-item name, and
- * the product's price rides basePriceMoney, exactly the race-pack pattern.
+ * ONE Square catalog variation for EVERY sim line — the human-readable variant
+ * ("1 Race · Bristol Motor Speedway · 7:15 PM") rides the line-item name, and
+ * the product's price rides basePriceMoney, exactly the race-pack pattern. One
+ * id therefore carries the single AND every pack size.
+ *
+ * Owner-provided 2026-09-15. REPLACED the 2026-08-23 id
+ * PZXWYNOY4MUAPXACMBMTFYMD, which was never charged against in production (sims
+ * only ever booked behind the staff PIN). products.test.ts pins this exact
+ * string, so a mistranscribed character fails the build rather than charging
+ * every sim line against the wrong catalog item.
  */
-export const RACE_SIM_SQUARE_CATALOG_ID: string | null = "PZXWYNOY4MUAPXACMBMTFYMD";
+export const RACE_SIM_SQUARE_CATALOG_ID: string | null = "7IDM4CB3CUPH7RTTTD73LLXW";
 
 export function getRaceSimTrack(key: string | null): RaceSimTrack | null {
   return RACE_SIM_TRACKS.find((t) => t.key === key) ?? null;
