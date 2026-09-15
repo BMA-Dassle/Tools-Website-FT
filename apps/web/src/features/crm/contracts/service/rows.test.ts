@@ -31,6 +31,7 @@ const rep: CrmRep = {
   bmiUserId: "28267036",
   bmiUserIds: null,
   bmiUsername: "Kelsea Kosco",
+  bmiUsernames: null,
   sevenShiftsUserId: 10832991,
   voxDid: null,
   threecxExtension: null,

@@ -30,6 +30,7 @@ export function makeRep(overrides: Partial<CrmRep> & Pick<CrmRep, "id" | "slug">
     bmiUserId: null,
     bmiUserIds: null,
     bmiUsername: null,
+    bmiUsernames: null,
     sevenShiftsUserId: null,
     voxDid: null,
     threecxExtension: null,

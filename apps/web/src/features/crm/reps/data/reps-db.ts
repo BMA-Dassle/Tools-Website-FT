@@ -76,6 +76,26 @@ export function ensureRepsSchema(): Promise<void> {
      * key, so nothing that reads it today changes.
      */
     await q`ALTER TABLE crm_reps ADD COLUMN IF NOT EXISTS bmi_user_ids JSONB`;
+    /**
+     * AND THE DISPLAY NAME IS PER TENANT TOO.
+     *
+     * Pandora's party-lead rail picks the salesperson by NAME, matching with
+     * `name.includes(agent)` — and the two tenants name the same people
+     * differently. Fort Myers has "Stephanie Wegman", "Kelsea Kosco",
+     * "Guest Services"; Naples has "Stephanie", "Kelsea", and calls the call
+     * centre "CallCenter".
+     *
+     * So a Naples lead assigned to Stephanie sent `agent: "Stephanie Wegman"`,
+     * Pandora found nobody, and the mint died with 500 "Failed to assign an
+     * agent for this lead." — which then skipped the guest's text, the guest's
+     * email AND the planner's Teams card, because all three are gated on
+     * having a project. Measured 2026-09-15: EVERY Naples non-kids web lead
+     * failed this way, while the kids' ones minted because "Child Birthday"
+     * force-routes to Guest Services and ignores `agent` entirely.
+     *
+     * `bmi_username` stays as the fallback and as what the timeline prints.
+     */
+    await q`ALTER TABLE crm_reps ADD COLUMN IF NOT EXISTS bmi_usernames JSONB`;
     await q`
       CREATE TABLE IF NOT EXISTS crm_rep_logins (
         email TEXT PRIMARY KEY,
@@ -100,6 +120,7 @@ export interface RepRowRaw {
   bmi_user_id: string | null;
   bmi_user_ids: Record<string, string> | null;
   bmi_username: string | null;
+  bmi_usernames: Record<string, string> | null;
   seven_shifts_user_id: number | null;
   vox_did: string | null;
   threecx_extension: string | null;
@@ -144,6 +165,7 @@ export function mapRepRow(r: RepRowRaw): CrmRep {
     bmiUserId: r.bmi_user_id ?? null,
     bmiUserIds: normaliseUserIds(r.bmi_user_ids),
     bmiUsername: r.bmi_username ?? null,
+    bmiUsernames: normaliseUserIds(r.bmi_usernames),
     sevenShiftsUserId: r.seven_shifts_user_id ?? null,
     voxDid: r.vox_did ?? null,
     threecxExtension: r.threecx_extension ?? null,
@@ -157,7 +179,8 @@ export function mapRepRow(r: RepRowRaw): CrmRep {
 
 const REP_COLUMNS = `
   r.id::text AS id, r.slug, r.display_name, r.first_name, r.initials, r.role, r.email,
-  r.sso_sub, r.bmi_user_id, r.bmi_user_ids, r.bmi_username, r.seven_shifts_user_id, r.vox_did,
+  r.sso_sub, r.bmi_user_id, r.bmi_user_ids, r.bmi_username, r.bmi_usernames,
+  r.seven_shifts_user_id, r.vox_did,
   r.threecx_extension, r.teams_chat_id, r.phone_e164, r.centres, r.active, r.sort_order
 `;
 
@@ -198,6 +221,8 @@ export interface RepSeed {
   bmiUserId: string | null;
   /** Office user id PER TENANT — `{clientKey: id}`; see `bmiUserIdFor`. */
   bmiUserIds?: Record<string, string> | null;
+  /** Office DISPLAY NAME per tenant — what Pandora matches on. */
+  bmiUsernames?: Record<string, string> | null;
   bmiUsername: string | null;
   /** 7shifts user id (`seven_shifts_user_id INTEGER`) — a plain integer, bound as a number. */
   sevenShiftsUserId: number | null;
@@ -226,11 +251,12 @@ export async function seedReps(rows: readonly RepSeed[]): Promise<number> {
   for (const r of rows) {
     const out = (await q`
       INSERT INTO crm_reps (slug, display_name, first_name, initials, role, email, bmi_user_id,
-                            bmi_user_ids, bmi_username, seven_shifts_user_id, teams_chat_id,
-                            phone_e164, centres, sort_order)
+                            bmi_user_ids, bmi_username, bmi_usernames, seven_shifts_user_id,
+                            teams_chat_id, phone_e164, centres, sort_order)
       VALUES (${r.slug}, ${r.displayName}, ${r.firstName}, ${r.initials}, ${r.role},
               ${r.email ? r.email.toLowerCase() : null}, ${r.bmiUserId},
               ${r.bmiUserIds ? JSON.stringify(r.bmiUserIds) : null}::jsonb, ${r.bmiUsername},
+              ${r.bmiUsernames ? JSON.stringify(r.bmiUsernames) : null}::jsonb,
               ${r.sevenShiftsUserId}, ${r.teamsChatId}, ${r.phoneE164}, ${r.centres}::text[],
               ${r.sortOrder})
       ON CONFLICT (slug) DO UPDATE SET
@@ -240,11 +266,16 @@ export async function seedReps(rows: readonly RepSeed[]): Promise<number> {
         -- the ONLY way the measured ids ever reach a live database. A map a
         -- director has already edited by hand still wins.
         bmi_user_ids = COALESCE(crm_reps.bmi_user_ids, EXCLUDED.bmi_user_ids),
+        -- Same COALESCE-on-NULL reasoning: every existing roster predates this
+        -- column, so filling it in is the ONLY way the measured names reach a
+        -- live database. A map a director edited by hand still wins.
+        bmi_usernames = COALESCE(crm_reps.bmi_usernames, EXCLUDED.bmi_usernames),
         bmi_username = COALESCE(crm_reps.bmi_username, EXCLUDED.bmi_username),
         seven_shifts_user_id = COALESCE(crm_reps.seven_shifts_user_id, EXCLUDED.seven_shifts_user_id),
         updated_at = NOW()
       WHERE (crm_reps.bmi_user_id IS NULL AND EXCLUDED.bmi_user_id IS NOT NULL)
          OR (crm_reps.bmi_user_ids IS NULL AND EXCLUDED.bmi_user_ids IS NOT NULL)
+         OR (crm_reps.bmi_usernames IS NULL AND EXCLUDED.bmi_usernames IS NOT NULL)
          OR (crm_reps.bmi_username IS NULL AND EXCLUDED.bmi_username IS NOT NULL)
          OR (crm_reps.seven_shifts_user_id IS NULL AND EXCLUDED.seven_shifts_user_id IS NOT NULL)
       RETURNING id

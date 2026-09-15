@@ -17,6 +17,8 @@
 
 import type { JobContext, JobOutcome } from "~/features/crm/jobs";
 import { listReps } from "~/features/crm/reps";
+import { bmiUsernameFor } from "~/features/crm/reps/bmi-user-id";
+import { centreByCode } from "../../core/centres";
 import { getLead } from "../data/leads-db";
 import { listAssignments } from "../data/assignments-db";
 import { defaultAssignDeps, syncResponsible, type AssignDeps } from "./assign";
@@ -65,7 +67,9 @@ export async function runLeadBmiJob(
     const rep = reps.find((r) => r.id === lead.rep) ?? null;
     const { outcome } = await deps.mintLead(
       lead,
-      { agent: rep?.bmiUsername ?? null },
+      // Per tenant: see `bmiUsernameFor`. The retry must send the SAME name
+      // the capture should have sent, or a lead that failed once keeps failing.
+      { agent: rep ? bmiUsernameFor(rep, centreByCode(lead.centre).clientKey) : null },
       deps.mintDeps(),
       actor,
     );

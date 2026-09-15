@@ -79,6 +79,7 @@ function reps(): CrmRep[] {
     bmiUserId: null,
     bmiUserIds: null,
     bmiUsername: null,
+    bmiUsernames: null,
     sevenShiftsUserId: null,
     threecxExtension: null,
     teamsChatId: null,

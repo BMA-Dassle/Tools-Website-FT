@@ -59,6 +59,7 @@ function rep(slug: string, role: CrmRep["role"] = "rep"): CrmRep {
     bmiUserId: null,
     bmiUserIds: null,
     bmiUsername: null,
+    bmiUsernames: null,
     sevenShiftsUserId: null,
     voxDid: null,
     threecxExtension: null,

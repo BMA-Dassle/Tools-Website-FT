@@ -146,6 +146,15 @@ export interface CrmRep {
   bmiUserIds: Record<string, string> | null;
   /** Office responsible display name — the substring Pandora's `agent` matches. */
   bmiUsername: string | null;
+  /**
+   * That display name PER TENANT — `{clientKey: name}`.
+   *
+   * The two servers name the same people differently (Fort Myers "Stephanie
+   * Wegman", Naples just "Stephanie"), and Pandora picks the salesperson with
+   * `name.includes(agent)`. One column could only be right about one of them.
+   * See `bmiUsernameFor`.
+   */
+  bmiUsernames: Record<string, string> | null;
   sevenShiftsUserId: number | null;
   voxDid: string | null;
   threecxExtension: string | null;

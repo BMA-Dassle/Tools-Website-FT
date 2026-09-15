@@ -48,6 +48,8 @@ import { LEAD_SOURCE_LABEL, type LeadView } from "../contracts";
 import { upsertAccountByName } from "../data/accounts-db";
 import { emailKeyOf, upsertContact } from "../data/contacts-db";
 import { findRecentDuplicateLead, getLead, insertLead } from "../data/leads-db";
+import { bmiUsernameFor } from "~/features/crm/reps/bmi-user-id";
+import { centreByCode } from "../../core/centres";
 import { assignLead, type AssignResult } from "./assign";
 import { NEEDS_EMAIL_OR_TIME, mintLead, pandoraEventTypeFor, type MintOutcome } from "./mint";
 import { notifyAlreadySent, notifyNewLead, summarizeNotify, type NotifyOutcome } from "./notify";
@@ -323,7 +325,17 @@ export async function createLead(
     const r = await deps.mintLead(
       lead,
       {
-        agent: (autoAssignOn ? suggestion.suggestion?.rep.bmiUsername : null) ?? null,
+        /**
+         * The name PANDORA will recognise ON THIS TENANT. Naples calls the
+         * same people by their first name alone ("Stephanie", not "Stephanie
+         * Wegman") and the call centre "CallCenter", and Pandora matches with
+         * `name.includes(agent)` — so the Fort Myers name found nobody there
+         * and the mint died with "Failed to assign an agent for this lead."
+         */
+        agent:
+          (autoAssignOn && suggestion.suggestion
+            ? bmiUsernameFor(suggestion.suggestion.rep, centreByCode(lead.centre).clientKey)
+            : null) ?? null,
         specialRequests: input.specialRequests ?? null,
         packageType: input.packageType ?? null,
         preferredContact: input.preferredContactMethod ?? null,

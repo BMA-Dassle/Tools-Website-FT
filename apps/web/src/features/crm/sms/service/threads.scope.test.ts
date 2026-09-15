@@ -42,6 +42,7 @@ function rep(over: Partial<CrmRep> = {}): CrmRep {
     bmiUserId: null,
     bmiUserIds: null,
     bmiUsername: null,
+    bmiUsernames: null,
     sevenShiftsUserId: null,
     voxDid: "+12392058142",
     threecxExtension: null,

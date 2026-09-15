@@ -40,3 +40,40 @@ export function bmiUserIdFor(
 export function hasTenantUserId(rep: Pick<CrmRep, "bmiUserIds">, clientKey: string): boolean {
   return Boolean(rep.bmiUserIds?.[clientKey]);
 }
+
+/**
+ * THE DISPLAY NAME PANDORA WILL RECOGNISE, for this rep on this tenant.
+ *
+ * Pandora's party-lead rail picks the salesperson by NAME, with
+ * `name.includes(agent)`. The two servers name the same people differently:
+ *
+ *              headpinzftmyers        headpinznaples
+ *   Kelsea     "Kelsea Kosco"         "Kelsea"
+ *   Lori       "Lori Lehman"          "Lori"
+ *   Stephanie  "Stephanie Wegman"     "Stephanie"
+ *   Guest Svcs "Guest Services"       "CallCenter"
+ *
+ * "Stephanie" does not contain "Stephanie Wegman", so a Naples lead sending
+ * the Fort Myers name matched nobody and Pandora answered 500 "Failed to
+ * assign an agent for this lead." The mint then failed, and because the
+ * guest's text, the guest's email and the planner's Teams card are ALL gated on
+ * having a project, the rep was never told and the guest never heard from us.
+ *
+ * MEASURED 2026-09-15: every Naples non-kids web lead failed this way. The
+ * kids' ones survived by accident — "Child Birthday" force-routes to Guest
+ * Services inside Pandora and ignores `agent` entirely — which is why this
+ * looked like an occasional glitch rather than "Naples is broken".
+ *
+ * FALLS BACK to the single `bmiUsername`, deliberately and with the same
+ * trade-off as `bmiUserIdFor`: a tenant with no entry still sends the old
+ * guess, because refusing to mint would be a worse failure than minting with
+ * Pandora's own pick. Fill the map in and the guess stops being needed.
+ */
+export function bmiUsernameFor(
+  rep: Pick<CrmRep, "bmiUsername" | "bmiUsernames">,
+  clientKey: string,
+): string | null {
+  const mapped = rep.bmiUsernames?.[clientKey];
+  if (mapped) return mapped;
+  return rep.bmiUsername ?? null;
+}

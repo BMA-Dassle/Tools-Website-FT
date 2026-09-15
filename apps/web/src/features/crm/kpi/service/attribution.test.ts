@@ -33,6 +33,7 @@ function rep(over: Partial<CrmRep> & { slug: string }): CrmRep {
     bmiUserId: null,
     bmiUserIds: null,
     bmiUsername: null,
+    bmiUsernames: null,
     sevenShiftsUserId: null,
     voxDid: null,
     threecxExtension: null,

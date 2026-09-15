@@ -51,6 +51,7 @@ const KELSEA: CrmRep = {
   bmiUserId: "28267036",
   bmiUserIds: null,
   bmiUsername: "Kelsea Kosco",
+  bmiUsernames: null,
   sevenShiftsUserId: null,
   voxDid: "+12395550141",
   threecxExtension: "141",
