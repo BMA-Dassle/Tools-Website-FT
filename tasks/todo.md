@@ -1386,8 +1386,35 @@ the tile → PIN sheet) opens the flow for that session. Full booking-session in
 - [ ] **Before arming real ids** (all recorded in products.ts header + guard 2e comment):
       decide the vendor booking rail (Square id alone would charge with no reservation);
       fix `resolveLocationId` attribution for mixed racesim+HeadPinz carts; owner prices.
-- [ ] Track rotation config (weekly/biweekly lineup) — static Track A/B/C labels for now.
-- [ ] Guest launch PR: drop the PIN gate + Coming Soon lock; real track names/photos.
+- [x] **Track rotation config (2026-09-15, branch `feat/racesim-guest-launch`):**
+      `race-sims/circuits.ts` — real circuits (Baku City Circuit / Bristol Motor Speedway /
+      Indianapolis Motor Speedway) with sourced specs + EN/ES copy, and a DATED lineup mapping
+      each to a $0 key. Programming next week = one APPENDED entry, never an edit to a live row,
+      so an old booking still resolves to the circuit it was sold as.
+      **The circuit never becomes the persisted conflict label** — `RaceSimTrack.name` renamed
+      `conflictLabel` and documented immutable, because that string is written into
+      `booking_metadata.racesims[].track` and matched months later by `isRaceSimTrackLabel`; a
+      rotating label would reclassify already-sold sims as non-sims. Test pins that no circuit
+      name can ever collide with a key label.
+- [x] **Guest launch (2026-09-15):** Coming Soon lock + 5-tap staff PIN sheet removed from the
+      kiosk tile; one tap opens the flow. Schema 19 (the standalone `racesim-track` step is gone).
+- [x] **Circuit picked on the SCHEDULE (owner 2026-09-15):** the three tabs are now the circuits,
+      and each tab's grid is filtered to what that circuit can run — BMI restricts which key may
+      enter which slot, plus a session whose four rigs are already committed to another circuit
+      greys "Running Bristol". New `/api/booking/v2/sim-slot-circuits` + `simSlotCircuitLocks()`
+      feed both the grid and reserve **guard 2f** (refuses a clashing pick before any Square
+      write; fails open on a query error).
+- [x] **Pricing re-cut (owner 2026-09-15):** single $14.95 (the advertised number — the catalog's
+      $15.95 was reverse-engineered from the pack ladder), packs re-cut to
+      $39.45 / $60.95 / $111.95 so the published 12 / 18 / 25% are TRUE. Pack sellability is now
+      DERIVED from the Pandora deposit kind, so minting it is the entire launch step.
+- [x] **Scan translator:** `circuitForBmiSimLine()` turns BMI's product id / "Race Sim - Track A"
+      into the circuit staff should read, keyed on the session's own date.
+- [ ] **BLOCKED ON OWNER — sim credit deposit kind.** `RACE_SIM_DEPOSIT_KIND.anytime` is null, so
+      packs are not sellable. Mint it in Pandora and paste the id; nothing else to change.
+- [ ] **E-ticket + check-in for sims** — in flight, see the sim section of this PR.
+- [ ] **Web booking flow** — `STEP_REGISTRY.racesim` is still `[]`; no route, no catalog row.
+- [ ] Owner live smoke on a real kiosk (still never smoked against a real guest booking).
 
 ## TVs did not recover from a network loss (2026-08-19) — branch `fix/tv-outage-recovery`
 
