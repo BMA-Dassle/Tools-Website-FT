@@ -38,6 +38,24 @@ export function bmiBookedMemberIds(items: SessionItem[], partyIds: string[]): Se
     } else if (item.kind === "attraction") {
       for (const id of item.participants ?? partyIds) ids.add(id);
       for (const id of item.assignedTo) ids.add(id);
+    } else if (item.kind === "racesim") {
+      // Race Sims were missing entirely, so a sim booking registered NOBODY as
+      // a project person: BMI showed the contact but People (0), and the
+      // reservation had no roster for staff, the waiver pull, or Today's Crew
+      // to read (owner 2026-09-15, reservation W67645).
+      //
+      // A PACK books no seat, so it puts nobody on the reservation — it is a
+      // credit purchase, not an activity. Sessions use the same roster
+      // resolution as the charge and the metadata (assignedTo → participants →
+      // whole party), so the people attached are exactly the people billed.
+      if (item.sessions.length === 0) continue;
+      const riders =
+        item.assignedTo.length > 0
+          ? item.assignedTo
+          : (item.participants ?? []).length > 0
+            ? (item.participants as string[])
+            : partyIds;
+      for (const id of riders) ids.add(id);
     }
   }
   return ids;

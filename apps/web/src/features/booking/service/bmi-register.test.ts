@@ -15,7 +15,19 @@ import type {
   PartyMember,
   RaceHeatAssignment,
   RaceItem,
+  RaceSimItem,
+  RaceSimSession,
 } from "../state/types";
+
+function session(slot: string): RaceSimSession {
+  return {
+    trackKey: "a",
+    slot,
+    slotProposal: {} as RaceSimSession["slotProposal"],
+    bmiLineId: null,
+    heldQty: null,
+  };
+}
 
 function heat(assignedTo: string | null, heatId: string | null = "2026-07-19T18:00:00") {
   return {
@@ -57,6 +69,37 @@ describe("bmiBookedMemberIds", () => {
   it("attraction with an explicit participants selection excludes everyone toggled off", () => {
     const attraction = { ...(newItem("attraction") as AttractionItem), participants: ["a"] };
     expect(bmiBookedMemberIds([attraction], ["a", "b"])).toEqual(new Set(["a"]));
+  });
+
+  it("puts SIM riders on the reservation — the W67645 People (0) bug", () => {
+    // A sim booking registered nobody as a project person, so BMI showed the
+    // contact and People (0): no roster for staff, the waiver pull or Today's
+    // Crew to read. Riders resolve exactly as the charge does.
+    const sim = {
+      ...(newItem("racesim") as RaceSimItem),
+      assignedTo: ["a"],
+      sessions: [session("2026-09-15T19:40:00")],
+    };
+    expect(bmiBookedMemberIds([sim], ["a", "b"])).toEqual(new Set(["a"]));
+  });
+
+  it("a sim with no explicit roster books the WHOLE party — the kiosk default", () => {
+    const sim = {
+      ...(newItem("racesim") as RaceSimItem),
+      sessions: [session("2026-09-15T19:40:00")],
+    };
+    expect(bmiBookedMemberIds([sim], ["a", "b"])).toEqual(new Set(["a", "b"]));
+  });
+
+  it("a PACK puts NOBODY on the reservation — it buys credits, not a seat", () => {
+    const pack = {
+      ...(newItem("racesim") as RaceSimItem),
+      productKind: "pack" as const,
+      productSlug: "sim-3-pack",
+      assignedTo: ["a"],
+      sessions: [],
+    };
+    expect(bmiBookedMemberIds([pack], ["a", "b"])).toEqual(new Set());
   });
 
   it("ignores bowling rosters — Conqueror-vendored, never on the BMI bill", () => {

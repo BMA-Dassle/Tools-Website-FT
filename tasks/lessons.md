@@ -1,5 +1,39 @@
 # Lessons Learned
 
+## A new item kind falls through every `kind ===` switch SILENTLY — adding one means auditing the switches, and "the booking succeeded" is not evidence it worked (2026-09-15)
+
+Owner booked a Race Sim, opened the reservation in BMI (W67645), and found
+**People (0)**: the contact was attached, the schedule line was there, the money
+was right — and not one rider was on the reservation roster.
+
+**Root cause.** `bmiBookedMemberIds` (service/bmi-register.ts) is an allowlist
+keyed on `item.kind`, with branches for `race` and `attraction`. `racesim` was
+never added. So it returned an EMPTY SET, `registerProjectPersons` looped zero
+times, every call "succeeded", nothing threw, and no test failed. The absence of
+a branch is indistinguishable from "nothing to register".
+
+**Why I missed it.** I verified the booking SUCCEEDED — `booking/book → 200`,
+contact attached — and stopped there. I never opened a finished sim reservation
+and compared it field by field against a racing one. A 200 proves the call was
+accepted, not that the reservation is complete.
+
+**How to apply.**
+
+1. **When adding a SessionItem kind, grep every `kind === ` / `switch (kind)`
+   in the booking path and decide each one explicitly** — including the ones
+   where "do nothing" is correct, and say so in a comment. Candidates found in
+   this sweep: `bmiBookedMemberIds`, `bowling-hours` (had a branch),
+   `refund-math` (safe — it THROWS on an unknown kind, which is the design to
+   copy), `voucher-redeem`, `deals/catalog`, `CartView` pricing/readiness,
+   `MiniCartV2`, the check-in itinerary, `center-scope`, and the `event_at`
+   COALESCE in bowling-db.
+2. **Prefer a loud default.** `refund-math`'s `throw new Error("cannot weight a
+   leg of kind …")` is why it could never mis-price a sim. An allowlist that
+   silently returns empty is the opposite, and is what shipped this bug.
+3. **Verify the ARTEFACT, not the call.** For anything that writes to a vendor,
+   open the resulting record and diff it against the equivalent record from a
+   feature that works. "It returned 200" is the beginning of the check.
+
 ## "Build it like X" means read X's SERVICE, not just X's component — the data layer is where the design decision actually lives (2026-09-14)
 
 **The miss.** Owner: "build a board view of this like we did in CRM for availability." I read
