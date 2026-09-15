@@ -40,6 +40,9 @@ export const racesimEn = {
   "racesim.product.perRaceRate": "{rate} a race",
   /** A pack whose credit ledger is not armed yet: shown, priced, not sellable. */
   "racesim.product.packSoon": "Coming soon",
+  /** Section header above the karting-style pack tile row. */
+  "racesim.product.packsHeading": "Race Packs",
+  "racesim.product.packsMeta": "Prepaid — use them any time",
   /** Renders after "$15.95 / " — karting's price row reads "$20.99 / racer". */
   "racesim.product.perRacer": "racer",
   /** Karting's group-math footer: "$20.99 × 3 racers = $62.97 total".
@@ -55,6 +58,13 @@ export const racesimEn = {
   "racesim.circuit.stats": "{length} mi · {turns, plural, one {# turn} other {# turns}}",
   /** Tab helper under the circuit tabs — {circuit} = the selected circuit. */
   "racesim.circuit.hint": "Showing {circuit} sessions — tap another circuit to switch.",
+  /** Expanded chooser, shown before any circuit is picked. */
+  "racesim.circuit.pickIntro": "Pick your circuit — then choose a time.",
+  "racesim.circuit.lengthLabel": "Lap",
+  "racesim.circuit.turnsLabel": "Turns",
+  "racesim.circuit.layoutLabel": "Layout",
+  "racesim.circuit.layoutOval": "Oval",
+  "racesim.circuit.layoutStreet": "Street circuit",
   /** A session whose four rigs are already running a DIFFERENT circuit, so it
    *  cannot be booked on the circuit currently shown. {circuit} = the one it
    *  is running. */
@@ -107,6 +117,8 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
   "racesim.product.pctOff": "{pct}% de descuento",
   "racesim.product.perRaceRate": "{rate} por carrera",
   "racesim.product.packSoon": "Próximamente",
+  "racesim.product.packsHeading": "Paquetes de carreras",
+  "racesim.product.packsMeta": "Prepagados — úsalos cuando quieras",
   "racesim.product.perRacer": "piloto",
   "racesim.product.groupTotal":
     "{unit} × {count, plural, one {# piloto} other {# pilotos}} = {total} en total",
@@ -114,6 +126,12 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
 
   "racesim.circuit.stats": "{length} mi · {turns, plural, one {# curva} other {# curvas}}",
   "racesim.circuit.hint": "Mostrando sesiones de {circuit} — toca otro circuito para cambiar.",
+  "racesim.circuit.pickIntro": "Elige tu circuito y luego la hora.",
+  "racesim.circuit.lengthLabel": "Vuelta",
+  "racesim.circuit.turnsLabel": "Curvas",
+  "racesim.circuit.layoutLabel": "Trazado",
+  "racesim.circuit.layoutOval": "Óvalo",
+  "racesim.circuit.layoutStreet": "Circuito urbano",
   "racesim.circuit.runningOther": "Se corre en {circuit}",
   "racesim.circuit.pickedOther": "Elegida en {circuit}",
 

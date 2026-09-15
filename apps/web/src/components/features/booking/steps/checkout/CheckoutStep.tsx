@@ -33,6 +33,7 @@ import { calculateTax } from "~/features/booking/service/race-pricing";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
 import { getRaceSimProduct, getRaceSimTrack, raceSimPriceFor } from "~/features/race-sims/products";
 import { simSessionCircuitName } from "~/features/race-sims/circuits";
+import { simCreditBalance } from "~/features/race-sims/credits";
 import {
   fetchServerQuote,
   overviewFromServerQuote,
@@ -267,6 +268,27 @@ export function CheckoutStep({
     return n;
   };
 
+  /** Sim SEATS this member rides — the sim twin of heatCountForMember, so a
+   *  sim-only cart still offers the credit toggle. A pack is excluded: buying
+   *  credits never spends them. The roster fallback matches the charge
+   *  builder's (assignedTo → participants → whole party), or the toggle would
+   *  appear for a cart whose seats are actually someone else's. */
+  const simSeatCountForMember = (memberId: string): number => {
+    let n = 0;
+    for (const it of session.items) {
+      if (it.kind !== "racesim") continue;
+      if (getRaceSimProduct(it.productSlug)?.kind === "pack") continue;
+      const riders =
+        it.assignedTo.length > 0
+          ? it.assignedTo
+          : (it.participants ?? []).length > 0
+            ? (it.participants as string[])
+            : session.party.map((m) => m.id);
+      if (riders.includes(memberId)) n += it.sessions.length;
+    }
+    return n;
+  };
+
   // BOGO Wednesdays: racers whose scheduled races are pairing 2-for-1 default
   // to KEEPING their banked credits (owner 2026-08-31: credits "should be off
   // by default" when BOGO applies) — spending a credit on a race whose partner
@@ -291,9 +313,14 @@ export function CheckoutStep({
     if (comboActive) return init; // flat combo price — no credit redemption
     for (const m of session.party) {
       if (!m.bmiPersonId || m.isNewRacer) continue;
-      if (heatCountForMember(m.id) <= 0) continue;
-      if ((bogoPairing.get(m.id) ?? 0) > 0) continue; // BOGO pairing → default OFF
-      if (memberEligibleCreditTotal(m.creditBalances, raceDate) > 0) init[m.bmiPersonId] = true;
+      const heats = heatCountForMember(m.id);
+      const simSeats = simSeatCountForMember(m.id);
+      if (heats <= 0 && simSeats <= 0) continue;
+      if (heats > 0 && (bogoPairing.get(m.id) ?? 0) > 0) continue; // BOGO pairing → default OFF
+      const eligible =
+        (heats > 0 ? memberEligibleCreditTotal(m.creditBalances, raceDate) : 0) +
+        (simSeats > 0 ? simCreditBalance(m.creditBalances) : 0);
+      if (eligible > 0) init[m.bmiPersonId] = true;
     }
     return init;
   });
@@ -302,12 +329,18 @@ export function CheckoutStep({
     ? []
     : session.party
         .filter((m) => m.bmiPersonId && !m.isNewRacer)
-        .map((m) => ({
-          member: m,
-          heats: heatCountForMember(m.id),
-          available: memberEligibleCreditTotal(m.creditBalances, raceDate),
-          breakdown: memberEligibleBreakdown(m.creditBalances, raceDate),
-        }))
+        .map((m) => {
+          const heats = heatCountForMember(m.id);
+          const simSeats = simSeatCountForMember(m.id);
+          return {
+            member: m,
+            heats: heats + simSeats,
+            available:
+              (heats > 0 ? memberEligibleCreditTotal(m.creditBalances, raceDate) : 0) +
+              (simSeats > 0 ? simCreditBalance(m.creditBalances) : 0),
+            breakdown: memberEligibleBreakdown(m.creditBalances, raceDate),
+          };
+        })
         .filter((e) => e.heats > 0 && e.available > 0);
 
   // Party + session carrying each racer's opt-in, threaded into the reserve calls.

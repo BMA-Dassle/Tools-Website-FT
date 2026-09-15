@@ -62,7 +62,7 @@ import {
   type RaceSimTrackKey,
 } from "~/features/race-sims/products";
 import { bookRaceSimSession } from "~/features/race-sims/service";
-import { circuitForTrack } from "~/features/race-sims/circuits";
+import { circuitForTrack, circuitLengthLabel } from "~/features/race-sims/circuits";
 import {
   cartSimSlotLocks,
   cartTimedBookings,
@@ -510,233 +510,333 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
         </div>
       )}
 
-      {/* Circuit tabs — racing's TrackInfoBanner (tinted card, display title,
+      {/* NOTHING PICKED YET — the EXPANDED chooser.
+          Before a circuit is chosen there is no $0 key to ask BMI about, so
+          the grid was rendering its "no sessions available today" empty state:
+          the screen told a guest the day was full when it had simply not been
+          asked a question yet (owner 2026-09-15). This is that space used
+          properly — the week's three circuits at full size, with the real
+          venue specs, so the pick is informed rather than three bare names. */}
+      {!item.trackKey ? (
+        <div className="space-y-[18px]">
+          <p className="text-center text-[20px] text-white/55">{t("racesim.circuit.pickIntro")}</p>
+          <div className="grid grid-cols-3 gap-[18px]">
+            {RACE_SIM_TRACKS.map((track) => {
+              const circuit = circuitForTrack(track.key, gridDate);
+              const tint = circuitAccent(track.key, gridDate);
+              return (
+                <button
+                  key={track.key}
+                  type="button"
+                  disabled={holding != null}
+                  onClick={() => switchTrack(track.key)}
+                  className="k-tap overflow-hidden rounded-[20px] border-2 text-left"
+                  style={{ borderColor: `${tint}80`, background: `${tint}12` }}
+                >
+                  {/* Hero art when we have licensed photography of the venue;
+                      otherwise a tinted band, never a stand-in shot of a
+                      different track. */}
+                  {circuit?.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={circuit.image}
+                      alt={circuit.name}
+                      className="h-[150px] w-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-[8px] w-full" style={{ background: tint }} />
+                  )}
+                  <div className="p-[22px]">
+                    <div
+                      className="k-display text-[27px] leading-tight tracking-wide"
+                      style={{ color: tint }}
+                    >
+                      {circuitLabel(track.key, gridDate)}
+                    </div>
+                    {circuit && (
+                      <>
+                        <div className="mt-[4px] text-[18px] text-white/55">
+                          {locale === "es" ? circuit.es.eventName : circuit.eventName}
+                        </div>
+                        <p className="mt-[12px] text-[18px] leading-snug text-white/70">
+                          {locale === "es" ? circuit.es.blurb : circuit.blurb}
+                        </p>
+                        <div className="mt-[14px] space-y-[6px] border-t border-white/10 pt-[12px]">
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-[15px] text-white/40">
+                              {t("racesim.circuit.lengthLabel")}
+                            </span>
+                            <span className="k-num text-[17px] text-white/80">
+                              {circuitLengthLabel(circuit)}
+                            </span>
+                          </div>
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-[15px] text-white/40">
+                              {t("racesim.circuit.turnsLabel")}
+                            </span>
+                            <span className="k-num text-[17px] text-white/80">{circuit.turns}</span>
+                          </div>
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-[15px] text-white/40">
+                              {t("racesim.circuit.layoutLabel")}
+                            </span>
+                            <span className="text-[17px] text-white/80">
+                              {circuit.layout === "oval"
+                                ? t("racesim.circuit.layoutOval")
+                                : t("racesim.circuit.layoutStreet")}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="mt-[12px] text-[16px] leading-snug" style={{ color: tint }}>
+                          {locale === "es" ? circuit.signatureEs : circuit.signature}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Circuit tabs — racing's TrackInfoBanner (tinted card, display title,
           ring when active, siblings dimmed); they filter the grid, picks stay.
           Each carries the real venue's own stats, so the choice means
           something to a guest who has never heard of the place. */}
-      <div className="space-y-[10px]">
-        <div className="grid grid-cols-3 gap-[16px]">
-          {RACE_SIM_TRACKS.map((track) => {
-            const active = item.trackKey === track.key;
-            const circuit = circuitForTrack(track.key, gridDate);
-            const tint = circuitAccent(track.key, gridDate);
-            return (
-              <button
-                key={track.key}
-                type="button"
-                aria-pressed={active}
-                disabled={holding != null}
-                onClick={() => switchTrack(track.key)}
-                className={`k-tap rounded-[16px] border-2 px-[24px] py-[18px] text-left ${
-                  item.trackKey && !active ? "opacity-40" : ""
-                }`}
-                style={{
-                  borderColor: active ? tint : `${tint}66`,
-                  background: `${tint}14`,
-                  boxShadow: active ? `0 0 0 4px ${tint}99` : "none",
-                }}
-              >
-                <div
-                  className="k-display text-[24px] leading-tight tracking-wide"
-                  style={{ color: tint }}
-                >
-                  {circuitLabel(track.key, gridDate)}
-                </div>
-                {circuit && (
-                  <>
-                    <div className="mt-[4px] text-[16px] text-white/50">
-                      {locale === "es" ? circuit.es.eventName : circuit.eventName}
+          <div className="space-y-[10px]">
+            <div className="grid grid-cols-3 gap-[16px]">
+              {RACE_SIM_TRACKS.map((track) => {
+                const active = item.trackKey === track.key;
+                const circuit = circuitForTrack(track.key, gridDate);
+                const tint = circuitAccent(track.key, gridDate);
+                return (
+                  <button
+                    key={track.key}
+                    type="button"
+                    aria-pressed={active}
+                    disabled={holding != null}
+                    onClick={() => switchTrack(track.key)}
+                    className={`k-tap rounded-[16px] border-2 px-[24px] py-[18px] text-left ${
+                      item.trackKey && !active ? "opacity-40" : ""
+                    }`}
+                    style={{
+                      borderColor: active ? tint : `${tint}66`,
+                      background: `${tint}14`,
+                      boxShadow: active ? `0 0 0 4px ${tint}99` : "none",
+                    }}
+                  >
+                    <div
+                      className="k-display text-[24px] leading-tight tracking-wide"
+                      style={{ color: tint }}
+                    >
+                      {circuitLabel(track.key, gridDate)}
                     </div>
-                    <div className="k-num mt-[6px] text-[15px] text-white/40">
-                      {t("racesim.circuit.stats", {
-                        length: circuit.lengthMi.toString(),
-                        turns: circuit.turns,
-                      })}
-                    </div>
-                  </>
-                )}
-              </button>
-            );
-          })}
-        </div>
-        {trackName && (
-          <p className="text-center text-[16px] text-white/35">
-            {t("racesim.circuit.hint", { circuit: trackName })}
-          </p>
-        )}
-      </div>
+                    {circuit && (
+                      <>
+                        <div className="mt-[4px] text-[16px] text-white/50">
+                          {locale === "es" ? circuit.es.eventName : circuit.eventName}
+                        </div>
+                        <div className="k-num mt-[6px] text-[15px] text-white/40">
+                          {t("racesim.circuit.stats", {
+                            length: circuit.lengthMi.toString(),
+                            turns: circuit.turns,
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {trackName && (
+              <p className="text-center text-[16px] text-white/35">
+                {t("racesim.circuit.hint", { circuit: trackName })}
+              </p>
+            )}
+          </div>
 
-      {/* Racer count summary — racing's "Booking for N racers" card, plus the
+          {/* Racer count summary — racing's "Booking for N racers" card, plus the
           running pick count across tracks. */}
-      <div className="mx-auto max-w-[520px] rounded-[16px] border border-white/8 bg-white/[0.03] p-[16px] text-center">
-        <p className="text-[17px] text-white/50">
-          {t("racesim.slot.bookingFor", { count: qty })}
-          {pickedCount > 0 && (
-            <span className="text-[#00E2E5]">
-              {" · "}
-              {t("racesim.slot.pickedCount", { count: pickedCount })}
-            </span>
+          <div className="mx-auto max-w-[520px] rounded-[16px] border border-white/8 bg-white/[0.03] p-[16px] text-center">
+            <p className="text-[17px] text-white/50">
+              {t("racesim.slot.bookingFor", { count: qty })}
+              {pickedCount > 0 && (
+                <span className="text-[#00E2E5]">
+                  {" · "}
+                  {t("racesim.slot.pickedCount", { count: pickedCount })}
+                </span>
+              )}
+            </p>
+          </div>
+
+          {holdError && !holding && (
+            <div className="mx-auto max-w-[520px] rounded-[16px] border border-red-500/30 bg-red-500/5 p-[16px] text-center text-[17px] text-red-300">
+              {holdError}
+            </div>
           )}
-        </p>
-      </div>
 
-      {holdError && !holding && (
-        <div className="mx-auto max-w-[520px] rounded-[16px] border border-red-500/30 bg-red-500/5 p-[16px] text-center text-[17px] text-red-300">
-          {holdError}
-        </div>
-      )}
-
-      {scanState === "loading" ? (
-        <div className="flex h-[260px] items-center justify-center">
-          <div className="h-[42px] w-[42px] animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
-        </div>
-      ) : scanState === "error" ? (
-        <div className="rounded-[16px] border border-red-500/30 bg-red-500/5 p-[20px] text-center">
-          <p className="text-[18px] text-red-300">{t("slot.error")}</p>
-          <button
-            type="button"
-            onClick={() => setRefreshTick((n) => n + 1)}
-            className="k-tap mt-[10px] rounded-[10px] border border-white/15 px-[20px] py-[8px] text-[16px] font-semibold text-white/70"
-          >
-            {t("racesim.slot.retry")}
-          </button>
-        </div>
-      ) : grid.length === 0 ? (
-        <div className="rounded-[16px] border border-white/10 bg-white/[0.03] p-[20px] text-center text-[18px] text-white/50">
-          {t("racesim.slot.empty")}
-        </div>
-      ) : (
-        /* The grid — one flat earliest-first grid, racing's 4 columns. */
-        <div className="grid grid-cols-4 gap-[10px]">
-          {grid.map((entry) => {
-            const { block } = entry;
-            const synthetic = !!entry.synthetic;
-            const startMs = wallClockMs(block.start);
-            const free = block.freeSpots;
-            const cap = Math.max(1, block.capacity ?? free);
-            const picked = item.sessions.find((s) => sameSession(s, item.trackKey, block.start));
-            const isSelected = !!picked;
-            const isHolding = holding === block.start;
-            // The same start already picked on ANOTHER track — same rigs.
-            const ownOther = isSelected
-              ? null
-              : ownPickAtSameStart(item.sessions, block.start, item.trackKey);
-            // All four rigs run ONE circuit, so a session another reservation
-            // already committed cannot also run the circuit on this tab. BMI
-            // restricts which key may enter which slot, so mostly a key simply
-            // never proposes these; this catches the window where it can (the
-            // three keys still share one dayplanner) and keeps the schedule
-            // honest instead of taking a booking the rigs cannot run.
-            const lockedTo = isSelected ? null : lockedTrackKeyForSlot(lockIndex, block.start);
-            const runningOther = lockedTo && lockedTo !== item.trackKey ? lockedTo : null;
-            // Racing's gates, in its order. Selected cards are never "full".
-            const isEventReserved =
-              !isSelected && raceSimSlotEventReserved(gridDate, block.start, block.stop);
-            const isBeforeReopen = !isSelected && raceSimSlotBeforeReopen(gridDate, block.start);
-            const isCartConflict = !isSelected && raceSimSlotConflicts(startMs, cartOthers);
-            const isExistingConflict =
-              !isSelected && !isCartConflict && raceSimSlotConflicts(startMs, existing);
-            const isConflict = isCartConflict || isExistingConflict || !!ownOther || !!runningOther;
-            const isLowCap = free < qty;
-            const isFull =
-              !isSelected && (isLowCap || isConflict || isEventReserved || isBeforeReopen);
-
-            // Racing's status matrix, in its precedence.
-            let statusKey: MessageKey;
-            let statusVars: Record<string, string | number> = {};
-            let statusClass: string;
-            if (isSelected && synthetic) {
-              // Our own hold took the rigs — BMI has no live count to show.
-              statusKey = "racesim.slot.picked";
-              statusClass = "text-[#00E2E5]";
-            } else if (isEventReserved || isBeforeReopen) {
-              statusKey = "racesim.slot.reservedForEvent";
-              statusClass = "text-amber-400";
-            } else if (ownOther) {
-              statusKey = "racesim.circuit.pickedOther";
-              statusVars = { circuit: circuitLabel(ownOther.trackKey, gridDate) };
-              statusClass = "text-amber-400";
-            } else if (runningOther) {
-              statusKey = "racesim.circuit.runningOther";
-              statusVars = { circuit: circuitLabel(runningOther, gridDate) };
-              statusClass = "text-amber-400";
-            } else if (isExistingConflict) {
-              statusKey = "racesim.slot.tooCloseExisting";
-              statusClass = "text-amber-400";
-            } else if (isCartConflict) {
-              statusKey = "racesim.slot.tooClose";
-              statusClass = "text-amber-400";
-            } else if (isLowCap && free > 0) {
-              statusKey = "racesim.slot.needOnly";
-              statusVars = { need: qty, free };
-              statusClass = "text-red-400";
-            } else if (free === 0) {
-              statusKey = "racesim.slot.full";
-              statusClass = "text-red-400";
-            } else if (free / cap <= 0.3) {
-              statusKey = "racesim.slot.spotsLeft";
-              statusVars = { count: free };
-              statusClass = "text-amber-400";
-            } else {
-              statusKey = "racesim.slot.open";
-              statusVars = { free, cap };
-              statusClass = "text-emerald-400";
-            }
-
-            const cardClass = isSelected
-              ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
-              : isFull
-                ? "cursor-not-allowed border-white/5 bg-white/[0.03] opacity-40"
-                : "cursor-pointer border-white/10 bg-white/5";
-            const amberBar = isConflict || isEventReserved || isBeforeReopen;
-            const fullBar = amberBar || (isSelected && synthetic);
-            const barClass =
-              isSelected && synthetic
-                ? "bg-[#00E2E5]/60"
-                : isLowCap
-                  ? "bg-red-500"
-                  : amberBar
-                    ? "bg-amber-400/50"
-                    : free / cap <= 0.3
-                      ? "bg-amber-400"
-                      : "bg-emerald-400";
-
-            return (
+          {scanState === "loading" ? (
+            <div className="flex h-[260px] items-center justify-center">
+              <div className="h-[42px] w-[42px] animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
+            </div>
+          ) : scanState === "error" ? (
+            <div className="rounded-[16px] border border-red-500/30 bg-red-500/5 p-[20px] text-center">
+              <p className="text-[18px] text-red-300">{t("slot.error")}</p>
               <button
-                key={block.start}
                 type="button"
-                disabled={isFull || holding != null}
-                // Tapping a picked card unpicks it (racing's deselect —
-                // releases its hold); an open card ADDS a session.
-                onClick={() => void (picked ? unpickSession(picked) : bookSlot(entry))}
-                className={`k-tap relative rounded-[16px] border p-[16px] text-left ${cardClass}`}
+                onClick={() => setRefreshTick((n) => n + 1)}
+                className="k-tap mt-[10px] rounded-[10px] border border-white/15 px-[20px] py-[8px] text-[16px] font-semibold text-white/70"
               >
-                {isHolding && (
-                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-[6px] rounded-[16px] border border-[#00E2E5]/60 bg-[#000418]/85 backdrop-blur-sm">
-                    <div className="h-[26px] w-[26px] animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
-                    <span className="text-[14px] font-semibold text-[#00E2E5]">
-                      {t("slot.holding")}
-                    </span>
-                  </div>
-                )}
-                <div className="k-num mb-[2px] text-[24px] font-bold text-white">
-                  {slotLabel(block.start)}
-                </div>
-                <div className="mb-[10px]" />
-                <div className="mb-[4px] text-[15px] font-medium text-white/60">{block.name}</div>
-                <div className={`text-[16px] font-medium ${statusClass}`}>
-                  {t(statusKey, statusVars)}
-                </div>
-                <div className="mt-[10px] h-[5px] overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className={`h-full rounded-full ${barClass}`}
-                    style={{ width: fullBar ? "100%" : `${Math.min(100, (free / cap) * 100)}%` }}
-                  />
-                </div>
+                {t("racesim.slot.retry")}
               </button>
-            );
-          })}
-        </div>
+            </div>
+          ) : grid.length === 0 ? (
+            <div className="rounded-[16px] border border-white/10 bg-white/[0.03] p-[20px] text-center text-[18px] text-white/50">
+              {t("racesim.slot.empty")}
+            </div>
+          ) : (
+            /* The grid — one flat earliest-first grid, racing's 4 columns. */
+            <div className="grid grid-cols-4 gap-[10px]">
+              {grid.map((entry) => {
+                const { block } = entry;
+                const synthetic = !!entry.synthetic;
+                const startMs = wallClockMs(block.start);
+                const free = block.freeSpots;
+                const cap = Math.max(1, block.capacity ?? free);
+                const picked = item.sessions.find((s) =>
+                  sameSession(s, item.trackKey, block.start),
+                );
+                const isSelected = !!picked;
+                const isHolding = holding === block.start;
+                // The same start already picked on ANOTHER track — same rigs.
+                const ownOther = isSelected
+                  ? null
+                  : ownPickAtSameStart(item.sessions, block.start, item.trackKey);
+                // All four rigs run ONE circuit, so a session another reservation
+                // already committed cannot also run the circuit on this tab. BMI
+                // restricts which key may enter which slot, so mostly a key simply
+                // never proposes these; this catches the window where it can (the
+                // three keys still share one dayplanner) and keeps the schedule
+                // honest instead of taking a booking the rigs cannot run.
+                const lockedTo = isSelected ? null : lockedTrackKeyForSlot(lockIndex, block.start);
+                const runningOther = lockedTo && lockedTo !== item.trackKey ? lockedTo : null;
+                // Racing's gates, in its order. Selected cards are never "full".
+                const isEventReserved =
+                  !isSelected && raceSimSlotEventReserved(gridDate, block.start, block.stop);
+                const isBeforeReopen =
+                  !isSelected && raceSimSlotBeforeReopen(gridDate, block.start);
+                const isCartConflict = !isSelected && raceSimSlotConflicts(startMs, cartOthers);
+                const isExistingConflict =
+                  !isSelected && !isCartConflict && raceSimSlotConflicts(startMs, existing);
+                const isConflict =
+                  isCartConflict || isExistingConflict || !!ownOther || !!runningOther;
+                const isLowCap = free < qty;
+                const isFull =
+                  !isSelected && (isLowCap || isConflict || isEventReserved || isBeforeReopen);
+
+                // Racing's status matrix, in its precedence.
+                let statusKey: MessageKey;
+                let statusVars: Record<string, string | number> = {};
+                let statusClass: string;
+                if (isSelected && synthetic) {
+                  // Our own hold took the rigs — BMI has no live count to show.
+                  statusKey = "racesim.slot.picked";
+                  statusClass = "text-[#00E2E5]";
+                } else if (isEventReserved || isBeforeReopen) {
+                  statusKey = "racesim.slot.reservedForEvent";
+                  statusClass = "text-amber-400";
+                } else if (ownOther) {
+                  statusKey = "racesim.circuit.pickedOther";
+                  statusVars = { circuit: circuitLabel(ownOther.trackKey, gridDate) };
+                  statusClass = "text-amber-400";
+                } else if (runningOther) {
+                  statusKey = "racesim.circuit.runningOther";
+                  statusVars = { circuit: circuitLabel(runningOther, gridDate) };
+                  statusClass = "text-amber-400";
+                } else if (isExistingConflict) {
+                  statusKey = "racesim.slot.tooCloseExisting";
+                  statusClass = "text-amber-400";
+                } else if (isCartConflict) {
+                  statusKey = "racesim.slot.tooClose";
+                  statusClass = "text-amber-400";
+                } else if (isLowCap && free > 0) {
+                  statusKey = "racesim.slot.needOnly";
+                  statusVars = { need: qty, free };
+                  statusClass = "text-red-400";
+                } else if (free === 0) {
+                  statusKey = "racesim.slot.full";
+                  statusClass = "text-red-400";
+                } else if (free / cap <= 0.3) {
+                  statusKey = "racesim.slot.spotsLeft";
+                  statusVars = { count: free };
+                  statusClass = "text-amber-400";
+                } else {
+                  statusKey = "racesim.slot.open";
+                  statusVars = { free, cap };
+                  statusClass = "text-emerald-400";
+                }
+
+                const cardClass = isSelected
+                  ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
+                  : isFull
+                    ? "cursor-not-allowed border-white/5 bg-white/[0.03] opacity-40"
+                    : "cursor-pointer border-white/10 bg-white/5";
+                const amberBar = isConflict || isEventReserved || isBeforeReopen;
+                const fullBar = amberBar || (isSelected && synthetic);
+                const barClass =
+                  isSelected && synthetic
+                    ? "bg-[#00E2E5]/60"
+                    : isLowCap
+                      ? "bg-red-500"
+                      : amberBar
+                        ? "bg-amber-400/50"
+                        : free / cap <= 0.3
+                          ? "bg-amber-400"
+                          : "bg-emerald-400";
+
+                return (
+                  <button
+                    key={block.start}
+                    type="button"
+                    disabled={isFull || holding != null}
+                    // Tapping a picked card unpicks it (racing's deselect —
+                    // releases its hold); an open card ADDS a session.
+                    onClick={() => void (picked ? unpickSession(picked) : bookSlot(entry))}
+                    className={`k-tap relative rounded-[16px] border p-[16px] text-left ${cardClass}`}
+                  >
+                    {isHolding && (
+                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-[6px] rounded-[16px] border border-[#00E2E5]/60 bg-[#000418]/85 backdrop-blur-sm">
+                        <div className="h-[26px] w-[26px] animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
+                        <span className="text-[14px] font-semibold text-[#00E2E5]">
+                          {t("slot.holding")}
+                        </span>
+                      </div>
+                    )}
+                    <div className="k-num mb-[2px] text-[24px] font-bold text-white">
+                      {slotLabel(block.start)}
+                    </div>
+                    <div className="mb-[10px]" />
+                    <div className="mb-[4px] text-[15px] font-medium text-white/60">
+                      {block.name}
+                    </div>
+                    <div className={`text-[16px] font-medium ${statusClass}`}>
+                      {t(statusKey, statusVars)}
+                    </div>
+                    <div className="mt-[10px] h-[5px] overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className={`h-full rounded-full ${barClass}`}
+                        style={{
+                          width: fullBar ? "100%" : `${Math.min(100, (free / cap) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
