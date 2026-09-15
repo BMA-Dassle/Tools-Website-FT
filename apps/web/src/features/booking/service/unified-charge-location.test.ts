@@ -78,7 +78,8 @@ function webSession(items: BookingSession["items"]): BookingSession {
 describe("entityCents attribution", () => {
   it("attributes race-sim value to FastTrax and attraction value to HeadPinz", () => {
     const { entityCents } = buildCombinedLineItems(webSession([simItem(2), attrItem(12)]));
-    expect(entityCents).toEqual({ fasttrax: 3190, headpinz: 1200 });
+    // 2 racers × the $14.95 sim single (owner 2026-09-15).
+    expect(entityCents).toEqual({ fasttrax: 2990, headpinz: 1200 });
   });
 
   it("routes the duck-pin attraction to FastTrax, not HeadPinz", () => {

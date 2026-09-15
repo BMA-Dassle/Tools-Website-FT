@@ -1728,6 +1728,7 @@ export async function closePastReservationStatuses(
            COALESCE(
              (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.booking_metadata->'heats')='array' THEN b.booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
              (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.booking_metadata->'attractions')='array' THEN b.booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+             (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.booking_metadata->'racesims')='array' THEN b.booking_metadata->'racesims' ELSE '[]'::jsonb END) AS t(e)),
              to_char(b.booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
            ) AS event_at
     FROM bowling_reservations b
@@ -1912,6 +1913,7 @@ export async function listBowlingReservations(opts: {
         COALESCE(
           (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
           (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+          (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'racesims')='array' THEN booking_metadata->'racesims' ELSE '[]'::jsonb END) AS t(e)),
           to_char(booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
         ) AS event_at
       FROM bowling_reservations
@@ -1969,6 +1971,7 @@ export async function listVipComboReservations(opts: {
         COALESCE(
           (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
           (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+          (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'racesims')='array' THEN booking_metadata->'racesims' ELSE '[]'::jsonb END) AS t(e)),
           to_char(booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
         ) AS event_at
       FROM bowling_reservations
@@ -2071,6 +2074,60 @@ export async function raceHeatsForPersonsOnDate(opts: {
       bmiPersonId: r.person_id as string,
       racer: (r.racer as string | null) ?? null,
     }));
+}
+
+/**
+ * Which $0 track key each Race Sim time slot on `date` is already locked to.
+ *
+ * Four rigs, one shared capacity pool: a 10:00 sim session is four rigs running
+ * ONE circuit, so the first booking on a slot fixes which track key — and so
+ * which circuit — everyone else in that session gets (owner 2026-09-15).
+ *
+ * Ordered by `inserted_at` so FIRST WRITER WINS; the caller's index keeps the
+ * earliest row per slot. Our own Neon rows are the source of truth here, not
+ * BMI: BMI's freeSpots is shared across all three keys and so cannot say which
+ * key a slot went to.
+ *
+ * `excludeBillId` drops the caller's own in-progress reservation, exactly as
+ * raceHeatsForPersonsOnDate does — otherwise a guest editing their booking
+ * would be locked out by themselves.
+ *
+ * Fail-open ([]): the grid just shows every circuit as pickable, and guard 2f
+ * still refuses at reserve before any Square write.
+ */
+export interface SimSlotCircuitLockRow {
+  slot: string;
+  trackKey: string;
+}
+
+export async function simSlotCircuitLocks(opts: {
+  date: string;
+  excludeBillId?: string | null;
+}): Promise<SimSlotCircuitLockRow[]> {
+  if (!isDbConfigured()) return [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(opts.date)) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const excludeBillId = opts.excludeBillId ?? null;
+  const rows = await q`
+    SELECT s.e->>'slot' AS slot, s.e->>'trackKey' AS track_key
+    FROM bowling_reservations r
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(r.booking_metadata->'racesims')='array'
+           THEN r.booking_metadata->'racesims' ELSE '[]'::jsonb END) AS s(e)
+    WHERE r.status IN ('confirmed','confirm_pending')
+      AND (${excludeBillId}::text IS NULL OR r.bmi_bill_id IS DISTINCT FROM ${excludeBillId})
+      AND left(s.e->>'slot', 10) = ${opts.date}
+    ORDER BY r.inserted_at ASC
+  `;
+  return rows
+    .map((r) => r as Record<string, unknown>)
+    .filter(
+      (r) =>
+        typeof r.slot === "string" &&
+        (r.track_key === "a" || r.track_key === "b" || r.track_key === "c"),
+    )
+    .map((r) => ({ slot: r.slot as string, trackKey: r.track_key as string }));
 }
 
 /**
@@ -2395,6 +2452,7 @@ export async function getReservationsByContact(opts: {
         COALESCE(
           (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
           (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+          (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'racesims')='array' THEN booking_metadata->'racesims' ELSE '[]'::jsonb END) AS t(e)),
           to_char(booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
         ) AS event_at
       FROM bowling_reservations

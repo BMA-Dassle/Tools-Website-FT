@@ -32,6 +32,7 @@ import { applyPromoToAmount } from "~/features/booking/service/promo-pricing";
 import { calculateTax } from "~/features/booking/service/race-pricing";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
 import { getRaceSimProduct, getRaceSimTrack, raceSimPriceFor } from "~/features/race-sims/products";
+import { simSessionCircuitName } from "~/features/race-sims/circuits";
 import {
   fetchServerQuote,
   overviewFromServerQuote,
@@ -567,10 +568,24 @@ export function CheckoutStep({
         if (!product) continue;
         const qty = Math.max(1, item.racerCount);
         const unit = raceSimPriceFor(product);
-        for (const s of item.sessions) {
-          const track = getRaceSimTrack(s.trackKey);
+        // A PACK is one flat credit bundle with no sessions — looping sessions
+        // would list nothing at all on the review screen.
+        if (product.kind === "pack") {
           reviewLines.push({
-            name: `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""}`,
+            name: `Race Sims — ${product.name}`,
+            quantity: 1,
+            amount: Math.round(unit * 100) / 100,
+          });
+          continue;
+        }
+        for (const s of item.sessions) {
+          const circuitName = simSessionCircuitName(
+            s.trackKey,
+            s.slot,
+            getRaceSimTrack(s.trackKey)?.conflictLabel ?? "",
+          );
+          reviewLines.push({
+            name: `Race Sims — ${product.name}${circuitName ? ` · ${circuitName}` : ""}`,
             quantity: qty,
             amount: (Math.round(unit * 100) * qty) / 100,
             time: s.slot,
@@ -1864,7 +1879,13 @@ export function CheckoutStep({
 
           // Mixed cart: use /book/confirmation (race confirmation) which shows all items
           if (hasBmi && effectiveBillId) {
-            go(buildConfirmationUrl(sessionForReserve, effectiveBillId, true));
+            // Race Sims ride this branch too (hasBmi counts them). Carry the
+            // sim's own short code so the confirmation can render a scannable
+            // QR — without `?code=` the kiosk confirmation draws no QR at all,
+            // and the guest arrives at the rig with nothing to present.
+            const url = buildConfirmationUrl(sessionForReserve, effectiveBillId, true);
+            const simCode = (result as { raceSimShortCode?: string | null }).raceSimShortCode;
+            go(simCode ? `${url}${url.includes("?") ? "&" : "?"}code=${simCode}` : url);
           } else if (result.shortCodes.length > 0) {
             const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
             const confirmBase =

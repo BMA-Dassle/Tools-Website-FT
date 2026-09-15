@@ -12,6 +12,7 @@ import {
   RaceSimNotConfiguredError,
   RaceSimMixedCartError,
   RaceSimStaleHoldError,
+  RaceSimCircuitTakenError,
 } from "~/features/race-sims/products";
 import { WorldCupReservationError } from "~/features/world-cup";
 import type { BookingSession } from "~/features/booking/state/types";
@@ -96,7 +97,8 @@ export async function POST(req: NextRequest) {
     if (
       err instanceof RaceSimNotConfiguredError ||
       err instanceof RaceSimMixedCartError ||
-      err instanceof RaceSimStaleHoldError
+      err instanceof RaceSimStaleHoldError ||
+      err instanceof RaceSimCircuitTakenError
     ) {
       // 409 — Race Sims guard 2e (keys not armed, or sims mixed with HeadPinz
       // items): refused before the day-of order exists, reader never armed.

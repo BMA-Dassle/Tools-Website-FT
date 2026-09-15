@@ -8,11 +8,11 @@
  * the SAME sessions (shared resource/dayplanner, minitrack-shaped schedule),
  * so the track choice picks WHICH key books, never which times exist.
  *
- * ARMING CHECKLIST — ALL DONE 2026-08-26; singles are LIVE (behind the kiosk
- * tile's staff PIN gate until the guest-launch PR removes it):
- *   1. RACE_SIM_SQUARE_CATALOG_ID — DONE 2026-08-23 (owner-pasted, shared by
- *      every sim line; per-line price is overridden at charge time because
- *      one catalog id carries singles AND every pack size).
+ * ARMING CHECKLIST — singles are LIVE TO GUESTS since 2026-09-15 (the staff
+ * PIN gate on the kiosk tile is gone):
+ *   1. RACE_SIM_SQUARE_CATALOG_ID — 7IDM4CB3CUPH7RTTTD73LLXW, owner-pasted
+ *      2026-09-15 (shared by every sim line; per-line price is overridden at
+ *      charge time because one catalog id carries singles AND every pack size).
  *   2. RACE_SIM_PAGE_ID — DONE 2026-08-26 (59716066).
  *   3. RACE_SIM_TRACKS[*].bmiProductId — DONE 2026-08-26 (59535405 / 59537905
  *      / 59537953, "Race Sim - Track A/B/C").
@@ -22,12 +22,17 @@
  * a $0/credit deposit key — a money key gets the bill's schedules stripped
  * (W57040); the dayplanner draws the SAME capacity pool the desk sees.
  *
- * Packs (3/5/10-race) carry the owner's 2026-09-01 prices and are PREPAID
- * CREDIT BUNDLES, race-pack parity (data/packs.ts): one price buys N credits
- * onto the Pandora ledger, redeemed later at $0/session. They stay
- * `bookable: false` until RACE_SIM_DEPOSIT_KIND.anytime is minted — guard 2e
- * refuses them on the missing deposit kind in its own right, because charging
- * for credits with nowhere to bank them takes money and gives nothing back.
+ * The CIRCUIT each key runs (Baku / Bristol / Indianapolis this week) is NOT
+ * here — it rotates, so it lives in circuits.ts with a dated lineup. Read that
+ * file's header before touching a track label: the label persisted for the
+ * conflict rules and the circuit a guest reads must never be one string.
+ *
+ * Packs (3/5/10-race) are PREPAID CREDIT BUNDLES, race-pack parity
+ * (data/packs.ts): one price buys N credits onto the Pandora ledger, redeemed
+ * later at $0/session. They are not sellable until RACE_SIM_DEPOSIT_KIND.anytime
+ * is minted — sellability is DERIVED from that id (raceSimProductBookable), so
+ * nobody can arm a charge that banks nothing, and pasting the id is the whole
+ * launch step.
  *
  * Catalog lives HERE in code, never in Square — same rule as race-products.ts
  * and data/packs.ts.
@@ -37,8 +42,21 @@ export type RaceSimTrackKey = "a" | "b" | "c";
 
 export interface RaceSimTrack {
   key: RaceSimTrackKey;
-  /** EN display label — PLACEHOLDER until the rotating lineup is named. */
-  name: string;
+  /**
+   * STABLE, MACHINE-FACING label. NEVER show this to a guest, and NEVER change
+   * it — not even to something prettier.
+   *
+   * It is written into `booking_metadata.racesims[].track` at reserve and read
+   * back out of Neon (lib/bowling-db.ts raceHeatsForPersonsOnDate) to decide
+   * whether an existing booking is a sim, which selects the same-start rule
+   * over the 30-minute cross-activity rule (scheduling.ts isRaceSimTrackLabel).
+   * Change it and every sim ALREADY SOLD stops being recognised as a sim.
+   *
+   * What the guest reads is the CIRCUIT running on this key — circuits.ts
+   * `circuitForTrack(key, date)` — which rotates. The two must stay separate
+   * for exactly that reason: the circuit changes every lineup, this cannot.
+   */
+  conflictLabel: string;
   /**
    * The track's $0 BMI key product — RAW digit string, null until the owner
    * hands it over. All three keys book the same "Race Sim" resource sessions;
@@ -51,9 +69,9 @@ export interface RaceSimTrack {
 // 8-digit product ids (safe as literals; the 17-digit precision rule is for
 // bill/person ids). Transcribed from a screenshot — verify against BMI once.
 export const RACE_SIM_TRACKS: readonly RaceSimTrack[] = [
-  { key: "a", name: "Track A", bmiProductId: "59535405" },
-  { key: "b", name: "Track B", bmiProductId: "59537905" },
-  { key: "c", name: "Track C", bmiProductId: "59537953" },
+  { key: "a", conflictLabel: "Track A", bmiProductId: "59535405" },
+  { key: "b", conflictLabel: "Track B", bmiProductId: "59537905" },
+  { key: "c", conflictLabel: "Track C", bmiProductId: "59537953" },
 ] as const;
 
 /** BMI public-booking page the three track keys live on — owner-provided
@@ -63,14 +81,61 @@ export const RACE_SIM_TRACKS: readonly RaceSimTrack[] = [
 export const RACE_SIM_PAGE_ID: string | null = "59716066";
 
 /**
- * ONE Square catalog variation for EVERY sim line (owner 2026-08-23) — the
- * human-readable variant ("1 Race · Track A") rides the line-item name, and
- * the product's price rides basePriceMoney, exactly the race-pack pattern.
+ * ONE Square catalog variation for EVERY sim line — the human-readable variant
+ * ("1 Race · Bristol Motor Speedway · 7:15 PM") rides the line-item name, and
+ * the product's price rides basePriceMoney, exactly the race-pack pattern. One
+ * id therefore carries the single AND every pack size.
+ *
+ * Owner-provided 2026-09-15. REPLACED the 2026-08-23 id
+ * PZXWYNOY4MUAPXACMBMTFYMD, which was never charged against in production (sims
+ * only ever booked behind the staff PIN). products.test.ts pins this exact
+ * string, so a mistranscribed character fails the build rather than charging
+ * every sim line against the wrong catalog item.
  */
-export const RACE_SIM_SQUARE_CATALOG_ID: string | null = "PZXWYNOY4MUAPXACMBMTFYMD";
+export const RACE_SIM_SQUARE_CATALOG_ID: string | null = "7IDM4CB3CUPH7RTTTD73LLXW";
 
 export function getRaceSimTrack(key: string | null): RaceSimTrack | null {
   return RACE_SIM_TRACKS.find((t) => t.key === key) ?? null;
+}
+
+/**
+ * BMI product id → our track key. The id is AUTHORITATIVE: it is what we sent
+ * BMI when the seat was held, so it round-trips exactly.
+ *
+ * This is the front half of "a scanned QR says Track A, show me the circuit" —
+ * pair it with circuits.ts `circuitForTrack(key, date)`.
+ */
+export function raceSimTrackKeyForProductId(
+  productId: string | null | undefined,
+): RaceSimTrackKey | null {
+  if (!productId) return null;
+  const raw = String(productId).trim();
+  return RACE_SIM_TRACKS.find((t) => t.bmiProductId === raw)?.key ?? null;
+}
+
+/** Is this BMI product one of our sim track keys at all? */
+export function isRaceSimProductId(productId: string | null | undefined): boolean {
+  return raceSimTrackKeyForProductId(productId) != null;
+}
+
+/**
+ * BMI product NAME → our track key, for the paths that only carry a label
+ * (a bill line's description, a scanned session's product name).
+ *
+ * Deliberately permissive about the separator and spacing, because the name is
+ * typed by hand in BMI and "Race Sim - Track A" / "Race Sim – Track A" /
+ * "Race Sim Track A" are all the same thing to a human. Anchored on the
+ * trailing key letter so it cannot match some other product that merely
+ * mentions a sim. Prefer `raceSimTrackKeyForProductId` whenever an id is
+ * available — a name can be renamed in BMI, an id cannot.
+ */
+export function raceSimTrackKeyFromBmiName(
+  name: string | null | undefined,
+): RaceSimTrackKey | null {
+  if (!name) return null;
+  const m = /race\s*sim\b.*?\btrack\s*([abc])\b/i.exec(name);
+  const letter = m?.[1]?.toLowerCase();
+  return letter === "a" || letter === "b" || letter === "c" ? letter : null;
 }
 
 /** The (productId, pageId) a sim booking hits BMI with — bmiBookingTarget
@@ -84,14 +149,20 @@ export function raceSimBookingTarget(
   return { productId: track.bmiProductId, pageId: RACE_SIM_PAGE_ID };
 }
 
-/** Pandora deposit-kind id sim CREDITS load onto — the race-pack rail's
- *  RACE_PACK_DEPOSIT_KIND equivalent (data/packs.ts). Sim credits need their
- *  OWN kind: a race credit spends at $0 on a kart heat, and the two must never
- *  be interchangeable. NULL until the owner mints it in Pandora and hands over
- *  the id, and `raceSimItemConfigured` refuses every pack while it is null —
- *  charging for credits with nowhere to grant them takes the guest's money and
- *  gives them nothing. */
-export const RACE_SIM_DEPOSIT_KIND: { anytime: string | null } = { anytime: null };
+/**
+ * Pandora deposit-kind id sim CREDITS load onto — the race-pack rail's
+ * RACE_PACK_DEPOSIT_KIND equivalent (data/packs.ts).
+ *
+ * Sim credits have their OWN kind by design: a race credit spends at $0 on a
+ * kart heat, and the two must never be interchangeable.
+ *
+ * ARMED 2026-09-15 — "Credit - Race Simulator", id 61079628, minted by the
+ * owner and read back off the live Pandora catalogue
+ * (GET /api/pandora/deposits/{personId}), not transcribed by hand. Arming this
+ * is what makes packs sellable: `raceSimProductBookable` derives that from this
+ * id, so there is no second flag that could disagree with it.
+ */
+export const RACE_SIM_DEPOSIT_KIND: { anytime: string | null } = { anytime: "61079628" };
 
 export interface RaceSimProduct {
   /** Stable cart/session key, e.g. "sim-single". */
@@ -125,9 +196,31 @@ export interface RaceSimProduct {
    * never quietly drift into a lie if the single price moves.
    */
   pctOff?: number;
-  /** False = shown but not sellable (the product step disables the column and
-   *  guard 2e refuses regardless). */
-  bookable: boolean;
+  /**
+   * SINGLES ONLY. False = shown but not sellable (the product step disables
+   * the column and guard 2e refuses regardless).
+   *
+   * Packs deliberately do NOT carry this: their sellability is DERIVED from
+   * `depositKindId` by `raceSimProductBookable()`. A hand-set flag and a
+   * deposit kind are two switches for one fact, and the failure mode of them
+   * disagreeing is the worst one this catalog has — a pack that takes money
+   * and banks no credits. Deriving it means the owner minting the Pandora kind
+   * and pasting the id is the ENTIRE launch step, and there is no flag anyone
+   * can flip early.
+   */
+  bookable?: boolean;
+}
+
+/**
+ * May this product be sold right now?
+ *
+ * Singles: the explicit flag (default true). Packs: only once their Pandora
+ * deposit kind is armed — see the note on `bookable`. Every surface and the
+ * reserve guard read THIS, never `product.bookable` directly.
+ */
+export function raceSimProductBookable(product: RaceSimProduct): boolean {
+  if (product.kind === "pack") return !!product.depositKindId;
+  return product.bookable !== false;
 }
 
 export const RACE_SIM_PRODUCTS: readonly RaceSimProduct[] = [
@@ -136,12 +229,22 @@ export const RACE_SIM_PRODUCTS: readonly RaceSimProduct[] = [
     kind: "single",
     name: "1 Race",
     raceCount: 1,
-    // $15.95 flat (owner 2026-09-01). REPLACED the 2026-08-23 day-split of $14
-    // Mon–Thu / $16 Fri–Sun: the pack prices below are all struck off a $15.95
-    // single, and against a day-split single a flat pack price gives a
-    // different discount every day — the 3-pack worked out to $14.00/race,
-    // exactly the old weekday single, so "12% off" was a FALSE claim Mon–Thu.
-    price: 15.95,
+    // $14.95 flat (owner 2026-09-15) — the number Jacob published in Teams on
+    // 2026-08-25 ("at $14.95 per race"), which the catalog had never matched.
+    //
+    // The catalog carried $15.95 because the pack ladder was reverse-engineered
+    // from it: $41.99/$64.99/$119.99 are 12.25% / 18.51% / 24.77% off $15.95,
+    // and only off $15.95. Against the $14.95 that was actually advertised they
+    // were 6.4% / 13.1% / 19.7% — the 3-pack claiming almost double its real
+    // saving. The owner's call was to keep the ADVERTISED single and re-cut the
+    // packs so the published percentages are true, so the pack prices below
+    // moved instead of this one.
+    //
+    // (History: this replaced a 2026-08-23 day-split of $14 Mon–Thu / $16
+    // Fri–Sun. A flat pack price against a day-split single gives a different
+    // discount every day, which is why the split had to die — race-pack parity
+    // puts the day dimension in the pack VARIANTS, never in one SKU's price.)
+    price: 14.95,
     bookable: true,
   },
   // ── Packs — PREPAID SIM-RACE CREDITS, race-pack parity ────────────────────
@@ -149,35 +252,42 @@ export const RACE_SIM_PRODUCTS: readonly RaceSimProduct[] = [
   // booking: one price buys N credits onto the Pandora ledger, redeemed later
   // at $0/session in the normal sim flow. Still `bookable: false` — the credit
   // rail cannot exist until RACE_SIM_DEPOSIT_KIND.anytime is minted.
+  // The ladder was RE-CUT 2026-09-15 when the single moved to its advertised
+  // $14.95 (owner: keep 12 / 18 / 25 and move the pack prices). Each price is
+  // the tidiest number that makes its published claim TRUE against $14.95 —
+  // products.test.ts holds every claim within a point of the real saving, so a
+  // price typo fails the build instead of shipping a false discount.
+  //
+  // Note for whoever next edits these: a .99 ending cannot carry 12% off the
+  // 3-pack. 12% of 3 × $14.95 caps the price at $39.92, and the nearest .99
+  // ($39.99) is only 10.8% off — it would have to publish 11%. $39.45 holds
+  // the owner's 12%.
   {
     slug: "sim-3-pack",
     kind: "pack",
     name: "3-Race Pack",
     raceCount: 3,
-    price: 41.99, // $14.00/race
+    price: 39.45, // $13.15/race — 12.04% off
     depositKindId: RACE_SIM_DEPOSIT_KIND.anytime,
     pctOff: 12,
-    bookable: false,
   },
   {
     slug: "sim-5-pack",
     kind: "pack",
     name: "5-Race Pack",
     raceCount: 5,
-    price: 64.99, // $13.00/race
+    price: 60.95, // $12.19/race — 18.46% off
     depositKindId: RACE_SIM_DEPOSIT_KIND.anytime,
     pctOff: 18,
-    bookable: false,
   },
   {
     slug: "sim-10-pack",
     kind: "pack",
     name: "10-Race Pack",
     raceCount: 10,
-    price: 119.99, // $12.00/race
+    price: 111.95, // $11.20/race — 25.12% off
     depositKindId: RACE_SIM_DEPOSIT_KIND.anytime,
     pctOff: 25,
-    bookable: false,
   },
 ] as const;
 
@@ -221,12 +331,15 @@ export function raceSimItemConfigured(item: {
   trackKey: string | null;
 }): boolean {
   const product = getRaceSimProduct(item.productSlug);
-  if (!product || !product.bookable) return false;
+  if (!product || !raceSimProductBookable(product)) return false;
   if (!RACE_SIM_SQUARE_CATALOG_ID) return false;
-  // A PACK sells credits, so it needs somewhere to grant them. Checked in its
-  // own right rather than leaning on `bookable`: whoever flips that flag on
-  // launch day must not be able to arm a charge that banks nothing.
-  if (product.kind === "pack" && !product.depositKindId) return false;
+  // A PACK sells CREDITS, not a seat. It needs somewhere to grant them, and it
+  // needs NOTHING from the booking rail — no track key, no BMI page, no
+  // session. Requiring a booking target here is what would send a credit
+  // purchase down the reservation path. Checked in its own right rather than
+  // leaning on `bookable`: whoever arms this must not be able to charge for
+  // credits with nowhere to bank them.
+  if (product.kind === "pack") return !!product.depositKindId;
   return raceSimBookingTarget(item.trackKey) != null;
 }
 
@@ -261,6 +374,31 @@ export class RaceSimStaleHoldError extends Error {
   constructor() {
     super("Your group changed after the time was held — please re-pick your time.");
     this.name = "RaceSimStaleHoldError";
+  }
+}
+
+/**
+ * Thrown by guard 2f when a picked session wants a circuit that its time slot
+ * is already locked to something else for. Four rigs, one pool: a 10:00
+ * session runs ONE circuit, so whoever booked it first fixed which. The guest
+ * who picked second has to move to that circuit or to another time — and they
+ * must hear it BEFORE the charge, which is why this is a guard and not a
+ * day-of conversation at the desk.
+ *
+ * `lockedTo` is the stable track key, so the caller can name the circuit in
+ * the guest's own locale rather than hardcoding a name here.
+ */
+export class RaceSimCircuitTakenError extends Error {
+  readonly code = "RACESIM_CIRCUIT_TAKEN" as const;
+  constructor(
+    readonly slot: string,
+    readonly lockedTo: RaceSimTrackKey,
+  ) {
+    super(
+      "That session is already running a different circuit — " +
+        "pick that circuit or choose another time.",
+    );
+    this.name = "RaceSimCircuitTakenError";
   }
 }
 

@@ -226,7 +226,6 @@ const NATIVE_STEP_IDS = new Set([
   // Race Sims (kiosk-native, canvas px). racesim-product is deliberately NOT
   // here: it is authored in karting's web rem classes and rides the same
   // kiosk zoom as karting's product page so the two render identically.
-  "racesim-track",
   "racesim-slot",
   "racesim-party",
 ]);
@@ -295,7 +294,6 @@ const STEP_TITLE_KEYS: Record<string, MessageKey> = {
   Activity: "stepTitle.activity",
   // Race Sims steps (parts/racesim.ts).
   "Race Options": "stepTitle.raceOptions",
-  Track: "stepTitle.track",
 };
 
 /** Same trick for the "why Continue is blocked" hint the shell renders under a
@@ -323,7 +321,6 @@ const STEP_REASON_KEYS: Record<string, MessageKey> = {
   "That time is too close to another activity — pick another.": "stepReason.racesimConflict",
   "You picked the same time on two tracks — remove one to continue.":
     "stepReason.racesimSelfConflict",
-  "Pick a track.": "stepReason.racesimTrack",
   "Tap a time to hold your lane": "stepReason.holdLane",
   "Verify your KBF pass first": "stepReason.verifyKbf",
   "Pick your match to hold a VIP lane": "stepReason.worldCupMatch",
@@ -574,11 +571,13 @@ export function KioskFlow({
   // Standalone race-pack purchase (attract "Race Packs" chip) — a LOCKED
   // pack-only flow; its party is local until "Race today" adopts it here.
   const [packsOpen, setPacksOpen] = useState(false);
+  // Race Sims staff preview unlock — THIS SESSION ONLY, deliberately not
+  // persisted: a guest reload must never inherit a staff unlock.
+  const [raceSimUnlocked, setRaceSimUnlocked] = useState(false);
   // Race Sims staff unlock (PLACEHOLDER PHASE 2026-08): guests see the tile as
   // a locked "Coming Soon" card; the kiosk-admin PIN flips this for the rest
   // of THIS session only. Deliberately component state, NEVER storage — Start
   // Over / idle reset unmounts KioskFlow, so it auto-relocks between guests.
-  const [raceSimUnlocked, setRaceSimUnlocked] = useState(false);
   // True while the Game Zone dispenser is mid-operation/holding — pauses the
   // idle watchdog so a guest isn't reset mid-dispense or during a fault hold.
   const [gzBusy, setGzBusy] = useState(false);
@@ -1164,7 +1163,7 @@ export function KioskFlow({
     dispatch({ type: "addItem", item });
   };
 
-  /** Race Sims (staff-gated placeholder) — enter the racesim wizard. Reached
+  /** Race Sims — enter the racesim wizard. Reached
    *  ONLY through the tile's PIN unlock, so no combo special-casing: staff
    *  test on a clean session. Reactivates an existing draft like the other
    *  activities so backing out and returning never duplicates the item. */

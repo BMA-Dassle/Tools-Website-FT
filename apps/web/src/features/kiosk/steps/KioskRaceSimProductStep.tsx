@@ -33,9 +33,12 @@
 import type { StepDef, RaceSimItem } from "~/features/booking";
 import {
   RACE_SIM_PRODUCTS,
+  raceSimPackPerRace,
+  raceSimProductBookable,
   raceSimPriceFor,
   type RaceSimProduct,
 } from "~/features/race-sims/products";
+import { releaseRaceSimSessionLines } from "~/features/booking/service/checkout";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 
@@ -63,27 +66,68 @@ const KioskRaceSimProductStepComponent: StepDef<RaceSimItem>["Component"] = ({
   item,
   session,
   onChange,
+  setBusy,
 }) => {
   const t = useT();
   // One flat rate every day (owner 2026-09-01), and the charge reads the same
   // helper, so displayed == charged without the step knowing today's date.
   const racers = session.party.length;
-  const sellable = RACE_SIM_PRODUCTS.filter((p) => p.bookable);
+  // Show the whole ladder — 1 Race and the 3/5/10 packs — the way karting's
+  // sell surfaces do. A pack is only SELECTABLE once its Pandora deposit kind
+  // is armed (raceSimProductBookable derives that from the id, so there is no
+  // second flag to disagree with it); until then it renders with its price and
+  // saving but cannot be picked, because a pack that charges with nowhere to
+  // bank the credits takes money and gives nothing back.
+  const sellable = RACE_SIM_PRODUCTS;
+
+  /**
+   * Switch product — and RELEASE any held sim sessions when moving to a PACK.
+   *
+   * A single eager-holds a $0 BMI line the moment a time is picked. Switching
+   * to a pack hides the schedule step, so those holds would otherwise sit on
+   * BMI for ~20 minutes blocking rigs nobody is racing, and would never be
+   * released because nothing owns them any more. (The reverse — pack → single —
+   * needs nothing: there is no hold to release.)
+   *
+   * The release is best-effort; the sessions are dropped from the item either
+   * way, because an item that still lists them would price and guard against
+   * sessions the guest has abandoned.
+   */
+  const pick = (product: RaceSimProduct) => {
+    const patch = { productSlug: product.slug, productKind: product.kind };
+    const held = product.kind === "pack" ? item.sessions.filter((x) => x.bmiLineId) : [];
+    if (held.length === 0) {
+      onChange(product.kind === "pack" ? { ...patch, sessions: [] } : patch);
+      return;
+    }
+    setBusy?.(true);
+    void releaseRaceSimSessionLines(session, held)
+      .catch((err) => console.error("[racesim] releasing holds on pack switch failed:", err))
+      .finally(() => {
+        onChange({ ...patch, sessions: [] });
+        setBusy?.(false);
+      });
+  };
 
   const card = (product: RaceSimProduct) => {
     const isSelected = item.productSlug === product.slug;
     const nameKey = PRODUCT_NAME_KEYS[product.slug];
     const name = nameKey ? t(nameKey) : product.name;
     const price = raceSimPriceFor(product);
+    const buyable = raceSimProductBookable(product);
+    const isPack = product.kind === "pack";
     return (
       <button
         key={product.slug}
         type="button"
-        onClick={() => onChange({ productSlug: product.slug, productKind: product.kind })}
+        disabled={!buyable}
+        onClick={() => buyable && pick(product)}
         className={`relative w-full rounded-xl border p-4 text-left transition-all duration-200 ${
-          isSelected
-            ? "border-[#00E2E5] bg-[#00E2E5]/5"
-            : "border-white/10 bg-white/5 hover:border-white/30 hover:bg-white/8"
+          !buyable
+            ? "cursor-not-allowed border-white/10 bg-white/[0.03] opacity-50"
+            : isSelected
+              ? "border-[#00E2E5] bg-[#00E2E5]/5"
+              : "border-white/10 bg-white/5 hover:border-white/30 hover:bg-white/8"
         }`}
         style={{ borderLeftWidth: 3, borderLeftColor: isSelected ? SELECTED : ACCENT }}
       >
@@ -96,15 +140,32 @@ const KioskRaceSimProductStepComponent: StepDef<RaceSimItem>["Component"] = ({
           <span className="text-[15px] font-bold text-white">{name}</span>
           <span className="text-[15px] font-extrabold whitespace-nowrap text-white tabular-nums">
             ${price.toFixed(2)}
-            <span className="text-xs font-medium text-white/40">
-              {" "}
-              / {t("racesim.product.perRacer")}
-            </span>
+            {!isPack && (
+              <span className="text-xs font-medium text-white/40">
+                {" "}
+                / {t("racesim.product.perRacer")}
+              </span>
+            )}
           </span>
         </div>
         <p className="mt-1 text-[13px] leading-relaxed text-white/50">
-          {t("racesim.product.single.sub")}
+          {isPack
+            ? t("racesim.product.pack.sub", { count: product.raceCount })
+            : t("racesim.product.single.sub")}
         </p>
+        {isPack && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded-full bg-[#00E2E5]/15 px-2 py-0.5 font-bold text-[#00E2E5]">
+              {t("racesim.product.pctOff", { pct: product.pctOff ?? 0 })}
+            </span>
+            <span className="text-white/45">
+              {t("racesim.product.perRaceRate", {
+                rate: `$${raceSimPackPerRace(product).toFixed(2)}`,
+              })}
+            </span>
+            {!buyable && <span className="text-amber-400/80">{t("racesim.product.packSoon")}</span>}
+          </div>
+        )}
         <div className="mt-2 flex items-center gap-1.5 text-xs text-white/35">
           {TRACK_DOTS.map((dot) => (
             <span
@@ -115,7 +176,7 @@ const KioskRaceSimProductStepComponent: StepDef<RaceSimItem>["Component"] = ({
           ))}
           <span className="ml-0.5">{t("racesim.product.trackLine")}</span>
         </div>
-        {racers > 1 && (
+        {racers > 1 && !isPack && (
           <div className="mt-2 text-xs text-white/50">
             {t("racesim.product.groupTotal", {
               unit: `$${price.toFixed(2)}`,

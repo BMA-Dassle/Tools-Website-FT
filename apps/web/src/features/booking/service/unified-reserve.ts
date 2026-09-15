@@ -34,6 +34,7 @@ import { upsertPackPurchases, markPackCharged } from "../data/race-pack-purchase
 import { addonPurchaseIntents } from "./addon-charge";
 import { upsertAddonPurchases } from "../data/addon-purchases-db";
 import { grantAddonCredits } from "./addon-grant.server";
+import { grantRaceSimPacks } from "~/features/race-sims/grant.server";
 import { SQUARE_RACE_PACK_CATALOG_ID } from "../data/packs";
 import {
   getRaceSimProduct,
@@ -43,6 +44,7 @@ import {
   RaceSimNotConfiguredError,
   RaceSimMixedCartError,
   RaceSimStaleHoldError,
+  RaceSimCircuitTakenError,
   RACE_SIM_SQUARE_CATALOG_ID,
 } from "~/features/race-sims/products";
 import {
@@ -53,7 +55,12 @@ import {
   isRaceSimTrackLabel,
   findRaceSimCrossBookingConflict,
   findRaceSimSelfConflict,
+  simSlotLockIndex,
+  cartSimSlotLocks,
+  findSimCircuitClash,
+  type SimSlotLock,
 } from "~/features/race-sims/scheduling";
+import { circuitForTrack, simSessionCircuitName } from "~/features/race-sims/circuits";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { after } from "next/server";
@@ -186,6 +193,7 @@ import {
   updateBowlingReservationConfirmFailed,
   updateBowlingReservationSquareIds,
   raceHeatsForPersonsOnDate,
+  simSlotCircuitLocks,
   getBowlingExperiences,
   type ReservationProductKind,
 } from "@/lib/bowling-db";
@@ -306,6 +314,13 @@ export interface GameCardFulfillment {
 export interface UnifiedReserveResult {
   neonIds: number[];
   shortCodes: string[];
+  /**
+   * Short code for a Race Sim booking's confirmation, kept SEPARATE from
+   * `shortCodes` on purpose: a sim cart may also hold FastTrax duckpin, which
+   * mints its own code, and the confirmation must not hand the guest a QR that
+   * resolves to the other leg. Null when the cart has no sims.
+   */
+  raceSimShortCode: string | null;
   qamfReservationIds: string[];
   bmiReservationNumber: string | null;
   bmiReservationCode: string | null;
@@ -977,9 +992,34 @@ export function buildCombinedLineItems(session: BookingSession): {
     if (!product) continue; // unready draft — allItemsReady blocks it upstream
     const qty = Math.max(1, item.racerCount);
     const unitCents = Math.round(raceSimPriceFor(product) * 100);
+    // A PACK is one bundle at one price — the product step shows "$39.45" flat
+    // and suppresses the per-racer group total, so the charge must match that
+    // exactly (displayed == charged). Credits land on ONE person's ledger.
+    if (product.kind === "pack") {
+      const name = `Race Sims — ${product.name}`;
+      totalPriceCents += unitCents;
+      entityCents.fasttrax += unitCents;
+      totalDepositCents += unitCents;
+      sqLineItems.push({
+        name,
+        quantity: "1",
+        ...(RACE_SIM_SQUARE_CATALOG_ID
+          ? {
+              catalogObjectId: RACE_SIM_SQUARE_CATALOG_ID,
+              basePriceMoney: { amount: unitCents, currency: "USD" },
+            }
+          : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
+      });
+      pricedLines.push({ name, quantity: 1, unitCents });
+      continue;
+    }
     for (const s of item.sessions) {
       const track = getRaceSimTrack(s.trackKey);
-      const name = `Race Sims — ${product.name}${track ? ` · ${track.name}` : ""} · ${heatClockLabel(s.slot)}`;
+      // Receipt line names the CIRCUIT the guest picked, resolved for the
+      // session's own date so a reprint after the lineup rotates still reads
+      // what was raced. Falls back to the key's stable label.
+      const circuitName = simSessionCircuitName(s.trackKey, s.slot, track?.conflictLabel ?? "");
+      const name = `Race Sims — ${product.name}${circuitName ? ` · ${circuitName}` : ""} · ${heatClockLabel(s.slot)}`;
       totalPriceCents += unitCents * qty;
       entityCents.fasttrax += unitCents * qty;
       totalDepositCents += unitCents * qty;
@@ -1383,6 +1423,7 @@ async function unifiedCachedSuccess(bmiBillId: string): Promise<UnifiedReserveRe
   return {
     neonIds: row?.id ? [row.id] : [],
     shortCodes: [],
+    raceSimShortCode: null,
     qamfReservationIds: [],
     bmiReservationNumber: c.reservationNumber ?? row?.bmiReservationNumber ?? null,
     bmiReservationCode: c.reservationCode ?? null,
@@ -2277,6 +2318,16 @@ async function unifiedReserveInner(
   // treatment covers sims. Races + duckpin are FastTrax — those mix fine.
   if (racesimItems.length > 0) {
     for (const item of racesimItems) {
+      // A PACK is a credit purchase, not a booking: no sessions, no track key,
+      // no BMI hold. Only that its deposit kind and Square id are armed, which
+      // raceSimItemConfigured checks. Demanding sessions here is what used to
+      // push a credit purchase down the reservation path.
+      if (getRaceSimProduct(item.productSlug)?.kind === "pack") {
+        if (!raceSimItemConfigured({ productSlug: item.productSlug, trackKey: null })) {
+          throw new RaceSimNotConfiguredError(item.productSlug);
+        }
+        continue;
+      }
       if (item.sessions.length === 0) {
         throw new RaceSimNotConfiguredError(item.productSlug);
       }
@@ -2301,6 +2352,49 @@ async function unifiedReserveInner(
     );
     if (hasHeadpinzItem) {
       throw new RaceSimMixedCartError();
+    }
+
+    // ── 2f. One session runs ONE circuit ─────────────────────────────
+    // Four rigs, one shared capacity pool: a 10:00 session is four rigs on a
+    // single circuit, so the first booking on a slot fixes which $0 track key
+    // it runs. The schedule shows locks, but its copy can be seconds stale —
+    // two kiosks can pick the same open slot on different circuits inside the
+    // same poll window. This is the authoritative check, and it runs BEFORE
+    // any Square write so the second guest is told to move instead of paying
+    // for a session that cannot run their circuit.
+    //
+    // The cart's own picks count as locks too (cartSimSlotLocks), which is
+    // what stops ONE cart putting two circuits into one session.
+    //
+    // Fail-open on a query error, deliberately: the same posture as the
+    // cross-reservation guard above. A Neon blip must not refuse a booking the
+    // rigs can actually run — the worst case is the desk picking one circuit
+    // for a shared session, which is where we were before this existed.
+    const simDates = [
+      ...new Set(racesimItems.flatMap((r) => r.sessions.map((s) => s.slot.slice(0, 10)))),
+    ];
+    for (const date of simDates) {
+      let lockRows: { slot: string; trackKey: string }[] = [];
+      try {
+        lockRows = await simSlotCircuitLocks({ date, excludeBillId: session.bmiBillId });
+      } catch (err) {
+        console.error("[unified-reserve] sim circuit locks failed (failing open):", err);
+        continue;
+      }
+      const index = simSlotLockIndex([
+        // Existing reservations first: a stranger's booking outranks our cart.
+        ...lockRows.filter(
+          (r): r is SimSlotLock => r.trackKey === "a" || r.trackKey === "b" || r.trackKey === "c",
+        ),
+        ...cartSimSlotLocks(session.items),
+      ]);
+      for (const item of racesimItems) {
+        const clash = findSimCircuitClash(
+          item.sessions.filter((s) => s.slot.slice(0, 10) === date),
+          index,
+        );
+        if (clash) throw new RaceSimCircuitTakenError(clash.session.slot, clash.lockedTo);
+      }
     }
   }
 
@@ -3136,6 +3230,8 @@ async function unifiedReserveInner(
 
   const neonIds: number[] = [];
   const shortCodes: string[] = [];
+  // Set when the cart carries Race Sims — see UnifiedReserveResult.
+  let raceSimShortCode: string | null = null;
   const qamfReservationIds: string[] = [];
   let bmiReservationNumber: string | null = null;
   let bmiReservationCode: string | null = null;
@@ -3788,8 +3884,9 @@ async function unifiedReserveInner(
         const unitPriceCents = product ? Math.round(raceSimPriceFor(product) * 100) : 0;
         return r.sessions.map((s) => {
           const track = getRaceSimTrack(s.trackKey);
+          const circuitName = simSessionCircuitName(s.trackKey, s.slot, track?.conflictLabel ?? "");
           return {
-            label: `Race Sims — ${product?.name ?? "Race"}${track ? ` · ${track.name}` : ""} · ${heatClockLabel(s.slot)}`,
+            label: `Race Sims — ${product?.name ?? "Race"}${circuitName ? ` · ${circuitName}` : ""} · ${heatClockLabel(s.slot)}`,
             quantity: Math.max(1, r.racerCount),
             unitPriceCents,
           };
@@ -3851,7 +3948,28 @@ async function unifiedReserveInner(
       // count, and the who's-riding roster WITH BMI ids — this is what
       // raceHeatsForPersonsOnDate reads to grey/refuse a later booking at the
       // same time (cross-reservation rule), so it is ALWAYS written.
+      // PACK purchases are recorded separately from sessions: a pack books
+      // nothing, so it has no slot to hang off, and without this the only
+      // trace of what the guest bought is the Square line. Staff answering
+      // "where are my credits?" need it on the reservation.
+      const simPacks = racesimItems.filter(
+        (r) => getRaceSimProduct(r.productSlug)?.kind === "pack",
+      );
+      if (simPacks.length > 0) {
+        bookingMetadata.racesimPacks = simPacks.map((r) => {
+          const product = getRaceSimProduct(r.productSlug);
+          return {
+            slug: r.productSlug,
+            name: product?.name ?? null,
+            credits: product?.raceCount ?? 0,
+            depositKindId: product?.depositKindId ?? null,
+            priceCents: product ? Math.round(raceSimPriceFor(product) * 100) : 0,
+          };
+        });
+      }
+
       bookingMetadata.racesims = racesimItems.flatMap((r) => {
+        if (getRaceSimProduct(r.productSlug)?.kind === "pack") return [];
         const ids =
           r.assignedTo.length > 0
             ? r.assignedTo
@@ -3869,7 +3987,13 @@ async function unifiedReserveInner(
         return r.sessions.map((s) => ({
           slug: r.productSlug,
           trackKey: s.trackKey,
-          track: getRaceSimTrack(s.trackKey)?.name ?? null,
+          // STABLE key label — this is the string the conflict rules match on
+          // when they read these rows back (isRaceSimTrackLabel). It must NOT
+          // become the circuit name: that rotates, and these rows are matched
+          // months later. The circuit is recorded beside it for day-of tooling.
+          track: getRaceSimTrack(s.trackKey)?.conflictLabel ?? null,
+          circuitId: circuitForTrack(s.trackKey, s.slot.slice(0, 10))?.id ?? null,
+          circuit: circuitForTrack(s.trackKey, s.slot.slice(0, 10))?.name ?? null,
           slot: s.slot,
           racerCount: Math.max(1, r.racerCount),
           participants,
@@ -3945,6 +4069,25 @@ async function unifiedReserveInner(
       // the deposit, fail BEFORE confirming so the client retries (idempotent).
       console.error("[unified-reserve] BMI anchor write failed:", err);
       throw new Error("Could not persist reservation. Please retry.");
+    }
+
+    // Race Sims: mint a short code on the anchor row, the way bowling does.
+    // Without one a sim booking has NOTHING to scan — the kiosk confirmation
+    // only renders a QR when the URL carries `?code=`, and kiosk check-in
+    // resolves a scan through `short:{code}` → getBowlingReservationByShortCode
+    // (which is kind-agnostic, so the sim row resolves once it has a code).
+    // Non-fatal: a booking that is already paid and confirmed must never fail
+    // over a convenience code, and staff can still find it by W-number.
+    if (racesimItems.length > 0 && bmiNeonId != null) {
+      try {
+        const confirmBase = "/book/confirmation/v2";
+        const code = await shortenUrl(`${confirmBase}?code=_TMP_`);
+        await shortenUrl(`${confirmBase}?billId=${bmiBillId}&code=${code}`, code);
+        await updateBowlingReservationShortCode(bmiNeonId, code).catch(() => {});
+        raceSimShortCode = code;
+      } catch (err) {
+        log(`[unified-reserve] race-sim short code failed (non-fatal): ${String(err)}`);
+      }
     }
 
     audit.step = "bmi-confirm";
@@ -4393,9 +4536,54 @@ async function unifiedReserveInner(
     });
   }
 
+  // ── RACE SIM packs: grant the credits ────────────────────────────────
+  // OUTSIDE the BMI block on purpose. A pack books NOTHING on BMI, so a
+  // pack-only cart never creates a bill — and everything inside
+  // `if (hasBmi && session.bmiBillId)` is therefore skipped for it. Granting
+  // in there would mean a guest paying for credits and receiving none, which
+  // is the single worst outcome this rail can have.
+  //
+  // Keyed on `baseKey` (the reserve's own idempotency seed, not the bill id)
+  // so a retried reserve cannot double-grant whether or not a bill exists.
+  // Runs after the money is captured; never throws.
+  //
+  // The pack price is a FLAT bundle price (the product step shows one number
+  // and suppresses the per-racer total), so the credits land on ONE person:
+  // the billing customer, else the first party member Pandora knows. Nobody
+  // with a bmiPersonId means there is no ledger to write to — logged loudly
+  // rather than guessed at, so it can be granted by hand.
+  {
+    const simPackItems = session.items.filter(
+      (i): i is RaceSimItem =>
+        i.kind === "racesim" && getRaceSimProduct(i.productSlug)?.kind === "pack",
+    );
+    if (simPackItems.length > 0) {
+      const buyer =
+        session.party.find((m) => m.isBillingCustomer && m.bmiPersonId) ??
+        session.party.find((m) => m.bmiPersonId) ??
+        null;
+      if (!buyer?.bmiPersonId) {
+        console.error(
+          "[race-sim-pack] purchased but NO party member has a bmiPersonId — " +
+            `reserve ${baseKey}; credits must be granted by hand`,
+        );
+      } else {
+        await grantRaceSimPacks({
+          purchaseKey: baseKey,
+          packs: simPackItems.map((r) => ({
+            slug: r.productSlug ?? "",
+            personId: buyer.bmiPersonId as string,
+            personName: formatPersonName(`${buyer.firstName ?? ""} ${buyer.lastName ?? ""}`),
+          })),
+        });
+      }
+    }
+  }
+
   return {
     neonIds,
     shortCodes,
+    raceSimShortCode,
     qamfReservationIds,
     bmiReservationNumber,
     bmiReservationCode,

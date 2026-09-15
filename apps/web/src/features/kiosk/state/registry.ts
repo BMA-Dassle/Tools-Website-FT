@@ -25,7 +25,6 @@ import {
   KioskRaceSimPeopleStep,
 } from "../steps/KioskPeopleStep";
 import { KioskRaceSimProductStep } from "../steps/KioskRaceSimProductStep";
-import { KioskRaceSimTrackStep } from "../steps/KioskRaceSimTrackStep";
 import { KioskRaceSimSlotStep } from "../steps/KioskRaceSimSlotStep";
 import { ContactStep } from "~/components/features/booking/steps/ContactStep";
 
@@ -40,7 +39,11 @@ import { ContactStep } from "~/components/features/booking/steps/ContactStep";
 // against the old order, so restoring it could drop a guest either side of the
 // game picker. Kiosk sessions are walk-up and short-lived, so discarding is
 // free; landing someone past the picker is the 400 this all exists to prevent.
-export const KIOSK_SCHEMA_VERSION = 18;
+// 19 (2026-09-15): the Race Sims flow lost its standalone `racesim-track`
+// step — the circuit is picked on the schedule now, per time block. A session
+// stored under 18 has a currentStepId recorded against the old five-step
+// order, so restoring it could land a guest on a step that no longer exists.
+export const KIOSK_SCHEMA_VERSION = 19;
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */
@@ -306,7 +309,6 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     KioskRaceSimPeopleStep as StepDef,
     ContactStep,
     KioskRaceSimProductStep as StepDef,
-    KioskRaceSimTrackStep as StepDef,
     KioskRaceSimSlotStep as StepDef,
   ],
 };

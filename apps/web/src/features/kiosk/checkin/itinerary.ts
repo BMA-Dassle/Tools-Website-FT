@@ -122,14 +122,29 @@ export interface AttractionMeta {
   building: string;
 }
 
+/** One picked Race Sim session, as the booking record stored it. */
+export interface RaceSimInput {
+  /** Wall-clock ISO start of the session. */
+  startIso: string;
+  /** The CIRCUIT name resolved at BOOKING time ("Bristol Motor Speedway").
+   *  Stored rather than recomputed because the lineup rotates and a guest must
+   *  be told the circuit they actually bought. Null on bookings taken before
+   *  circuits existed — those fall back to the generic product name. */
+  circuit: string | null;
+  racerCount: number;
+}
+
 export interface ItineraryInput {
   racing: RaceInput | null;
   attractions: AttractionInput[];
   bowling: BowlingInput[];
+  raceSims: RaceSimInput[];
   /** slug → display meta (from ATTRACTIONS on the server). */
   meta: (slug: string) => AttractionMeta | null;
   racingBuilding: string;
   bowlingBuilding: string;
+  /** Where the sim rigs live — the FastTrax building, on both brands' kiosks. */
+  raceSimBuilding: string;
 }
 
 /** Racing check-in opens this many minutes before the heat. Exported because
@@ -139,8 +154,9 @@ export const RACING_CHECKIN_LEAD_MIN = 30;
 
 /**
  * Assemble the sorted activity list + the first-stop card. Racing is one
- * activity; each attraction/bowling leg its own; sort on the tz-stripped
- * minute so mixed naive/offset starts compare correctly.
+ * activity; each attraction/bowling leg and each Race Sim session its own;
+ * sort on the tz-stripped minute so mixed naive/offset starts compare
+ * correctly.
  */
 export function assembleItinerary(input: ItineraryInput): {
   activities: CheckinActivity[];
@@ -191,6 +207,23 @@ export function assembleItinerary(input: ItineraryInput): {
       laneLabel: b.laneLabel,
       neonReservationId: b.neonReservationId,
       bowlingCheckinEligible: b.checkinEligible === true,
+    });
+  }
+
+  for (const s of input.raceSims) {
+    activities.push({
+      kind: "racesim",
+      startIso: s.startIso || null,
+      timeLabel: fmtTime12(s.startIso),
+      // The circuit IS the title — "Bristol Motor Speedway" is what the guest
+      // picked and what the staff member at the rig needs to hear.
+      title: s.circuit ?? "Race Sims",
+      building: input.raceSimBuilding,
+      slug: "race-sims",
+      // Sims carry no per-racer waiver gate of their own, so readiness is not
+      // a partial count — the whole party rides.
+      readyCount: s.racerCount,
+      totalCount: s.racerCount,
     });
   }
 

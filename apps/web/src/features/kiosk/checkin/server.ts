@@ -116,6 +116,18 @@ export interface BookingRecord {
   racers?: BookingRecordRacer[];
   attractions?: Array<{ slug?: string; date?: string; slot?: string; qty?: number }>;
   bowling?: Array<{ kind?: string; date?: string; bookedAt?: string; playerCount?: number }>;
+  /** Race Sim sessions, one per picked slot (checkout.ts saveBookingDetails).
+   *  `circuit` is resolved at BOOKING time and stored, because the lineup
+   *  rotates — a guest checking in must be told the circuit they bought. */
+  racesims?: Array<{
+    slug?: string | null;
+    trackKey?: string | null;
+    circuitId?: string | null;
+    circuit?: string | null;
+    slot?: string;
+    date?: string | null;
+    racerCount?: number;
+  }>;
   reservationNumber?: string;
   reservationCode?: string;
   status?: string;
@@ -1059,6 +1071,11 @@ function racingBuildingFor(center: CenterSlug): string {
 function bowlingBuildingFor(center: CenterSlug): string {
   return center === "naples" ? "HeadPinz Naples" : "HeadPinz Fort Myers";
 }
+/** Race Sims are in the FastTrax building — and are Fort Myers only, so this
+ *  never needs a Naples branch (kioskRaceSimDoorOpen gates the tile there). */
+function raceSimBuildingFor(_center: CenterSlug): string {
+  return "FastTrax Racing";
+}
 
 export async function buildItinerary(
   billId: string,
@@ -1179,13 +1196,27 @@ export async function buildItinerary(
     checkinEligible: r.status !== "cancelled" && isKioskBowlingRow(r),
   }));
 
+  // Race Sim sessions — one itinerary row each, titled with the circuit the
+  // guest bought (stored at booking time, so a rotation never rewrites
+  // history). Sessions with no start are dropped rather than sorted to the
+  // top of someone's plan.
+  const raceSims = (record?.racesims ?? [])
+    .filter((r) => !!r.slot)
+    .map((r) => ({
+      startIso: r.slot as string,
+      circuit: r.circuit ?? null,
+      racerCount: Math.max(1, r.racerCount ?? 1),
+    }));
+
   const { activities, firstStop } = assembleItinerary({
     racing,
     attractions,
     bowling,
+    raceSims,
     meta: attractionMeta,
     racingBuilding: racingBuildingFor(center),
     bowlingBuilding: bowlingBuildingFor(center),
+    raceSimBuilding: raceSimBuildingFor(center),
   });
 
   // Display-only balance: total − deposit across the (non-cancelled) group.

@@ -10,12 +10,51 @@
  * Device ids below are the real fleet (kiosk_devices, probed 2026-09-01).
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { kioskRaceSimDoorOpen, kioskRaceSimEnabled, kioskTodaysCrewEnabled } from "./flags";
+import {
+  kioskRaceSimDoorOpen,
+  kioskRaceSimEnabled,
+  kioskRaceSimsLive,
+  kioskTodaysCrewEnabled,
+} from "./flags";
 
 const ORIGINAL = process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS;
 afterEach(() => {
   if (ORIGINAL === undefined) delete process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS;
   else process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS = ORIGINAL;
+});
+
+describe("kioskRaceSimsLive — OPT-IN gate, defaults LOCKED", () => {
+  const ORIGINAL_LIVE = process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS_LIVE;
+  afterEach(() => {
+    if (ORIGINAL_LIVE === undefined) delete process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS_LIVE;
+    else process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS_LIVE = ORIGINAL_LIVE;
+  });
+
+  it("is LOCKED when unset — the opposite default to every kill switch here", () => {
+    // Deliberate inversion of the house rule (owner 2026-09-15): the sim flow
+    // is finished but has never been smoked against a real guest booking, so
+    // an unset env must leave guests on "Coming Soon" behind the staff PIN.
+    delete process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS_LIVE;
+    expect(kioskRaceSimsLive()).toBe(false);
+  });
+
+  it('opens ONLY on the exact string "true"', () => {
+    // Anything else — "1", "yes", "TRUE", a stray space — stays locked, so a
+    // fat-fingered Vercel value cannot put an unsmoked flow in front of guests.
+    for (const v of ["1", "yes", "TRUE", "True", " true", "", "false"]) {
+      process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS_LIVE = v;
+      expect(kioskRaceSimsLive(), `value ${JSON.stringify(v)}`).toBe(false);
+    }
+    process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS_LIVE = "true";
+    expect(kioskRaceSimsLive()).toBe(true);
+  });
+
+  it("is independent of the kill switch — going live cannot resurrect a pulled tile", () => {
+    process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS_LIVE = "true";
+    process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS = "false";
+    expect(kioskRaceSimsLive()).toBe(true);
+    expect(kioskRaceSimDoorOpen("fort-myers")).toBe(false);
+  });
 });
 
 describe("kioskTodaysCrewEnabled — kill switch, defaults ON", () => {

@@ -42,6 +42,7 @@ import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability, venueSlug } from "../config";
 import { useT, useLocale, LanguageSwitcher, type Translate } from "../i18n";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
+import { kioskRaceSimsLive } from "../flags";
 import { verifyKioskAdminPin } from "../data/admin-pin";
 
 type CategoryKey = "exp" | "attr";
@@ -147,12 +148,14 @@ export interface KioskCategoriesProps {
   sessionStrip?: React.ReactNode;
   /** Coupon/voucher entry (kioskPromoEnabled) — undefined hides the chip. */
   onOpenCodeEntry?: () => void;
-  /** Race Sims (PLACEHOLDER PHASE 2026-08, FastTrax FM only — the CALLER owns
-   *  the brand/center/kill-switch gating, same as every door above). Undefined
-   *  = no tile. While locked, the tile is a "Coming Soon" card whose only live
-   *  path is the staff 5-tap → kiosk-admin-PIN sheet; `onRaceSimUnlock` then
-   *  records the unlock (KioskFlow session state) and `onOpenRaceSim` enters
-   *  the flow. */
+  /** Race Sims (FastTrax FM only — the CALLER owns the brand/center/kill-switch
+   *  gating, same as every door above). Undefined = no tile.
+   *
+   *  Guest exposure is decided by `kioskRaceSimsLive()`, NOT here: while that
+   *  is off the tile renders as a locked "Coming Soon" card whose only live
+   *  path is the staff 5-tap → kiosk-admin-PIN sheet, and `onRaceSimUnlock`
+   *  records the unlock for that session only. Once it is on, one tap opens
+   *  the flow like any other tile. */
   onOpenRaceSim?: () => void;
   raceSimUnlocked?: boolean;
   onRaceSimUnlock?: () => void;
@@ -253,6 +256,9 @@ export function KioskCategories({
   // brand/center/kill-switch gating (KioskFlow passes the callback only on a
   // FastTrax FM kiosk), same contract as the util-strip doors below.
   const showRaceSims = !!onOpenRaceSim;
+  // Guests only get in when the go-live env var is set; otherwise the tile is
+  // a locked "Coming Soon" card and the staff PIN is the only way through.
+  const raceSimsLive = kioskRaceSimsLive();
   // Every box in the bottom grid, in render order. Built as a list so the grid
   // can span an odd last tile across both columns instead of leaving a hole —
   // and so the two "hide once a voucher is scanned" rules are one place, not
@@ -736,12 +742,14 @@ export function KioskCategories({
                     onClick={() => onPickOffering(o)}
                   />
                   {/* Race Sims takes KBF's old kiosk slot — right after the
-                      (wide) racing tile so it opens the next row. Kiosk-owned,
-                      NOT a catalog offering: a catalog entry would leak onto
-                      the web landing while the product is staff-gated. */}
+                      (wide) racing tile so it opens the next row. Still a
+                      kiosk-owned tile rather than a catalog offering: the web
+                      has its own Race Sims entry, and this shelf needs the
+                      FastTrax-building framing a generic catalog tile can't
+                      give it. */}
                   {o.slug === "race" && showRaceSims && (
                     <RaceSimTile
-                      unlocked={raceSimUnlocked}
+                      unlocked={raceSimsLive || raceSimUnlocked}
                       onOpen={() => onOpenRaceSim?.()}
                       onRequestUnlock={() => setRaceSimPinOpen(true)}
                     />
@@ -755,7 +763,7 @@ export function KioskCategories({
                   still gets a slot at the end rather than vanishing. */}
               {showRaceSims && !offerings.some((o) => o.slug === "race") && (
                 <RaceSimTile
-                  unlocked={raceSimUnlocked}
+                  unlocked={raceSimsLive || raceSimUnlocked}
                   onOpen={() => onOpenRaceSim?.()}
                   onRequestUnlock={() => setRaceSimPinOpen(true)}
                 />

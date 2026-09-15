@@ -40,12 +40,23 @@ function hasHeadpinzAttraction(row: ScopedRow): boolean {
   return attractionSlugs(row).some((s) => !FASTTRAX_ATTRACTION_SLUGS.has(s));
 }
 
+/** Does this row carry Race Sim sessions? Sims anchor as product_kind
+ *  'attraction' but live in booking_metadata.racesims[], NOT .attractions[]. */
+function hasRaceSimLeg(row: ScopedRow): boolean {
+  const sims = row.bookingMetadata?.racesims;
+  return Array.isArray(sims) && sims.length > 0;
+}
+
 /**
  * Whether a row fetched for the HeadPinz Fort Myers board (center
  * TXBSQN0FEKQ11, aliased to also fetch the 'fort-myers' slug) belongs on it:
  * - native rows (Square-ID center_code, i.e. bowling/KBF) — always
  * - 'fort-myers' slug attractions — yes unless every slug is FastTrax-owned
  *   (rows with no slug metadata stay visible: visible-but-extra beats invisible)
+ * - Race Sims — NO. Sims anchor as product_kind 'attraction' but carry no
+ *   attraction slug, so the "no slug metadata stays visible" fallback was
+ *   putting every FastTrax sim booking on the HeadPinz board. The rigs are in
+ *   the FastTrax building; HeadPinz staff can do nothing with the row.
  * - 'fort-myers' slug races — only when the cart also bought a HeadPinz
  *   attraction: a mixed race + attraction cart writes ONE anchor row with
  *   product_kind 'race' (unified-reserve), the attraction legs living in
@@ -55,6 +66,9 @@ function hasHeadpinzAttraction(row: ScopedRow): boolean {
 export function belongsOnHeadpinzFmBoard(row: ScopedRow): boolean {
   if (row.centerCode !== "fort-myers") return true;
   if (row.productKind === "attraction") {
+    // A sim-only row has no attraction slugs, which would otherwise fall
+    // through the "no metadata" fallback onto the HeadPinz board.
+    if (hasRaceSimLeg(row) && attractionSlugs(row).length === 0) return false;
     return attractionSlugs(row).length === 0 || hasHeadpinzAttraction(row);
   }
   if (row.productKind === "race") return hasHeadpinzAttraction(row);

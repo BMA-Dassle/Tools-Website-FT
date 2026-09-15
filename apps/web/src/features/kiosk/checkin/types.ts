@@ -220,7 +220,11 @@ export interface CheckinCompleteResponse {
 
 // ── Itinerary envelope (GET /api/kiosk/checkin/itinerary, proof-gated) ──────
 
-export type CheckinActivityKind = "racing" | "bowling" | "attraction";
+/** "racesim" is its OWN kind rather than folded into "attraction": a sim
+ *  reservation anchors as product_kind 'attraction' on the Neon side, but a
+ *  guest checking in needs to be sent to the sim bay and told which CIRCUIT
+ *  they are on, which no attraction slug can express. */
+export type CheckinActivityKind = "racing" | "bowling" | "attraction" | "racesim";
 
 export interface CheckinRacer {
   /** Local-stable display id (never a session party id from another context). */

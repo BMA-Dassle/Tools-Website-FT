@@ -15,6 +15,7 @@ import type {
   RaceItem,
   RaceHeatAssignment,
   AttractionItem,
+  RaceSimItem,
   SessionItem,
   PartyMember,
 } from "../state/types";
@@ -25,6 +26,7 @@ import {
   raceItemFullyPackaged,
 } from "../state/types";
 import type { ContactInfo } from "../types";
+import { circuitForTrack } from "~/features/race-sims/circuits";
 import { activeComboSpecial, comboChargeLines } from "~/features/combos/combo-pricing";
 import type { DiscountDomain } from "~/features/discount-codes";
 import { applyPromoToBillLines, promoSavingsCents } from "./promo-pricing";
@@ -413,6 +415,24 @@ export async function saveBookingDetails(
     isDuckpin: b.kind === "bowling" ? !!b.isDuckpin : false,
   }));
 
+  // Race Sim sessions — one entry per picked session, so kiosk CHECK-IN can
+  // put "Bristol Motor Speedway · 7:15 PM" on the guest's itinerary instead of
+  // a bare "Activity". The CIRCUIT is resolved and stored HERE, at booking
+  // time, alongside the stable track key: the lineup rotates, and a guest
+  // checking in next week must still be told the circuit they bought.
+  const raceSimItems = session.items.filter((i): i is RaceSimItem => i.kind === "racesim");
+  const raceSimBookings = raceSimItems.flatMap((r) =>
+    r.sessions.map((sess) => ({
+      slug: r.productSlug,
+      trackKey: sess.trackKey,
+      circuitId: circuitForTrack(sess.trackKey, sess.slot.slice(0, 10))?.id ?? null,
+      circuit: circuitForTrack(sess.trackKey, sess.slot.slice(0, 10))?.name ?? null,
+      slot: sess.slot,
+      date: r.date,
+      racerCount: Math.max(1, r.racerCount),
+    })),
+  );
+
   // Express Lane: EVERY racer in the party must be a returning racer with a
   // valid Pandora waiver. A single new/unresolved racer (no bmiPersonId, or
   // isNewRacer) has no waiver on file and must visit Guest Services — so the
@@ -447,7 +467,10 @@ export async function saveBookingDetails(
         cashOwed: overview.cashOwed,
         creditApplied: overview.creditApplied,
         totalAmount: overview.total,
-        date: raceItems[0]?.date ?? null,
+        // A sim-only booking has no race item; fall back to its date so the
+        // record still lands in the bookingrecord:date:{ymd} index that
+        // check-in and the day-of tooling browse by.
+        date: raceItems[0]?.date ?? raceSimItems[0]?.date ?? null,
         createdAt: new Date().toISOString(),
         status: "pending_payment",
         package: packageId,
@@ -457,6 +480,7 @@ export async function saveBookingDetails(
         fastLane: fastLane || undefined,
         attractions: attractionBookings.length > 0 ? attractionBookings : undefined,
         bowling: bowlingBookings.length > 0 ? bowlingBookings : undefined,
+        racesims: raceSimBookings.length > 0 ? raceSimBookings : undefined,
       }),
     });
   } catch {
