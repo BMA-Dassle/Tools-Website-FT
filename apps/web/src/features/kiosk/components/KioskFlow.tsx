@@ -571,6 +571,9 @@ export function KioskFlow({
   // Standalone race-pack purchase (attract "Race Packs" chip) — a LOCKED
   // pack-only flow; its party is local until "Race today" adopts it here.
   const [packsOpen, setPacksOpen] = useState(false);
+  // Race Sims staff preview unlock — THIS SESSION ONLY, deliberately not
+  // persisted: a guest reload must never inherit a staff unlock.
+  const [raceSimUnlocked, setRaceSimUnlocked] = useState(false);
   // Race Sims staff unlock (PLACEHOLDER PHASE 2026-08): guests see the tile as
   // a locked "Coming Soon" card; the kiosk-admin PIN flips this for the rest
   // of THIS session only. Deliberately component state, NEVER storage — Start
@@ -2439,7 +2442,13 @@ export function KioskFlow({
           // "SIMS need to show on the kiosk at headpinz fort myers"). Venue
           // rule + kill switch live together in kioskRaceSimDoorOpen() so the
           // answer is testable; caller-owns-gating like every other door.
-          {...(kioskRaceSimDoorOpen(config.center) ? { onOpenRaceSim: pickRaceSim } : {})}
+          {...(kioskRaceSimDoorOpen(config.center)
+            ? {
+                raceSimUnlocked,
+                onRaceSimUnlock: () => setRaceSimUnlocked(true),
+                onOpenRaceSim: pickRaceSim,
+              }
+            : {})}
           // "Not booking" side doors, moved off the attract screen (owner
           // 2026-07-28). Flag + venue gating lives HERE — a callback only arrives
           // when the door applies — so KioskCategories stays presentational and

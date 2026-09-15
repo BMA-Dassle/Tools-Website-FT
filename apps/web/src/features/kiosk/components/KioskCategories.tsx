@@ -42,6 +42,8 @@ import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability, venueSlug } from "../config";
 import { useT, useLocale, LanguageSwitcher, type Translate } from "../i18n";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
+import { kioskRaceSimsLive } from "../flags";
+import { verifyKioskAdminPin } from "../data/admin-pin";
 
 type CategoryKey = "exp" | "attr";
 
@@ -149,9 +151,14 @@ export interface KioskCategoriesProps {
   /** Race Sims (FastTrax FM only — the CALLER owns the brand/center/kill-switch
    *  gating, same as every door above). Undefined = no tile.
    *
-   *  LIVE TO GUESTS 2026-09-15: a single tap opens the flow. The staff 5-tap →
-   *  kiosk-admin-PIN gate that guarded the placeholder phase is gone. */
+   *  Guest exposure is decided by `kioskRaceSimsLive()`, NOT here: while that
+   *  is off the tile renders as a locked "Coming Soon" card whose only live
+   *  path is the staff 5-tap → kiosk-admin-PIN sheet, and `onRaceSimUnlock`
+   *  records the unlock for that session only. Once it is on, one tap opens
+   *  the flow like any other tile. */
   onOpenRaceSim?: () => void;
+  raceSimUnlocked?: boolean;
+  onRaceSimUnlock?: () => void;
   /** The session's applied code — renders the gold banner + per-tile
    *  "Code applies" badges (same isOfferingInPromoScope the web landing uses). */
   appliedPromo?: AppliedPromo | null;
@@ -186,6 +193,8 @@ export function KioskCategories({
   sessionStrip,
   onOpenCodeEntry,
   onOpenRaceSim,
+  raceSimUnlocked = false,
+  onRaceSimUnlock,
   appliedPromo,
   onClearPromo,
   appliedVouchers = [],
@@ -193,6 +202,8 @@ export function KioskCategories({
   pendingGzCardCount = 0,
 }: KioskCategoriesProps) {
   const [cat, setCat] = useState<CategoryKey | null>(null);
+  // Race Sims staff PIN sheet (locked-tile 5-tap opens it).
+  const [raceSimPinOpen, setRaceSimPinOpen] = useState(false);
   const { config } = useKioskConfig();
   const t = useT();
   const gameZone = gameZoneCapability(config); // "full" | "swipe" | "none"
@@ -245,6 +256,9 @@ export function KioskCategories({
   // brand/center/kill-switch gating (KioskFlow passes the callback only on a
   // FastTrax FM kiosk), same contract as the util-strip doors below.
   const showRaceSims = !!onOpenRaceSim;
+  // Guests only get in when the go-live env var is set; otherwise the tile is
+  // a locked "Coming Soon" card and the staff PIN is the only way through.
+  const raceSimsLive = kioskRaceSimsLive();
   // Every box in the bottom grid, in render order. Built as a list so the grid
   // can span an odd last tile across both columns instead of leaving a hole —
   // and so the two "hide once a voucher is scanned" rules are one place, not
@@ -734,7 +748,11 @@ export function KioskCategories({
                       FastTrax-building framing a generic catalog tile can't
                       give it. */}
                   {o.slug === "race" && showRaceSims && (
-                    <RaceSimTile onOpen={() => onOpenRaceSim?.()} />
+                    <RaceSimTile
+                      unlocked={raceSimsLive || raceSimUnlocked}
+                      onOpen={() => onOpenRaceSim?.()}
+                      onRequestUnlock={() => setRaceSimPinOpen(true)}
+                    />
                   )}
                 </Fragment>
               ))}
@@ -744,7 +762,11 @@ export function KioskCategories({
                   "fort-myers") lists — but if it ever goes missing the tile
                   still gets a slot at the end rather than vanishing. */}
               {showRaceSims && !offerings.some((o) => o.slug === "race") && (
-                <RaceSimTile onOpen={() => onOpenRaceSim?.()} />
+                <RaceSimTile
+                  unlocked={raceSimsLive || raceSimUnlocked}
+                  onOpen={() => onOpenRaceSim?.()}
+                  onRequestUnlock={() => setRaceSimPinOpen(true)}
+                />
               )}
             </div>
           )}
@@ -755,6 +777,16 @@ export function KioskCategories({
           too — the chrome's top banner is off for this whole mount, and the
           hold countdown must never disappear while a guest browses a shelf. */}
       {sessionStrip}
+      {raceSimPinOpen && (
+        <RaceSimPinSheet
+          onClose={() => setRaceSimPinOpen(false)}
+          onUnlocked={() => {
+            setRaceSimPinOpen(false);
+            onRaceSimUnlock?.();
+            onOpenRaceSim?.();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1048,29 +1080,55 @@ function OfferingTile({
 }
 
 /**
- * Race Sims tile — LIVE TO GUESTS 2026-09-15.
- *
- * Took KBF's kiosk slot in 2026-08 as a locked "Coming Soon" card whose only
- * live path was a staff 5-tap → kiosk-admin-PIN sheet. That gate is gone: the
- * product is armed end to end (BMI $0 keys, shared page, Square id, and this
- * week's circuit lineup), so one tap opens the flow like any other tile.
- *
- * Still hand-rolled rather than an OfferingTile: sims sit in the FastTrax
- * building and the venue chip has to say so even on a HeadPinz kiosk.
+ * Race Sims tile — PLACEHOLDER PHASE 2026-08 (took KBF's kiosk slot). Guest
+ * view: the OfferingTile "locked" treatment (dimmed, "Coming Soon" eyebrow,
+ * note instead of blurb, gray footer bar) — but the button stays LIVE, because
+ * the lock is the staff door: 5 taps within 3s (AdminTapZone's exact gesture)
+ * summons the kiosk-admin-PIN sheet. Unlocked (this session only): full color,
+ * an English "STAFF PREVIEW" pill, and a single tap opens the flow.
  */
-function RaceSimTile({ onOpen }: { onOpen: () => void }) {
+function RaceSimTile({
+  unlocked,
+  onOpen,
+  onRequestUnlock,
+}: {
+  unlocked: boolean;
+  onOpen: () => void;
+  onRequestUnlock: () => void;
+}) {
   const t = useT();
   const heroUrl = useResilientImage(KIOSK_PHOTOS.redTrack);
   const logoUrl = useResilientImage(KIOSK_LOGOS.fasttrax);
+  const taps = useRef<number[]>([]);
   const accent = "#ff6b6b";
+  const handleTap = () => {
+    if (unlocked) {
+      onOpen();
+      return;
+    }
+    // Locked: single taps are inert (a guest sees a dead "Coming Soon" card);
+    // the AdminTapZone gesture — 5 taps in 3s — opens the staff PIN sheet.
+    const now = Date.now();
+    taps.current = [...taps.current.filter((ts) => now - ts < 3000), now];
+    if (taps.current.length >= 5) {
+      taps.current = [];
+      onRequestUnlock();
+    }
+  };
   return (
     <button
       type="button"
-      onClick={onOpen}
+      onClick={handleTap}
       aria-label={t("racesim.tile.name")}
-      className="k-ph k-tap relative h-[340px] overflow-hidden rounded-[28px] border border-white/10 text-left"
+      className={`k-ph k-tap relative h-[340px] overflow-hidden rounded-[28px] border border-white/10 text-left ${unlocked ? "" : "opacity-50"}`}
       style={heroUrl ? ({ ["--k-img"]: `url(${heroUrl})` } as React.CSSProperties) : undefined}
     >
+      {/* Staff pill — staff surface, English on purpose (KioskAdmin precedent). */}
+      {unlocked && (
+        <div className="k-display absolute left-[20px] top-[20px] rounded-full bg-[#ff6b6b] px-[22px] py-[10px] text-[22px] text-[#2b0404] shadow-[0_10px_34px_rgba(255,107,107,0.45)]">
+          STAFF PREVIEW
+        </div>
+      )}
       {/* Venue chip — same geometry as OfferingTile. */}
       <div className="k-glass absolute right-[20px] top-[20px] flex items-center px-[20px] py-[12px]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1081,6 +1139,11 @@ function RaceSimTile({ onOpen }: { onOpen: () => void }) {
         />
       </div>
       <div className="absolute inset-x-[36px] bottom-[64px]">
+        {!unlocked && (
+          <div className="k-eyebrow mb-[6px]" style={{ color: accent }}>
+            {t("racesim.tile.comingSoon")}
+          </div>
+        )}
         <div className="flex h-[84px] items-end">
           <span
             className="k-display line-clamp-2 break-words text-[36px] leading-[1.15]"
@@ -1090,13 +1153,75 @@ function RaceSimTile({ onOpen }: { onOpen: () => void }) {
           </span>
         </div>
         <div className="mt-[8px] line-clamp-2 h-[64px] break-words text-[24px] leading-[1.3] text-white/65">
-          {t("racesim.tile.blurb")}
+          {unlocked ? t("racesim.tile.blurb") : t("racesim.tile.comingSoonNote")}
         </div>
       </div>
       <div className="absolute inset-x-0 bottom-0">
-        <div className="h-[8px]" style={{ background: accent }} />
+        <div className="h-[8px]" style={{ background: unlocked ? accent : "#555" }} />
       </div>
     </button>
+  );
+}
+
+/**
+ * Staff PIN sheet for the Race Sims tile — KioskAdmin's gate, restyled to
+ * canvas px. Validates against the SAME server gate (admin-auth.ts via
+ * verifyKioskAdminPin — cheap authed GET, 401 = wrong PIN); the numeric
+ * on-screen keyboard comes free from the global OnScreenKeyboardHost via
+ * data-osk-layout. Staff surface → hardcoded English (house precedent).
+ */
+function RaceSimPinSheet({ onClose, onUnlocked }: { onClose: () => void; onUnlocked: () => void }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const tryUnlock = async () => {
+    if (busy || !pin) return;
+    setBusy(true);
+    setError(null);
+    const ok = await verifyKioskAdminPin(pin);
+    setBusy(false);
+    if (ok) onUnlocked();
+    else setError("Wrong PIN");
+  };
+  return (
+    // z-[70]: above the shelf, below IdleWatcher's z-[80] countdown.
+    <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black/70 px-[80px]">
+      <div className="k-glass w-full max-w-[640px] space-y-[28px] rounded-[32px] p-[48px] text-center">
+        <div className="k-display text-[44px]">Staff preview</div>
+        <p className="text-[24px] text-white/55">
+          Race Sims is in testing. Enter the kiosk admin PIN to open it.
+        </p>
+        <input
+          type="password"
+          inputMode="numeric"
+          data-osk-layout="numeric"
+          value={pin}
+          onChange={(e) => setPin(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void tryUnlock()}
+          placeholder="PIN"
+          className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[22px] text-center text-[36px] tracking-[0.4em] text-white focus:border-[#ff6b6b] focus:outline-none"
+        />
+        {error && <p className="text-[22px] text-red-300">{error}</p>}
+        <div className="flex gap-[20px]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="k-tap flex-1 rounded-2xl border border-white/15 px-[28px] py-[20px] text-[26px] font-semibold text-white/60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void tryUnlock()}
+            disabled={busy}
+            className="k-tap flex-1 rounded-2xl px-[28px] py-[20px] text-[26px] font-bold text-[#2b0404] disabled:opacity-50"
+            style={{ background: "#ff6b6b" }}
+          >
+            {busy ? "Checking…" : "Unlock"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

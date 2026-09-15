@@ -99,6 +99,29 @@ export function kioskRaceSimEnabled(): boolean {
 }
 
 /**
+ * Are Race Sims LIVE TO GUESTS, or still behind the staff PIN?
+ *
+ * This is deliberately an OPT-IN `=== "true"` gate, which is the opposite of
+ * every other flag in this file — they are kill switches that default ON
+ * (owner rule 2026-07-31). The owner asked for it explicitly on 2026-09-15:
+ * the sim flow is merged and finished, but it has never been smoked against a
+ * real guest booking, so it stays PIN-gated until someone decides otherwise.
+ *
+ * Default (unset) = LOCKED: guests see "Coming Soon" and only the kiosk-admin
+ * PIN opens the flow. Set NEXT_PUBLIC_KIOSK_RACE_SIMS_LIVE=true to drop the
+ * lock and let guests book.
+ *
+ * ⚠ NEXT_PUBLIC_* values are BUILD-BAKED, so flipping this in Vercel needs a
+ * redeploy to take effect — it is not a runtime switch. That is the same
+ * "did you redeploy?" trap the split-tender rollout hit; budget for it.
+ *
+ * Read at call time (never module scope) so tests can stub process.env.
+ */
+export function kioskRaceSimsLive(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_RACE_SIMS_LIVE === "true";
+}
+
+/**
  * Does the Race Sims door open on THIS kiosk? Venue rule + kill switch in one
  * named place, so the answer is testable and cannot drift between surfaces.
  *
