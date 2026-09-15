@@ -10,6 +10,29 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 
 ## Open — functional
 
+- [ ] **PER-TENANT IDENTITY: the sweep, after it bit twice in two days.** A
+      single stored value sent to two Office servers has now caused two
+      incidents — the user ID (`FK_PRJ_US_ID` refusals, 2026-09-14) and the
+      display NAME (Naples could not mint any non-kids web lead, 2026-09-15).
+      Both are fixed with `{clientKey: value}` maps. This is what the sweep
+      found afterwards:
+      - **7shifts user ids — SAFE.** One 7shifts account spans all three
+        locations, so a user id is global. `crm_shifts` matches on it directly.
+      - **BMI state ids — SAFE.** `crm_status_bmi_map` has always been keyed
+        per (status, clientKey).
+      - **Quote template product ids — UNSAFE, but latent.** `crm_quote_templates`
+        has ZERO rows today, so nothing is broken yet. But `centre` is
+        `CentreCode | null` where null means "every centre", and product ids do
+        NOT survive the trip: measured across the mirror, Fort Myers has 499
+        distinct product ids and Naples 381, with exactly ONE in common — `-4`,
+        a built-in, not a real product. So an "every centre" template built at
+        Fort Myers would name 100% unknown products at Naples.
+        The honest model is that a template belongs to a TENANT, not a centre
+        (HPFM and FT share `headpinzftmyers`, so "both of those" is meaningful;
+        "and Naples too" never is). Fix before the first template is saved —
+        after that it is a migration.
+
+
 - [x] **The PWA must stay signed in.** DONE 2026-09-14 — 30-day session rolled
       after a day of use (matching the Portal, which made the same call:
       `PWA_SESSION_TTL = 30d` vs `DEFAULT_SESSION_TTL = 28800`), manifest
