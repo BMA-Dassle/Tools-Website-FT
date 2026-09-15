@@ -568,6 +568,16 @@ export function CheckoutStep({
         if (!product) continue;
         const qty = Math.max(1, item.racerCount);
         const unit = raceSimPriceFor(product);
+        // A PACK is one flat credit bundle with no sessions — looping sessions
+        // would list nothing at all on the review screen.
+        if (product.kind === "pack") {
+          reviewLines.push({
+            name: `Race Sims — ${product.name}`,
+            quantity: 1,
+            amount: Math.round(unit * 100) / 100,
+          });
+          continue;
+        }
         for (const s of item.sessions) {
           const circuitName = simSessionCircuitName(
             s.trackKey,

@@ -149,14 +149,20 @@ export function raceSimBookingTarget(
   return { productId: track.bmiProductId, pageId: RACE_SIM_PAGE_ID };
 }
 
-/** Pandora deposit-kind id sim CREDITS load onto — the race-pack rail's
- *  RACE_PACK_DEPOSIT_KIND equivalent (data/packs.ts). Sim credits need their
- *  OWN kind: a race credit spends at $0 on a kart heat, and the two must never
- *  be interchangeable. NULL until the owner mints it in Pandora and hands over
- *  the id, and `raceSimItemConfigured` refuses every pack while it is null —
- *  charging for credits with nowhere to grant them takes the guest's money and
- *  gives them nothing. */
-export const RACE_SIM_DEPOSIT_KIND: { anytime: string | null } = { anytime: null };
+/**
+ * Pandora deposit-kind id sim CREDITS load onto — the race-pack rail's
+ * RACE_PACK_DEPOSIT_KIND equivalent (data/packs.ts).
+ *
+ * Sim credits have their OWN kind by design: a race credit spends at $0 on a
+ * kart heat, and the two must never be interchangeable.
+ *
+ * ARMED 2026-09-15 — "Credit - Race Simulator", id 61079628, minted by the
+ * owner and read back off the live Pandora catalogue
+ * (GET /api/pandora/deposits/{personId}), not transcribed by hand. Arming this
+ * is what makes packs sellable: `raceSimProductBookable` derives that from this
+ * id, so there is no second flag that could disagree with it.
+ */
+export const RACE_SIM_DEPOSIT_KIND: { anytime: string | null } = { anytime: "61079628" };
 
 export interface RaceSimProduct {
   /** Stable cart/session key, e.g. "sim-single". */
@@ -327,10 +333,13 @@ export function raceSimItemConfigured(item: {
   const product = getRaceSimProduct(item.productSlug);
   if (!product || !raceSimProductBookable(product)) return false;
   if (!RACE_SIM_SQUARE_CATALOG_ID) return false;
-  // A PACK sells credits, so it needs somewhere to grant them. Checked in its
-  // own right rather than leaning on `bookable`: whoever flips that flag on
-  // launch day must not be able to arm a charge that banks nothing.
-  if (product.kind === "pack" && !product.depositKindId) return false;
+  // A PACK sells CREDITS, not a seat. It needs somewhere to grant them, and it
+  // needs NOTHING from the booking rail — no track key, no BMI page, no
+  // session. Requiring a booking target here is what would send a credit
+  // purchase down the reservation path. Checked in its own right rather than
+  // leaning on `bookable`: whoever arms this must not be able to charge for
+  // credits with nowhere to bank them.
+  if (product.kind === "pack") return !!product.depositKindId;
   return raceSimBookingTarget(item.trackKey) != null;
 }
 

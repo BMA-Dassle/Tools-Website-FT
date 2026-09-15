@@ -34,6 +34,7 @@ import { upsertPackPurchases, markPackCharged } from "../data/race-pack-purchase
 import { addonPurchaseIntents } from "./addon-charge";
 import { upsertAddonPurchases } from "../data/addon-purchases-db";
 import { grantAddonCredits } from "./addon-grant.server";
+import { grantRaceSimPacks } from "~/features/race-sims/grant.server";
 import { SQUARE_RACE_PACK_CATALOG_ID } from "../data/packs";
 import {
   getRaceSimProduct,
@@ -991,6 +992,27 @@ export function buildCombinedLineItems(session: BookingSession): {
     if (!product) continue; // unready draft — allItemsReady blocks it upstream
     const qty = Math.max(1, item.racerCount);
     const unitCents = Math.round(raceSimPriceFor(product) * 100);
+    // A PACK is one bundle at one price — the product step shows "$39.45" flat
+    // and suppresses the per-racer group total, so the charge must match that
+    // exactly (displayed == charged). Credits land on ONE person's ledger.
+    if (product.kind === "pack") {
+      const name = `Race Sims — ${product.name}`;
+      totalPriceCents += unitCents;
+      entityCents.fasttrax += unitCents;
+      totalDepositCents += unitCents;
+      sqLineItems.push({
+        name,
+        quantity: "1",
+        ...(RACE_SIM_SQUARE_CATALOG_ID
+          ? {
+              catalogObjectId: RACE_SIM_SQUARE_CATALOG_ID,
+              basePriceMoney: { amount: unitCents, currency: "USD" },
+            }
+          : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
+      });
+      pricedLines.push({ name, quantity: 1, unitCents });
+      continue;
+    }
     for (const s of item.sessions) {
       const track = getRaceSimTrack(s.trackKey);
       // Receipt line names the CIRCUIT the guest picked, resolved for the
@@ -2296,6 +2318,16 @@ async function unifiedReserveInner(
   // treatment covers sims. Races + duckpin are FastTrax — those mix fine.
   if (racesimItems.length > 0) {
     for (const item of racesimItems) {
+      // A PACK is a credit purchase, not a booking: no sessions, no track key,
+      // no BMI hold. Only that its deposit kind and Square id are armed, which
+      // raceSimItemConfigured checks. Demanding sessions here is what used to
+      // push a credit purchase down the reservation path.
+      if (getRaceSimProduct(item.productSlug)?.kind === "pack") {
+        if (!raceSimItemConfigured({ productSlug: item.productSlug, trackKey: null })) {
+          throw new RaceSimNotConfiguredError(item.productSlug);
+        }
+        continue;
+      }
       if (item.sessions.length === 0) {
         throw new RaceSimNotConfiguredError(item.productSlug);
       }
@@ -3916,7 +3948,28 @@ async function unifiedReserveInner(
       // count, and the who's-riding roster WITH BMI ids — this is what
       // raceHeatsForPersonsOnDate reads to grey/refuse a later booking at the
       // same time (cross-reservation rule), so it is ALWAYS written.
+      // PACK purchases are recorded separately from sessions: a pack books
+      // nothing, so it has no slot to hang off, and without this the only
+      // trace of what the guest bought is the Square line. Staff answering
+      // "where are my credits?" need it on the reservation.
+      const simPacks = racesimItems.filter(
+        (r) => getRaceSimProduct(r.productSlug)?.kind === "pack",
+      );
+      if (simPacks.length > 0) {
+        bookingMetadata.racesimPacks = simPacks.map((r) => {
+          const product = getRaceSimProduct(r.productSlug);
+          return {
+            slug: r.productSlug,
+            name: product?.name ?? null,
+            credits: product?.raceCount ?? 0,
+            depositKindId: product?.depositKindId ?? null,
+            priceCents: product ? Math.round(raceSimPriceFor(product) * 100) : 0,
+          };
+        });
+      }
+
       bookingMetadata.racesims = racesimItems.flatMap((r) => {
+        if (getRaceSimProduct(r.productSlug)?.kind === "pack") return [];
         const ids =
           r.assignedTo.length > 0
             ? r.assignedTo
@@ -4245,6 +4298,43 @@ async function unifiedReserveInner(
             granted: outcomes.find((o) => o.memberId === p.memberId)?.granted ?? false,
           };
         });
+      }
+
+      // RACE SIM packs: money verified + booking confirmed → grant the sim
+      // credits onto the buyer's Pandora ledger, on the sims' OWN deposit kind
+      // ("Credit - Race Simulator") so a sim credit can never spend on a kart
+      // heat. NX-idempotent per (bill, person, pack) and sweep-recovered; never
+      // throws, because the guest has already paid and the only acceptable end
+      // state is that the credits arrive.
+      //
+      // The pack price is a FLAT bundle price (the product step shows one
+      // number and suppresses the per-racer total), so the credits land on ONE
+      // person: the billing customer, falling back to the first party member
+      // Pandora knows. A party member with no bmiPersonId cannot be granted at
+      // all — there is no ledger to write to — so that is logged, not guessed.
+      const simPackItems = racesimItems.filter(
+        (r) => getRaceSimProduct(r.productSlug)?.kind === "pack",
+      );
+      if (simPackItems.length > 0) {
+        const buyer =
+          session.party.find((m) => m.isBillingCustomer && m.bmiPersonId) ??
+          session.party.find((m) => m.bmiPersonId) ??
+          null;
+        if (!buyer?.bmiPersonId) {
+          console.error(
+            "[race-sim-pack] purchased but NO party member has a bmiPersonId — " +
+              `bill ${bmiBillId}; credits must be granted by hand`,
+          );
+        } else {
+          await grantRaceSimPacks({
+            purchaseKey: baseKey,
+            packs: simPackItems.map((r) => ({
+              slug: r.productSlug ?? "",
+              personId: buyer.bmiPersonId as string,
+              personName: formatPersonName(`${buyer.firstName ?? ""} ${buyer.lastName ?? ""}`),
+            })),
+          });
+        }
       }
 
       // Retail add-ons: money verified + booking confirmed → grant each

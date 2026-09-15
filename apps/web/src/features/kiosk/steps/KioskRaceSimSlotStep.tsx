@@ -749,7 +749,10 @@ export const KioskRaceSimSlotStep: StepDef<RaceSimItem> = {
   id: "racesim-slot",
   title: "Time",
   Component: KioskRaceSimSlotStepComponent,
-  isVisible: () => true,
+  // A PACK buys credits to spend on a future visit — there is no time to pick,
+  // and no BMI seat to hold. Hiding the step also makes Back skip it (visible
+  // steps are the wizard's whole notion of the flow).
+  isVisible: (item) => item.productKind !== "pack",
   // Racing's canAdvanceFor re-runs the rules as the wizard gate: at least one
   // session, no two of them on one start, none too close to the rest of the cart.
   canAdvance: (item, session) => {

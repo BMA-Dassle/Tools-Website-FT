@@ -31,6 +31,15 @@ export const racesimEn = {
   // Product display names key by catalog slug (race-sims/products.ts).
   "racesim.product.sim-single": "1 Race",
   "racesim.product.single.sub": "One race on the track of your choice.",
+  /** Pack card subtitle — {count} = races the pack covers. */
+  "racesim.product.pack.sub":
+    "{count, plural, one {# prepaid race} other {# prepaid races}} — use them whenever you like.",
+  /** Saving badge on a pack card. */
+  "racesim.product.pctOff": "{pct}% off",
+  /** What a pack works out to per race — {rate} is pre-formatted. */
+  "racesim.product.perRaceRate": "{rate} a race",
+  /** A pack whose credit ledger is not armed yet: shown, priced, not sellable. */
+  "racesim.product.packSoon": "Coming soon",
   /** Renders after "$15.95 / " — karting's price row reads "$20.99 / racer". */
   "racesim.product.perRacer": "racer",
   /** Karting's group-math footer: "$20.99 × 3 racers = $62.97 total".
@@ -93,6 +102,11 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
   "racesim.product.trackLine": "Tres circuitos en rotación — elige el tuyo junto con tu hora",
   "racesim.product.sim-single": "1 carrera",
   "racesim.product.single.sub": "Una carrera en la pista que elijas.",
+  "racesim.product.pack.sub":
+    "{count, plural, one {# carrera prepagada} other {# carreras prepagadas}} — úsalas cuando quieras.",
+  "racesim.product.pctOff": "{pct}% de descuento",
+  "racesim.product.perRaceRate": "{rate} por carrera",
+  "racesim.product.packSoon": "Próximamente",
   "racesim.product.perRacer": "piloto",
   "racesim.product.groupTotal":
     "{unit} × {count, plural, one {# piloto} other {# pilotos}} = {total} en total",

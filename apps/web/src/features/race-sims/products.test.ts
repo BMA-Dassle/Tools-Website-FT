@@ -17,6 +17,11 @@ import {
   raceSimSinglePrice,
   raceSimProductBookable,
 } from "./products";
+import {
+  RACE_CREDIT_TYPES,
+  creditTypeById,
+  creditTypeForDepositName,
+} from "~/features/booking/data/race-credits";
 
 describe("race-sims catalog", () => {
   it("carries exactly one single-race SKU plus the pack SKUs", () => {
@@ -109,15 +114,29 @@ describe("race-sims catalog", () => {
     }
   });
 
-  it("refuses a pack while its credit deposit kind is unminted", () => {
-    // A pack sells CREDITS. Charging with nowhere to bank them takes the
-    // guest's money and gives nothing, so the guard must refuse on the missing
-    // deposit kind in its own right — not merely because `bookable` is false.
-    expect(RACE_SIM_DEPOSIT_KIND.anytime).toBeNull();
+  it("ARMED 2026-09-15: sim credits have their OWN Pandora deposit kind", () => {
+    // "Credit - Race Simulator" (61079628), read off the live Pandora
+    // catalogue. It must never be one of the RACE kinds: a race credit spends
+    // at $0 on a kart heat, and the two are not interchangeable.
+    expect(RACE_SIM_DEPOSIT_KIND.anytime).toBe("61079628");
+    expect(RACE_SIM_DEPOSIT_KIND.anytime).not.toBe("12744867"); // Race Mon-Thu
+    expect(RACE_SIM_DEPOSIT_KIND.anytime).not.toBe("12744871"); // Race any day
     for (const p of RACE_SIM_PRODUCTS.filter((x) => x.kind === "pack")) {
-      expect(p.depositKindId ?? null, `${p.slug} deposit kind`).toBeNull();
-      expect(raceSimItemConfigured({ productSlug: p.slug, trackKey: "a" })).toBe(false);
+      expect(p.depositKindId, `${p.slug} deposit kind`).toBe("61079628");
+      expect(raceSimProductBookable(p), `${p.slug} sellable`).toBe(true);
     }
+  });
+
+  it("a PACK needs no track key — it buys credits, not a seat", () => {
+    // The bug this prevents: requiring a booking target on a pack sends a
+    // credit purchase down the reservation path, so the guest is asked to pick
+    // a time for races they have not scheduled yet.
+    for (const p of RACE_SIM_PRODUCTS.filter((x) => x.kind === "pack")) {
+      expect(raceSimItemConfigured({ productSlug: p.slug, trackKey: null }), p.slug).toBe(true);
+    }
+    // A SINGLE still does — it holds a real BMI seat.
+    expect(raceSimItemConfigured({ productSlug: "sim-single", trackKey: null })).toBe(false);
+    expect(raceSimItemConfigured({ productSlug: "sim-single", trackKey: "a" })).toBe(true);
   });
 
   it("ARMED 2026-08-26: every money id is set and singles are configured per track", () => {
@@ -146,10 +165,36 @@ describe("race-sims catalog", () => {
     expect(raceSimItemConfigured({ productSlug: "nope", trackKey: "a" })).toBe(false);
   });
 
-  it("a deferred pack is never configured, even with every id armed", () => {
-    // bookable:false is its own gate — guard 2e refuses a stale pack draft
-    // regardless of key state.
-    expect(raceSimItemConfigured({ productSlug: "sim-3-pack", trackKey: "a" })).toBe(false);
+  it("sim credits and KART credits can never cross-redeem", () => {
+    // The single most important invariant of the pack rail. Karting's
+    // redemption resolves a racer's deposits by NAME SUBSTRING
+    // (race-credits.ts creditTypeForDepositName), so a sim kind whose name
+    // happened to contain "anytime" / "comp" / "weekday" would silently become
+    // spendable on a kart heat — a guest buying sim credits would get free
+    // karting, and the sim ledger would drain without anyone racing a sim.
+    const simKind = RACE_SIM_DEPOSIT_KIND.anytime!;
+    for (const t of RACE_CREDIT_TYPES) {
+      expect(t.depositKindId, `karting kind ${t.label} collides with the sim kind`).not.toBe(
+        simKind,
+      );
+    }
+    expect(creditTypeForDepositName("Credit - Race Simulator")).toBeNull();
+    expect(creditTypeById(simKind)).toBeNull();
+    // And the reverse, so this exercises the matcher rather than passing on a
+    // broken import.
+    expect(creditTypeForDepositName("Credit - Race Anytime")?.depositKindId).toBe("12744871");
+  });
+
+  it("a pack with NO deposit kind is refused, however else it is armed", () => {
+    // The fail-closed property that matters most: sellability is DERIVED from
+    // the deposit kind, so un-minting it (or a bad id) takes packs off sale
+    // instantly rather than charging for credits with nowhere to bank them.
+    // Asserted through the real accessors on a synthetic product, so it keeps
+    // holding if the catalog changes shape.
+    const armed = getRaceSimProduct("sim-3-pack")!;
+    expect(raceSimProductBookable(armed)).toBe(true);
+    expect(raceSimProductBookable({ ...armed, depositKindId: null })).toBe(false);
+    expect(raceSimProductBookable({ ...armed, depositKindId: undefined })).toBe(false);
   });
 
   it("booking target misses safely for no/unknown track", () => {
