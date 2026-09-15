@@ -313,6 +313,13 @@ export interface GameCardFulfillment {
 export interface UnifiedReserveResult {
   neonIds: number[];
   shortCodes: string[];
+  /**
+   * Short code for a Race Sim booking's confirmation, kept SEPARATE from
+   * `shortCodes` on purpose: a sim cart may also hold FastTrax duckpin, which
+   * mints its own code, and the confirmation must not hand the guest a QR that
+   * resolves to the other leg. Null when the cart has no sims.
+   */
+  raceSimShortCode: string | null;
   qamfReservationIds: string[];
   bmiReservationNumber: string | null;
   bmiReservationCode: string | null;
@@ -1394,6 +1401,7 @@ async function unifiedCachedSuccess(bmiBillId: string): Promise<UnifiedReserveRe
   return {
     neonIds: row?.id ? [row.id] : [],
     shortCodes: [],
+    raceSimShortCode: null,
     qamfReservationIds: [],
     bmiReservationNumber: c.reservationNumber ?? row?.bmiReservationNumber ?? null,
     bmiReservationCode: c.reservationCode ?? null,
@@ -3190,6 +3198,8 @@ async function unifiedReserveInner(
 
   const neonIds: number[] = [];
   const shortCodes: string[] = [];
+  // Set when the cart carries Race Sims — see UnifiedReserveResult.
+  let raceSimShortCode: string | null = null;
   const qamfReservationIds: string[] = [];
   let bmiReservationNumber: string | null = null;
   let bmiReservationCode: string | null = null;
@@ -4008,6 +4018,25 @@ async function unifiedReserveInner(
       throw new Error("Could not persist reservation. Please retry.");
     }
 
+    // Race Sims: mint a short code on the anchor row, the way bowling does.
+    // Without one a sim booking has NOTHING to scan — the kiosk confirmation
+    // only renders a QR when the URL carries `?code=`, and kiosk check-in
+    // resolves a scan through `short:{code}` → getBowlingReservationByShortCode
+    // (which is kind-agnostic, so the sim row resolves once it has a code).
+    // Non-fatal: a booking that is already paid and confirmed must never fail
+    // over a convenience code, and staff can still find it by W-number.
+    if (racesimItems.length > 0 && bmiNeonId != null) {
+      try {
+        const confirmBase = "/book/confirmation/v2";
+        const code = await shortenUrl(`${confirmBase}?code=_TMP_`);
+        await shortenUrl(`${confirmBase}?billId=${bmiBillId}&code=${code}`, code);
+        await updateBowlingReservationShortCode(bmiNeonId, code).catch(() => {});
+        raceSimShortCode = code;
+      } catch (err) {
+        log(`[unified-reserve] race-sim short code failed (non-fatal): ${String(err)}`);
+      }
+    }
+
     audit.step = "bmi-confirm";
     try {
       // Race-only $0-model → $0 credit (unchanged). Attraction-only → the full
@@ -4457,6 +4486,7 @@ async function unifiedReserveInner(
   return {
     neonIds,
     shortCodes,
+    raceSimShortCode,
     qamfReservationIds,
     bmiReservationNumber,
     bmiReservationCode,

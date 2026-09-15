@@ -1728,6 +1728,7 @@ export async function closePastReservationStatuses(
            COALESCE(
              (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.booking_metadata->'heats')='array' THEN b.booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
              (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.booking_metadata->'attractions')='array' THEN b.booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+             (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.booking_metadata->'racesims')='array' THEN b.booking_metadata->'racesims' ELSE '[]'::jsonb END) AS t(e)),
              to_char(b.booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
            ) AS event_at
     FROM bowling_reservations b
@@ -1912,6 +1913,7 @@ export async function listBowlingReservations(opts: {
         COALESCE(
           (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
           (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+          (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'racesims')='array' THEN booking_metadata->'racesims' ELSE '[]'::jsonb END) AS t(e)),
           to_char(booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
         ) AS event_at
       FROM bowling_reservations
@@ -1969,6 +1971,7 @@ export async function listVipComboReservations(opts: {
         COALESCE(
           (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
           (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+          (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'racesims')='array' THEN booking_metadata->'racesims' ELSE '[]'::jsonb END) AS t(e)),
           to_char(booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
         ) AS event_at
       FROM bowling_reservations
@@ -2449,6 +2452,7 @@ export async function getReservationsByContact(opts: {
         COALESCE(
           (SELECT min(t.e->>'heatId') FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'heats')='array' THEN booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)),
           (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'attractions')='array' THEN booking_metadata->'attractions' ELSE '[]'::jsonb END) AS t(e)),
+          (SELECT min(t.e->>'slot')   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(booking_metadata->'racesims')='array' THEN booking_metadata->'racesims' ELSE '[]'::jsonb END) AS t(e)),
           to_char(booked_at AT TIME ZONE 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS')
         ) AS event_at
       FROM bowling_reservations

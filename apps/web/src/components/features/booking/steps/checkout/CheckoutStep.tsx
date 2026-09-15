@@ -1869,7 +1869,13 @@ export function CheckoutStep({
 
           // Mixed cart: use /book/confirmation (race confirmation) which shows all items
           if (hasBmi && effectiveBillId) {
-            go(buildConfirmationUrl(sessionForReserve, effectiveBillId, true));
+            // Race Sims ride this branch too (hasBmi counts them). Carry the
+            // sim's own short code so the confirmation can render a scannable
+            // QR — without `?code=` the kiosk confirmation draws no QR at all,
+            // and the guest arrives at the rig with nothing to present.
+            const url = buildConfirmationUrl(sessionForReserve, effectiveBillId, true);
+            const simCode = (result as { raceSimShortCode?: string | null }).raceSimShortCode;
+            go(simCode ? `${url}${url.includes("?") ? "&" : "?"}code=${simCode}` : url);
           } else if (result.shortCodes.length > 0) {
             const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
             const confirmBase =

@@ -16,12 +16,63 @@ function base(overrides: Partial<ItineraryInput> = {}): ItineraryInput {
     racing: null,
     attractions: [],
     bowling: [],
+    raceSims: [],
     meta,
     racingBuilding: "FastTrax Racing",
     bowlingBuilding: "HeadPinz Fort Myers",
+    raceSimBuilding: "FastTrax Racing",
     ...overrides,
   };
 }
+
+describe("race sims on the itinerary", () => {
+  it("titles a sim session with the CIRCUIT the guest bought", () => {
+    // The whole point: a guest checking in is told "Bristol Motor Speedway",
+    // not "Activity" and not "Track B".
+    const { activities } = assembleItinerary(
+      base({
+        raceSims: [
+          { startIso: "2026-09-16T19:15:00", circuit: "Bristol Motor Speedway", racerCount: 3 },
+        ],
+      }),
+    );
+    expect(activities).toHaveLength(1);
+    expect(activities[0]!.kind).toBe("racesim");
+    expect(activities[0]!.title).toBe("Bristol Motor Speedway");
+    expect(activities[0]!.timeLabel).toBe("7:15 PM");
+    expect(activities[0]!.building).toBe("FastTrax Racing");
+    expect(activities[0]!.totalCount).toBe(3);
+  });
+
+  it("falls back to the product name for a booking taken before circuits", () => {
+    const { activities } = assembleItinerary(
+      base({ raceSims: [{ startIso: "2026-08-30T19:15:00", circuit: null, racerCount: 2 }] }),
+    );
+    expect(activities[0]!.title).toBe("Race Sims");
+  });
+
+  it("sorts sim sessions into the plan with everything else", () => {
+    const { activities, firstStop } = assembleItinerary(
+      base({
+        raceSims: [
+          { startIso: "2026-09-16T19:15:00", circuit: "Bristol Motor Speedway", racerCount: 2 },
+          { startIso: "2026-09-16T17:00:00", circuit: "Baku City Circuit", racerCount: 2 },
+        ],
+        attractions: [
+          { slug: "gel-blaster", startIso: "2026-09-16T18:00:00", qtyPaid: 2, readyCount: 0 },
+        ],
+      }),
+    );
+    expect(activities.map((a) => a.title)).toEqual([
+      "Baku City Circuit",
+      "Gel Blaster",
+      "Bristol Motor Speedway",
+    ]);
+    // A sim first stop shows its start time, not racing's 30-minute lead.
+    expect(firstStop?.arriveByLabel).toBe("5:00 PM");
+    expect(firstStop?.building).toBe("FastTrax Racing");
+  });
+});
 
 describe("fmtTime12 (TZ-neutral wall-clock)", () => {
   it("formats a naive ET heat start without shifting", () => {

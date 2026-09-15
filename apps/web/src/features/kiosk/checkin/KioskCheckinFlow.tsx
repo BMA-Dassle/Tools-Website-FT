@@ -138,6 +138,8 @@ const ACCENT: Record<CheckinActivity["kind"], string> = {
   racing: "#e94141",
   bowling: "#2dd4ea",
   attraction: "#a78bfa",
+  // Race Sims' own accent, matching the kiosk tile and the web card.
+  racesim: "#ff6b6b",
 };
 
 export function KioskCheckinFlow() {
