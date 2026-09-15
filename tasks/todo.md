@@ -367,6 +367,32 @@ ledger). Never `Number()` a BMI id. Admin read-only usage page = later PR.
   first-name leg was REMOVED — nicknames made it unreliable and the phone is the real second
   factor. Two same-surname same-phone records (duplicate registration) → ambiguous, no link.
 
+### Two kiosk fixes (owner 2026-09-14) — `fix/kiosk-employee-perks`, kiosk 1.36.1
+Owner: "Multiple employees in the order is possible and when checking out with only free races it
+gives a cardsource error."
+- **Several team members per order.** `session.employee` (one) → `session.employees[]`
+  (`sessionEmployees()` reads it and still honours the legacy field on a persisted session). One
+  token, one matched member, one weekly allowance EACH; `stampEmployeeOnParty` takes the list;
+  `computeEmployeeFreeHeats` spends each member's own allowance (never pooled);
+  `employeeAttractionUnits` counts every stamped member's units; `applyEmployeeToSession` verifies
+  every token (one 7shifts user once, one member under one employee; a bad claim drops only that
+  person); hard-fail and ledger rows per employee (`percent-off` rows keyed `unitRef = memberId`,
+  savings differenced per member via `employeeRacingSavingsByMember`). Reducer: `addEmployee` /
+  `removeEmployee`. Kiosk: recognition keeps asking the next signed-in colleague, one perks bar per
+  employee with its own Remove; web: chips per employee + "Another team member?". GZ 2× stays
+  "any team member on the order doubles the cart's cards".
+- **$0 free-race checkout failed twice.** (a) `isCreditOrder = preTaxSubtotal <= 0` sent the order
+  down the LEGACY `/api/booking/v2/reserve` (perk-blind → full-price Square order → "cardSourceId
+  or giftCardNonce required for paid orders"); CheckoutStep now routes any order with a stamped
+  employee to the unified rail, like vouchers. (b) On the unified rail employee-covered heats had no
+  $0 Square line → "No line items to charge" (the 09-06 voucher twin); they now get one.
+- Tests: `employee.server.test.ts` (new, reconcile with several tokens), `employee-perks-pricing
+  .test.ts` (new, repro of the $0 cart + two-employee pricing + gel split), updated pure tests.
+  Gates: vitest full 10159 green, tsc clean, eslint 0 errors. NOT live-verified — smoke on a FM
+  kiosk: two employees sign in → both bars → 2+2 free → Review & Confirm → booked, no card.
+- Known edge (pre-existing, unchanged): free races + Game Zone cards in one cart → "fully covered
+  by credits — buy the cards separately" (the GC line has no deposit to anchor to).
+
 ### Threat model — how a non-employee is kept out (owner Q 2026-09-13)
 - Perks unlock ONLY for a 7shifts user id resolved from the index AND active; non-employees are
   not in 7shifts, so there is nothing to resolve. Unknown punch/phone and wrong code return the

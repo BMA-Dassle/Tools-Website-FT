@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch } from "react";
 import { useT } from "../i18n";
 import { useKioskConfig } from "../KioskConfigContext";
@@ -10,6 +10,7 @@ import type { Action } from "~/features/booking/state/machine";
 import type { BookingSession } from "~/features/booking/state/types";
 import {
   freeRacesRemaining,
+  sessionEmployees,
   type SessionEmployee,
 } from "~/features/discount-codes/programs/employee";
 import { employeeApi } from "~/features/discount-codes/programs/employee-client";
@@ -18,10 +19,14 @@ import { toMatchable } from "./KioskTeamMemberEntry";
 /**
  * KIOSK — code-free RECOGNITION of a linked team member (owner 2026-09-13:
  * "every time after: sign in as yourself"). Watches the party: when a member
- * that a BMI LOOKUP produced (has `bmiPersonId`) joins and no employee is on
- * the session yet, asks the server once whether that BMI person is a linked,
- * still-active employee whose record still passes the name rule. Yes → the
- * "Welcome back" sheet; the guest chooses. No → nothing happens, silently.
+ * that a BMI LOOKUP produced (has `bmiPersonId`) joins and is not already a
+ * verified employee on the session, asks the server once whether that BMI
+ * person is a linked, still-active employee whose record still passes the
+ * name rule. Yes → the "Welcome back" sheet; the guest chooses. No → nothing
+ * happens, silently.
+ *
+ * SEVERAL team members can ride one booking (owner 2026-09-14) — a second
+ * employee who signs in is asked in turn; one sheet at a time.
  *
  * Proof lives in how the member got here: the kiosk only produces a
  * `bmiPersonId` from a licence scan, a phone sign-in that passed a text code,
@@ -35,6 +40,8 @@ export function useEmployeeRecognition(session: BookingSession, dispatch: Dispat
   const { config } = useKioskConfig();
   const [pending, setPending] = useState<SessionEmployee | null>(null);
   const asked = useRef<Set<string>>(new Set());
+  const employeeList = session.employees;
+  const employees = useMemo(() => sessionEmployees({ employees: employeeList }), [employeeList]);
 
   // A pending offer only counts while its member is still on the party — a
   // Start Over empties the party and the sheet goes with it, no state write.
@@ -42,9 +49,10 @@ export function useEmployeeRecognition(session: BookingSession, dispatch: Dispat
 
   useEffect(() => {
     if (session.party.length === 0) asked.current.clear();
-    if (session.employee || visible) return;
+    if (visible) return;
+    const claimed = new Set(employees.map((e) => e.memberId).filter(Boolean));
     const candidate = session.party.find(
-      (m) => !!m.bmiPersonId && !asked.current.has(m.bmiPersonId),
+      (m) => !!m.bmiPersonId && !claimed.has(m.id) && !asked.current.has(m.bmiPersonId),
     );
     if (!candidate?.bmiPersonId) return;
     asked.current.add(candidate.bmiPersonId);
@@ -64,12 +72,12 @@ export function useEmployeeRecognition(session: BookingSession, dispatch: Dispat
     return () => {
       cancelled = true;
     };
-  }, [session.party, session.employee, visible, config]);
+  }, [session.party, employees, visible, config]);
 
   const accept = () => {
     if (!pending) return;
     clarityEvent("kiosk:team:perks-on");
-    dispatch({ type: "setEmployee", employee: pending });
+    dispatch({ type: "addEmployee", employee: pending });
     setPending(null);
   };
   const decline = () => {
@@ -137,38 +145,48 @@ export function KioskEmployeeSheet({
 }
 
 /**
- * The green "perks on" bar on Review & Pay (the staff-mode bar pattern).
- * Remove = clear the session employee (the stamp goes with it).
+ * The green "perks on" bars on Review & Pay (the staff-mode bar pattern) —
+ * one per verified team member who is matched to someone on the booking.
+ * Remove = drop THAT employee from the session (their stamp goes with it;
+ * everyone else's perks stay).
  */
 export function KioskEmployeeBar({
-  employee,
+  employees,
   onRemove,
 }: {
-  employee: SessionEmployee | null | undefined;
-  onRemove: () => void;
+  employees: ReadonlyArray<SessionEmployee>;
+  onRemove: (userId: number) => void;
 }) {
   const t = useT();
-  if (!employee || !employee.memberId) return null;
+  const linked = employees.filter((e) => !!e.memberId);
+  if (linked.length === 0) return null;
   return (
-    <div className="mx-[64px] mt-[24px] flex items-center gap-[20px] rounded-[22px] border-2 border-[#46d68c]/55 py-[18px] pl-[20px] pr-[24px]">
-      <span className="k-display flex shrink-0 items-center gap-[10px] rounded-[12px] bg-[#46d68c] px-[14px] py-[8px] text-[22px] tracking-[0.12em] text-[#04250f]">
-        {t("team.sheet.tag")}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[30px] font-bold leading-[1.1] text-white">
-          {t("team.bar.on", { name: employee.firstName })}
+    <>
+      {linked.map((employee) => (
+        <div
+          key={employee.userId}
+          className="mx-[64px] mt-[24px] flex items-center gap-[20px] rounded-[22px] border-2 border-[#46d68c]/55 py-[18px] pl-[20px] pr-[24px]"
+        >
+          <span className="k-display flex shrink-0 items-center gap-[10px] rounded-[12px] bg-[#46d68c] px-[14px] py-[8px] text-[22px] tracking-[0.12em] text-[#04250f]">
+            {t("team.sheet.tag")}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[30px] font-bold leading-[1.1] text-white">
+              {t("team.bar.on", { name: employee.firstName })}
+            </div>
+            <div className="mt-[2px] truncate text-[20px] text-white/55">
+              {t("team.bar.detail", { n: freeRacesRemaining(employee) })}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onRemove(employee.userId)}
+            className="k-tap flex h-[72px] shrink-0 items-center gap-[10px] rounded-full border-2 border-white/20 px-[24px] font-heading text-[22px] font-bold uppercase tracking-[0.06em] text-white/75"
+          >
+            {t("team.bar.remove")}
+          </button>
         </div>
-        <div className="mt-[2px] truncate text-[20px] text-white/55">
-          {t("team.bar.detail", { n: freeRacesRemaining(employee) })}
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="k-tap flex h-[72px] shrink-0 items-center gap-[10px] rounded-full border-2 border-white/20 px-[24px] font-heading text-[22px] font-bold uppercase tracking-[0.06em] text-white/75"
-      >
-        {t("team.bar.remove")}
-      </button>
-    </div>
+      ))}
+    </>
   );
 }

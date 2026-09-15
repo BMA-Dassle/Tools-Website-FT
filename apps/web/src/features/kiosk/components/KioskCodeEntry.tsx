@@ -243,7 +243,7 @@ export function KioskCodeEntry({
   party?: PartyMember[];
   /** EMPLOYEE PERKS: the "Team member" door on this screen — the server's
    *  SessionEmployee after the one-time code passed; the parent dispatches
-   *  setEmployee. Absent = the door is hidden. */
+   *  addEmployee. Absent = the door is hidden. */
   onEmployeeVerified?: (employee: SessionEmployee, linked: boolean) => void;
   /** Parent dispatches addPartyMember — the booking's roster AUTO-LINKS
    *  through this the moment it resolves (and a re-tapped chip re-adds), so

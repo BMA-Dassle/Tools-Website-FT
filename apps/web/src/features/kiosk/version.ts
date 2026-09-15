@@ -15,6 +15,15 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.36.1 — TEAM MEMBER PERKS, two fixes (owner 2026-09-14). (1) Several team
+ *         members can verify on ONE order — each gets their own perks bar,
+ *         free-race allowance and 50% on their own items; the sign-in
+ *         recognition keeps asking the next colleague. (2) An order that is
+ *         only a team member's free races ($0) booked instead of failing
+ *         with "cardSourceId or giftCardNonce required": it was flagged a
+ *         credit order and sent down the legacy reserve, which knows nothing
+ *         about perks. It now takes the unified rail, and the free heats stay
+ *         on the Square order as a $0 line so the cart is never empty.
  * 1.36.0 — TEAM MEMBER PERKS (owner 2026-09-13). A "Team member" door on the
  *         code-entry screen: employee ID or mobile → one-time code texted to
  *         the mobile 7SHIFTS holds → verified. Linked employees who sign in as
@@ -1399,7 +1408,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.36.0";
+export const KIOSK_VERSION = "1.36.1";
 
 let bootVersion: string | null = null;
 let captured = false;

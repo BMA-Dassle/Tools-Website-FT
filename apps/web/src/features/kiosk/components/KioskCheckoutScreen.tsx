@@ -37,7 +37,8 @@ import { isTestKiosk } from "../config";
 import { activeComboSpecial, comboChargeLines } from "~/features/combos/combo-pricing";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { KioskEmployeeBar } from "./KioskEmployeeSheet";
-import { employeeMember } from "~/features/booking/service/employee-perks";
+import { employeeMembers } from "~/features/booking/service/employee-perks";
+import { sessionEmployees } from "~/features/discount-codes/programs/employee";
 import { KioskBookingAsCard } from "./KioskBookingAsCard";
 import { KioskRewardsSection } from "./KioskRewardsSection";
 import { BrandLogo } from "./BrandLogo";
@@ -96,7 +97,7 @@ export function KioskCheckoutScreen({
   const gz = (() => {
     try {
       return resolveCartPurchase(session.gameCardPurchase, {
-        employee: !!employeeMember(session.party),
+        employee: employeeMembers(session.party).length > 0,
       });
     } catch {
       return null;
@@ -181,11 +182,11 @@ export function KioskCheckoutScreen({
         <h1 className="k-display k-fh-title">{t("checkout.title")}</h1>
       </div>
 
-      {/* EMPLOYEE PERKS: the team member's "perks on" bar — Remove clears the
-          session employee and the stamp with it. */}
+      {/* EMPLOYEE PERKS: one "perks on" bar per verified team member — Remove
+          drops that employee and their stamp; the others keep their perks. */}
       <KioskEmployeeBar
-        employee={session.employee}
-        onRemove={() => dispatch({ type: "setEmployee", employee: null })}
+        employees={sessionEmployees(session)}
+        onRemove={(userId) => dispatch({ type: "removeEmployee", userId })}
       />
 
       <div className="k-flow-body">

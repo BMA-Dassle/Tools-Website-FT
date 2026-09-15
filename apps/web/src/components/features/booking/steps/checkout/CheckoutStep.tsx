@@ -64,9 +64,10 @@ import { kioskGzCartEnabled } from "~/features/kiosk/flags";
 import { playNowActive } from "~/features/booking/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import {
-  employeeMember,
+  employeeMembers,
   computeEmployeeFreeHeats,
 } from "~/features/booking/service/employee-perks";
+import { sessionEmployees } from "~/features/discount-codes/programs/employee";
 import { centerCodeFor } from "~/config/intercard-centers";
 import {
   qamfCenterCode,
@@ -200,8 +201,8 @@ export function CheckoutStep({
     });
   // EMPLOYEE PERKS — web code-free recognition, every checkout phase (owner
   // 2026-09-13: "web should do the automatic check as well").
-  useEmployeeRecognitionWeb(session.party, session.employee, (employee) =>
-    dispatch({ type: "setEmployee", employee }),
+  useEmployeeRecognitionWeb(session.party, sessionEmployees(session), (employee) =>
+    dispatch({ type: "addEmployee", employee }),
   );
   const [phase, setPhase] = useState<Phase>(() =>
     // Merged kiosk checkout skips the contact phase: mount on the booking
@@ -707,14 +708,14 @@ export function CheckoutStep({
             const vHeats = planVoucherCoverage(session, base).raceHeats;
             if (vHeats.size > 0) base = new Set([...base, ...vHeats]);
           }
-          // EMPLOYEE PERKS — the team member's free single races this pay week,
+          // EMPLOYEE PERKS — the team members' free single races this pay week,
           // differenced from the same line builder (the BOGO pattern below), in
           // the same coverage slot the charge uses: after vouchers, before BOGO.
           const empFree = computeEmployeeFreeHeats(
             session.items,
             session.party,
             base,
-            session.employee,
+            sessionEmployees(session),
           );
           if (empFree.heats.size > 0) {
             const sumLines = (ex: Set<RaceHeatAssignment>) =>
@@ -912,7 +913,7 @@ export function CheckoutStep({
       if (session.context?.kiosk && kioskGzCartEnabled() && session.gameCardPurchase) {
         try {
           const gz = resolveCartPurchase(session.gameCardPurchase, {
-            employee: !!employeeMember(session.party),
+            employee: employeeMembers(session.party).length > 0,
           });
           if (gz) {
             for (const l of gz.orderLines) {
@@ -1010,7 +1011,18 @@ export function CheckoutStep({
         // line), claims the voucher items atomically, and skips the charge at
         // $0 — no card needed. Race-credit-only $0 orders keep the proven
         // legacy credit path.
-        if (sessionVouchers(reserveSession).some(voucherIsApplied)) {
+        // EMPLOYEE PERKS take the unified rail for the same reason (kiosk,
+        // 2026-09-14): a team member booking only their free single races
+        // priced to $0 here, was flagged a credit order, and went down the
+        // legacy route — which knows nothing about perks, rebuilt the Square
+        // order at full price and refused with "cardSourceId or giftCardNonce
+        // required for paid orders". The unified rail re-derives the stamps
+        // from the signed tokens, prices the free heats as $0 lines and skips
+        // the charge.
+        if (
+          sessionVouchers(reserveSession).some(voucherIsApplied) ||
+          employeeMembers(reserveSession.party).length > 0
+        ) {
           await reserveAll({ session: reserveSession, contact });
         } else {
           await reserveBooking({
@@ -1299,13 +1311,14 @@ export function CheckoutStep({
 
         {/* EMPLOYEE PERKS (owner 2026-09-13): "Team member?" beside the promo
             field — employee ID or mobile → one-time code to the 7shifts mobile →
-            the server's SessionEmployee stamps the matched party member. The
-            review prices from the SAME server quote the reserve charges with. */}
+            the server's SessionEmployee stamps the matched party member. Several
+            team members can verify on one booking (2026-09-14). The review
+            prices from the SAME server quote the reserve charges with. */}
         <EmployeePerksInput
-          employee={session.employee}
+          employees={sessionEmployees(session)}
           party={session.party}
-          onVerified={(employee) => dispatch({ type: "setEmployee", employee })}
-          onClear={() => dispatch({ type: "setEmployee", employee: null })}
+          onVerified={(employee) => dispatch({ type: "addEmployee", employee })}
+          onRemove={(userId) => dispatch({ type: "removeEmployee", userId })}
         />
 
         <div className="flex items-center justify-between pt-2">

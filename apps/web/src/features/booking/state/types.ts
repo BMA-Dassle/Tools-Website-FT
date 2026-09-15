@@ -145,9 +145,9 @@ export interface PartyMember {
   licenseActive?: boolean;
   memberships?: string[];
   /**
-   * EMPLOYEE PERKS (2026-09-13): this member IS the verified team member. A
+   * EMPLOYEE PERKS (2026-09-13): this member IS a verified team member. A
    * display hint on the client — the server strips every stamp and re-derives
-   * the one true stamp from `session.employee.token` before pricing
+   * the true stamps from each `session.employees[].token` before pricing
    * (programs/employee.server.ts applyEmployeeToSession). Never set by hand;
    * `stampEmployeeOnParty` is the only writer.
    */
@@ -879,13 +879,16 @@ export interface BookingSession {
    */
   appliedVouchers?: AppliedVoucherState[];
   /**
-   * EMPLOYEE PERKS (2026-09-13): the verified team member on this booking —
-   * 7shifts identity proven by a one-time code, carried as a signed token the
-   * server re-verifies at quote AND charge. `usedThisWeek` is the free-race
-   * count the display priced with; the charge hard-fails if the ledger moved.
-   * Set by the employee route (web) / code-entry + sign-in recognition (kiosk).
+   * EMPLOYEE PERKS (2026-09-13; several per booking since 2026-09-14): the
+   * verified team members on this booking — each a 7shifts identity proven by
+   * a one-time code, carried as a signed token the server re-verifies at quote
+   * AND charge. `usedThisWeek` is the free-race count the display priced with
+   * for that person; the charge hard-fails if their ledger moved. Added by the
+   * employee route (web) / code-entry + sign-in recognition (kiosk). READ via
+   * `sessionEmployees(session)` — it also honours the pre-09-14 single
+   * `employee` field a persisted session may still carry.
    */
-  employee?: SessionEmployee | null;
+  employees?: SessionEmployee[];
   /**
    * Combo-special id (features/combos registry, e.g. "race-bowl") — stamped
    * ONCE at session creation by the /book/combo/[id]/v2 entry, like
