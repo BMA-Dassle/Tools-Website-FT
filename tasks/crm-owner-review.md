@@ -466,7 +466,10 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
       and a link that survives being opened by somebody whose default view
       differs (a rep opening a director's link, a different centre filter).
 
-- [ ] **The un-owned card still says "Guest Services" as the planner.** The
+- [x] **The un-owned card says "Unassigned".** DONE — `unownedState()` in
+      `leads/service/notify.ts` replaces the planner name on the Assignment
+      Pending card. Guest Services is the generic fallback used to BUILD the
+      card, not its owner. ORIGINAL NOTE: The
       Assignment Pending card's subtitle reads "FastTrax Fort Myers · Guest
       Services" on a lead the banner above it says nobody owns. Guest Services
       is the generic fallback used to build the card, not the owner. It should
@@ -578,11 +581,23 @@ Preview: https://tools-website-ft-git-feat-crm-headpinz.vercel.app/admin/crm
 - [ ] **Collapse consecutive lanes into ranges** ("Lanes 1-24") on the Event
       tab's Schedule table, instead of one row per lane. Owner: "Take a look at
       how we do this stuff in reservation admin."
-- [ ] **Icons look off** on the deal header (the row of small glyphs beside
+- [x] **Icons look off** — DONE 2026-09-14. `.hero .facts .icon` forced 15px
+      over a 16px tabler glyph, so every stroke in that row was scaled by a
+      fraction and read thinner than the identical glyphs in the buttons
+      beside it. Raised twice; fixed at the cause. ORIGINAL:
+      the row of small glyphs beside
       guest / time / guests / centre).
 - [ ] **The deal drawer layout** — owner: "Hate this layout". Needs a proper
       pass against the Direction B prototype rather than piecemeal fixes.
-- [ ] **The deal HEADER needs a design pass** — owner: "mAKE THIS LOOK BETTER".
+- [x] **The deal HEADER design pass** — DONE 2026-09-14, every specific:
+      the "?" avatar is now "Unassigned"; the money is never an em dash in hero
+      type (the countdown leads when there is no quote); the BMI chip shows
+      only when Office disagrees with the status beside it; the reference
+      number stopped wearing a state pill; the stage labels truncate instead of
+      breaking mid-word; and the meta icons match the action row.
+      STILL OPEN from this item: the stray calendar glyph + empty pill after
+      the centre name was never reproduced — it needs a lead that shows it.
+      ORIGINAL: owner: "mAKE THIS LOOK BETTER".
       Observed on Juniper Landscaping / H2892. Specifics to fix, not just
       "tidy it":
       - A stray calendar glyph followed by an EMPTY pill sits after the centre
