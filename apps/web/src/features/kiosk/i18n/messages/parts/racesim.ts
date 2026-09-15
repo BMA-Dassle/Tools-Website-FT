@@ -42,13 +42,16 @@ export const racesimEn = {
   // --- Circuits (the rotating lineup, picked per block on the schedule) ---
   // The circuit NAMES are real venues and stay English in both locales, same
   // rule as FastTrax / HeadPinz. Only the words around them translate.
-  "racesim.circuit.thisWeek": "Racing this week",
   /** {length} = miles, {turns} = corner count. */
   "racesim.circuit.stats": "{length} mi · {turns, plural, one {# turn} other {# turns}}",
-  /** Shown on a block someone has already fixed the circuit for. */
-  "racesim.circuit.locked": "Running",
-  /** No circuit can be offered on this block (every key's fetch missed it). */
-  "racesim.circuit.none": "Not available",
+  /** Tab helper under the circuit tabs — {circuit} = the selected circuit. */
+  "racesim.circuit.hint": "Showing {circuit} sessions — tap another circuit to switch.",
+  /** A session whose four rigs are already running a DIFFERENT circuit, so it
+   *  cannot be booked on the circuit currently shown. {circuit} = the one it
+   *  is running. */
+  "racesim.circuit.runningOther": "Running {circuit}",
+  /** Same start already picked on another circuit — {circuit} = that one. */
+  "racesim.circuit.pickedOther": "Picked on {circuit}",
 
   // --- Time step (racing heat-picker layout) ---
   "racesim.slot.heading": "Pick a Time",
@@ -95,10 +98,10 @@ export const racesimEs: Record<keyof typeof racesimEn, string> = {
     "{unit} × {count, plural, one {# piloto} other {# pilotos}} = {total} en total",
   "racesim.product.selected": "Seleccionado",
 
-  "racesim.circuit.thisWeek": "Esta semana se corre en",
   "racesim.circuit.stats": "{length} mi · {turns, plural, one {# curva} other {# curvas}}",
-  "racesim.circuit.locked": "Se corre en",
-  "racesim.circuit.none": "No disponible",
+  "racesim.circuit.hint": "Mostrando sesiones de {circuit} — toca otro circuito para cambiar.",
+  "racesim.circuit.runningOther": "Se corre en {circuit}",
+  "racesim.circuit.pickedOther": "Elegida en {circuit}",
 
   "racesim.slot.heading": "Elige una hora",
   "racesim.slot.bookingFor": "Reserva para {count, plural, one {# piloto} other {# pilotos}}",

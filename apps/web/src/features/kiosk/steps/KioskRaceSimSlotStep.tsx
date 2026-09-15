@@ -1,54 +1,55 @@
 "use client";
 
 /**
- * Kiosk Race Sims schedule — time AND circuit on one screen.
+ * Kiosk Race Sims schedule — the racing HEAT PICKER on a sim item (owner
+ * 2026-08-26: "follow racing as close as possible", let guests change track on
+ * the heat-pick screen, and — like karting across tracks — picks ACCUMULATE:
+ * "if I select 10 on Track A … 10:15 would be open").
  *
- * Owner 2026-09-15: "The circuit has a picker on the schedule. the block or
- * race session gets blocks." So the separate Track step is GONE and every time
- * block carries its own circuit picker; once a block has a circuit, the block
- * is locked to it and the other circuits disappear from that block.
+ * The three tabs are now this week's CIRCUITS (owner 2026-09-15) — Baku,
+ * Bristol, Indianapolis — rather than the "Track A/B/C" placeholders, and the
+ * standalone Track step is gone: the circuit is picked here, on the schedule.
  *
- * WHY A BLOCK CAN ONLY RUN ONE CIRCUIT. There are four rigs and ONE shared
- * capacity pool — every $0 track key draws the same "Race Sim" resource
- * sessions (race-sims/products.ts). A 10:00 session is therefore four rigs
- * running one circuit. Before this screen existed, two parties could book the
- * same 10:00 on different keys and the desk had to tell one of them no, after
- * they had paid. Now the first booking on a slot fixes its key, the schedule
- * shows that, and reserve guard 2f refuses a stale pick before the charge.
+ * KEYS ARE NOT CIRCUITS. A tab is one of the three $0 BMI key products
+ * (59535405 / 59537905 / 59537953), which never change; the circuit each key
+ * RUNS is this week's lineup (race-sims/circuits.ts) and rotates. Everything a
+ * guest reads comes from the lineup, everything BMI is told comes from the
+ * key, and the label persisted for the conflict rules is the key's own stable
+ * one — see the circuits.ts header for why those must never be one string.
  *
- * THE KEY IS NOT THE CIRCUIT. Keys A/B/C are the three $0 BMI products
- * (59535405 / 59537905 / 59537953) and never change; the CIRCUIT each one runs
- * is this week's lineup (race-sims/circuits.ts) and rotates. Everything a
- * guest reads here comes from the lineup; everything BMI is told comes from
- * the key.
+ * A tab shows exactly the sessions that circuit can actually run: BMI restricts
+ * which key may enter which slot, so a key simply does not propose the slots it
+ * is not allowed, and on top of that a slot already running a DIFFERENT circuit
+ * is greyed ("Running Bristol") because all four rigs run one circuit at a time.
  *
- * AVAILABILITY IS FETCHED PER KEY, ON PURPOSE. All three keys propose the same
- * times, so one fetch would paint the same grid — but the PROPOSAL that books
- * a seat is issued per key, and handing BMI key B a proposal minted for key A
- * is not something to find out about on a live booking. Three parallel fetches,
- * indexed by (key, start), means the proposal we book with is always the one
- * that key issued.
+ * Layout mirrors RaceHeatPickerStep's kiosk render at canvas px: centered
+ * heading + "product · circuit · date" line, racing's TrackInfoBanner cards as
+ * the circuit tabs above the grid, "Booking for N racers" summary, ONE
+ * flat earliest-first grid of time cards (big time → block name → tri-color
+ * status line → capacity bar), racing's selected / idle / disabled states,
+ * tap-to-unpick, per-card "Holding…" overlay, hold-error card, loading /
+ * error+Retry / empty shells, semi-live 30s refetch.
  *
- * Layout otherwise mirrors RaceHeatPickerStep's kiosk render at canvas px:
- * centered heading + "product · date", "Booking for N racers" summary, one
- * flat earliest-first grid of time cards (big time → status line → capacity
- * bar → circuit chips), tap-to-unpick, per-card "Holding…" overlay, hold-error
- * card, loading / error+Retry / empty shells, semi-live 30s refetch.
+ * Circuit tabs FILTER the grid exactly like racing's track cards: switching
+ * keeps every pick (item.sessions — racing's heats[]) and shows that key's
+ * sessions; a pick on any circuit adds a session and eager-holds ONE $0
+ * track-key line for the whole party; tapping a picked card releases it.
  *
- * Scheduling rules — race-sims/scheduling.ts, shared with the reserve guard so
- * grid and server agree: sim-vs-sim = the SAME time slot is the same rigs (and
- * is now expressed as the block's lock rather than a greyed sibling card),
- * back-to-back is allowed; sim-vs-kart heat / attraction / bowling = racing's
- * 30-min cross-activity spacing, against the whole cart AND the party's other
- * reservations today (booked-heats); group events (full-day private event
- * blocks the screen, morning buyout greys before the public reopen, event
- * windows grey overlapping sessions); capacity vs party; a 10-min lead.
+ * Scheduling rules — race-sims/scheduling.ts, shared with the reserve guard
+ * so grid and server agree: sim-vs-sim = the SAME time slot on another track
+ * is the same rigs (greyed "Picked on Track A"), back-to-back is allowed;
+ * sim-vs-kart heat / attraction / bowling = racing's 30-min cross-activity
+ * spacing, against the whole cart AND the party's other reservations today
+ * (booked-heats); group events (full-day private event blocks the screen,
+ * morning buyout greys before the public reopen, event windows grey
+ * overlapping sessions); capacity vs party; a 10-min lead. canAdvance
+ * re-runs the checks on every picked session, racing's canAdvanceFor.
  *
- * Racing books per (heat × racer) line with racers stamped at the pick; a sim
- * session is ONE $0 line for the whole party, so the tap stamps the roster
- * (racerCount/assignedTo from session.party) and holds with that quantity
- * (heldQty). A party change after the hold re-holds each session at the new
- * quantity; reserve guard 2e refuses a stale hold.
+ * Racing books per (heat × racer) line with racers stamped at the pick; a
+ * sim session is ONE $0 line for the whole party, so the tap stamps the
+ * roster (racerCount/assignedTo from session.party) and holds with that
+ * quantity (heldQty). A party change after the hold re-holds each session at
+ * the new quantity; reserve guard 2e refuses a stale hold.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RaceSimItem, RaceSimSession, StepDef } from "~/features/booking";
@@ -60,19 +61,20 @@ import {
   raceSimBookingTarget,
   type RaceSimTrackKey,
 } from "~/features/race-sims/products";
-import { circuitForTrack, type SimCircuit } from "~/features/race-sims/circuits";
 import { bookRaceSimSession } from "~/features/race-sims/service";
+import { circuitForTrack } from "~/features/race-sims/circuits";
 import {
   cartSimSlotLocks,
   cartTimedBookings,
   findRaceSimSelfConflict,
   lockedTrackKeyForSlot,
+  ownPickAtSameStart,
+  simSlotLockIndex,
   ownSessionsMissingFromGrid,
   raceSimPrivateEventTitle,
   raceSimSlotBeforeReopen,
   raceSimSlotConflicts,
   raceSimSlotEventReserved,
-  simSlotLockIndex,
   wallClockMs,
   type SimSlotLock,
   type TimedBooking,
@@ -88,13 +90,29 @@ const LEAD_MS = 10 * 60_000;
 /** RACE_AVAILABILITY_POLL_MS parity — the grid stays semi-live. */
 const POLL_MS = 30_000;
 
-const TRACK_KEYS: readonly RaceSimTrackKey[] = ["a", "b", "c"] as const;
+/** The circuit a key runs on the shown day, with a safe fallback to the key's
+ *  own stable label for dates before the first lineup. */
+function circuitLabel(key: RaceSimTrackKey, ymd: string): string {
+  return (
+    circuitForTrack(key, ymd)?.name ??
+    RACE_SIM_TRACKS.find((tr) => tr.key === key)?.conflictLabel ??
+    key.toUpperCase()
+  );
+}
+/** Card accent — the CIRCUIT's own colour, so a circuit looks the same
+ *  wherever it lands in the rotation. Falls back to racing's track palette. */
+const FALLBACK_TINT: Record<RaceSimTrackKey, string> = {
+  a: "#e53935",
+  b: "#4fa9ff",
+  c: "#8652ff",
+};
+function circuitAccent(key: RaceSimTrackKey, ymd: string): string {
+  return circuitForTrack(key, ymd)?.accent ?? FALLBACK_TINT[key];
+}
 
 /** `synthetic`: a card rebuilt from one of our own picks that BMI no longer
  *  proposes (our hold took the shared rigs) — see ownSessionsMissingFromGrid. */
 type SlotEntry = { block: BmiBlock; proposal: BmiProposal; synthetic?: boolean };
-/** Per-key availability: start ISO → that key's own entry. */
-type TrackSlots = Partial<Record<RaceSimTrackKey, Map<string, SlotEntry>>>;
 
 const sameSession = (s: RaceSimSession, trackKey: string | null, slot: string) =>
   s.trackKey === trackKey && s.slot === slot;
@@ -107,6 +125,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   setBusy,
 }) => {
   const { t, locale } = useLocale();
+  const target = raceSimBookingTarget(item.trackKey);
   // Racing: the whole party races — quantity comes from the roster, and the
   // tap stamps it onto the item (racing stamps racers at the heat pick).
   const partyIds = session.party.map((m) => m.id);
@@ -115,7 +134,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     ...new Set(session.party.map((m) => m.bmiPersonId).filter((id): id is string => !!id)),
   ].sort();
 
-  const [trackSlots, setTrackSlots] = useState<TrackSlots>({});
+  const [slots, setSlots] = useState<SlotEntry[]>([]);
   const [scanState, setScanState] = useState<"loading" | "done" | "error">("loading");
   const [refreshTick, setRefreshTick] = useState(0);
   const [holding, setHolding] = useState<string | null>(null); // block.start being held/released
@@ -124,10 +143,11 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   // (racing's booked-heats signal, matched by bmiPersonId), with their track
   // so the rule can tell a sim row from a kart heat. Fail-open.
   const [existing, setExisting] = useState<TimedBooking[]>([]);
-  // Slots OTHER reservations have already locked to a circuit. Fail-open: an
-  // empty list just offers every circuit, and guard 2f still refuses at reserve.
+  // Slots whose four rigs are already committed to a circuit by ANOTHER
+  // reservation. Fail-open: an empty list just leaves every session bookable,
+  // and reserve guard 2f still refuses before any Square write.
   const [serverLocks, setServerLocks] = useState<SimSlotLock[]>([]);
-  const lastDateRef = useRef<string | null>(null);
+  const lastTargetRef = useRef<string | null>(null);
   // Serializes the party-change re-hold (racing's useEagerHeatHold holdingRef):
   // a ref, not state, so the effect never re-fires on its own state write.
   const reholdRef = useRef(false);
@@ -142,55 +162,50 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.date, today]);
 
-  // Fetch EVERY key's sessions in parallel; refetch every 30s. One key's
-  // failure is not the screen's failure — the others still offer their
-  // circuits, and a circuit with no proposal simply isn't pickable.
+  // Fetch the shown track's key's sessions; refetch every 30s.
   useEffect(() => {
-    if (!item.date) {
+    if (!target || !item.date) {
       setScanState("done");
-      setTrackSlots({});
+      setSlots([]);
       return;
     }
     let cancelled = false;
-    // Show the spinner on first load and on a date change, never on the
-    // silent 30s poll.
-    if (refreshTick === 0 || lastDateRef.current !== gridDate) setScanState("loading");
-    lastDateRef.current = gridDate;
-    Promise.all(
-      TRACK_KEYS.map(async (key) => {
-        const target = raceSimBookingTarget(key);
-        if (!target) return [key, null] as const;
-        try {
-          const res = await bmiAdapter.getAvailability({
-            date: gridDate,
-            productId: target.productId,
-            pageId: target.pageId,
-            quantity: qty,
-          });
-          const byStart = new Map<string, SlotEntry>();
-          for (const proposal of res.proposals) {
-            const block = proposal.blocks[0]?.block;
-            if (block && !byStart.has(block.start)) byStart.set(block.start, { block, proposal });
-          }
-          return [key, byStart] as const;
-        } catch {
-          return [key, null] as const;
+    // Show the spinner on first load and on a track switch (new key), never
+    // on the silent 30s poll.
+    if (refreshTick === 0 || lastTargetRef.current !== target.productId) setScanState("loading");
+    lastTargetRef.current = target.productId;
+    bmiAdapter
+      .getAvailability({
+        date: gridDate,
+        productId: target.productId,
+        pageId: target.pageId,
+        quantity: qty,
+      })
+      .then((res) => {
+        if (cancelled) return;
+        const byStart = new Map<string, SlotEntry>();
+        for (const proposal of res.proposals) {
+          const block = proposal.blocks[0]?.block;
+          if (block && !byStart.has(block.start)) byStart.set(block.start, { block, proposal });
         }
-      }),
-    ).then((pairs) => {
-      if (cancelled) return;
-      const next: TrackSlots = {};
-      for (const [key, map] of pairs) if (map) next[key] = map;
-      setTrackSlots(next);
-      // Every key failing is a real outage; one failing is not.
-      setScanState(Object.keys(next).length === 0 ? "error" : "done");
-    });
+        setSlots(
+          Array.from(byStart.values()).sort(
+            (a, b) => wallClockMs(a.block.start) - wallClockMs(b.block.start),
+          ),
+        );
+        setScanState("done");
+      })
+      .catch(() => {
+        if (!cancelled) setScanState("error");
+      });
     const timer = setInterval(() => setRefreshTick((n) => n + 1), POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [item.date, gridDate, qty, refreshTick]);
+    // target is derived from trackKey; its two ids are the stable deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target?.productId, target?.pageId, item.date, gridDate, qty, today, refreshTick]);
 
   // Existing-reservation conflicts — the same endpoint racing's grid polls
   // (/api/booking/v2/booked-heats: karting heats + prior sim sessions),
@@ -223,9 +238,9 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     };
   }, [personKey, gridDate, session.bmiBillId, refreshTick]);
 
-  // Which slots are already locked to a circuit by OTHER reservations. Polled
-  // on the same tick as the grid so a slot claimed while this guest is looking
-  // collapses to its one circuit within 30s rather than at the charge.
+  // Which slots are already committed to a circuit. Polled on the same tick as
+  // the grid, so a session claimed while this guest is looking greys out within
+  // 30s rather than at the charge.
   useEffect(() => {
     let cancelled = false;
     const params = new URLSearchParams({ date: gridDate });
@@ -249,13 +264,13 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   // Other cart activities — racing's cart-conflict gating, via the shared rule.
   const cartOthers = cartTimedBookings(session.items, item.id);
 
-  // Locks the grid renders from: other reservations FIRST (a stranger's
-  // booking outranks our cart), then the cart's own picks — which is what
-  // stops one cart putting two circuits into one session. Same construction
-  // as guard 2f, so the screen and the server agree about who owns a slot.
+  // Which circuit each session is committed to: other reservations FIRST (a
+  // stranger's booking outranks our cart), then our own picks. Same
+  // construction as reserve guard 2f, so the screen and the server agree about
+  // who owns a session.
   const lockIndex = simSlotLockIndex([...serverLocks, ...cartSimSlotLocks(session.items)]);
 
-  /** Tap a picked chip: release its $0 line and drop the session (racing's
+  /** Tap a picked card: release its $0 line and drop the session (racing's
    *  deselect). Other picks stay. */
   const unpickSession = useCallback(
     async (sess: RaceSimSession) => {
@@ -276,13 +291,12 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
     [holding, item.sessions, session, onChange, setBusy],
   );
 
-  /** Tap a circuit chip on an open block: ADD a session on THAT key and hold
-   *  it. The proposal comes from that key's own fetch — never another key's. */
+  /** Tap an open card: ADD a session on the shown track and hold it. */
   const bookSlot = useCallback(
-    async (trackKey: RaceSimTrackKey, start: string) => {
-      if (holding || reholdRef.current) return;
-      const entry = trackSlots[trackKey]?.get(start);
-      if (!entry) return;
+    async (entry: SlotEntry) => {
+      const trackKey = item.trackKey;
+      if (holding || reholdRef.current || !trackKey) return;
+      const start = entry.block.start;
       setHolding(start);
       setHoldError(null);
       setBusy?.(true);
@@ -293,11 +307,8 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
         bmiLineId: null,
         heldQty: null,
       };
-      const next = [...item.sessions.filter((s) => s.slot !== start), added];
-      // trackKey on the ITEM follows the latest pick: it is only the "current"
-      // track for anything still reading it, while the money and the $0 lines
-      // live per session.
-      const stamped = { sessions: next, racerCount: qty, assignedTo: partyIds, trackKey };
+      const next = [...item.sessions.filter((s) => !sameSession(s, trackKey, start)), added];
+      const stamped = { sessions: next, racerCount: qty, assignedTo: partyIds };
       try {
         onChange(stamped);
         await bookRaceSimSession(session, { ...item, ...stamped }, added, dispatch);
@@ -315,7 +326,17 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- partyIds is rebuilt per render from session.party
-    [holding, item, session, onChange, dispatch, setBusy, qty, t, trackSlots],
+    [holding, item, session, onChange, dispatch, setBusy, qty, t],
+  );
+
+  /** Track cards filter the grid (racing's TrackInfoBanner): every pick stays. */
+  const switchTrack = useCallback(
+    (key: RaceSimTrackKey) => {
+      if (holding || key === item.trackKey) return;
+      setHoldError(null);
+      onChange({ trackKey: key });
+    },
+    [holding, item.trackKey, onChange],
   );
 
   // Party changed after a hold: BMI holds heldQty seats, the roster says qty —
@@ -375,19 +396,9 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
 
   const nowMs = Date.now();
   const leadCutoffMs = nowMs + LEAD_MS;
-
-  // One row per START, across every key: the keys propose the same times, and
-  // a union means a key that failed its fetch cannot hide a whole time from
-  // the schedule — it only removes its own circuit from that block's chips.
-  const startsSeen = new Map<string, BmiBlock>();
-  for (const key of TRACK_KEYS) {
-    const map = trackSlots[key];
-    if (!map) continue;
-    for (const [start, entry] of map) {
-      if (gridDate === today && wallClockMs(start) < leadCutoffMs) continue;
-      if (!startsSeen.has(start)) startsSeen.set(start, entry.block);
-    }
-  }
+  const visible = slots.filter(
+    ({ block }) => gridDate !== today || wallClockMs(block.start) >= leadCutoffMs,
+  );
 
   // TEST KIOSK ONLY (kiosk 99, context.kioskTest) — racing's rig: when TODAY's
   // grid has settled empty (all sessions past/lead-filtered/none planned) and
@@ -396,36 +407,45 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   // kiosks have no kioskTest flag.
   const kioskTestRig = !!session.context?.kioskTest;
   const testRolledRef = useRef(false);
-  const visibleCount = startsSeen.size;
   useEffect(() => {
-    if (!kioskTestRig || testRolledRef.current) return;
-    if (gridDate !== today || scanState !== "done" || visibleCount > 0) return;
+    if (!kioskTestRig || testRolledRef.current || !target) return;
+    if (gridDate !== today || scanState !== "done" || visible.length > 0) return;
     if (item.sessions.length > 0) return;
     testRolledRef.current = true;
     const next = new Date(`${today}T12:00:00`);
     next.setDate(next.getDate() + 1);
     onChange({ date: next.toISOString().slice(0, 10), sessions: [] });
-  }, [kioskTestRig, gridDate, today, scanState, visibleCount, item.sessions.length, onChange]);
+  }, [
+    kioskTestRig,
+    target,
+    gridDate,
+    today,
+    scanState,
+    visible.length,
+    item.sessions.length,
+    onChange,
+  ]);
   const testShowingFutureDay = kioskTestRig && gridDate > today;
 
-  // Own picks BMI no longer proposes on ANY key: every sim key books the same
-  // four rigs, so our own hold eats the seats and BMI drops any block with
-  // fewer free seats than the party (it never returns a full block). Without
-  // this a party of 4 loses its SELECTED card on the next poll and cannot
-  // unpick. Rebuild those rows from the pick's own block.
-  const synthetic = ownSessionsMissingFromGrid(
-    item.sessions,
-    [...startsSeen.keys()],
-    gridDate,
-    null,
-  );
-  const grid: { start: string; block: BmiBlock; synthetic: boolean }[] = [
-    ...[...startsSeen.entries()].map(([start, block]) => ({ start, block, synthetic: false })),
-    ...synthetic.map((s) => {
+  // Own picks BMI no longer proposes on the shown track: every sim track books
+  // the same four rigs, so our own hold eats the seats and BMI drops any block
+  // with fewer free seats than the party (it never returns a full block).
+  // Without this a party of 4 loses its SELECTED card on the next poll (can't
+  // unpick), and a 4:15 picked on Track A silently vanishes from Track B
+  // instead of reading "Picked on Track A". Rebuild those cards from the
+  // pick's own block.
+  const grid: SlotEntry[] = [
+    ...visible,
+    ...ownSessionsMissingFromGrid(
+      item.sessions,
+      visible.map((e) => e.block.start),
+      gridDate,
+      item.trackKey,
+    ).map((s) => {
       const b = s.slotProposal.blocks[0]?.block;
       return {
-        start: s.slot,
         synthetic: true,
+        proposal: s.slotProposal,
         block: {
           name: b?.name ?? "",
           capacity: b?.capacity ?? qty,
@@ -434,25 +454,22 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
           prices: b?.prices ?? [],
           start: s.slot,
           stop: b?.stop ?? s.slot,
-        } as BmiBlock,
+        },
       };
     }),
-  ].sort((a, b) => wallClockMs(a.start) - wallClockMs(b.start));
+  ].sort((a, b) => wallClockMs(a.block.start) - wallClockMs(b.block.start));
 
   const product = getRaceSimProduct(item.productSlug);
   const productNameKey = item.productSlug ? PRODUCT_NAME_KEYS[item.productSlug] : undefined;
   const productName = productNameKey
     ? t(productNameKey)
     : (product?.name ?? t("racesim.tile.name"));
+  const trackName = item.trackKey ? circuitLabel(item.trackKey, gridDate) : null;
   const displayDate = new Date(`${gridDate}T12:00:00`).toLocaleDateString(
     locale === "es" ? "es-US" : "en-US",
     { weekday: "long", month: "long", day: "numeric" },
   );
   const pickedCount = item.sessions.length;
-  // This week's lineup, for the legend above the grid.
-  const lineup = TRACK_KEYS.map((key) => ({ key, circuit: circuitForTrack(key, gridDate) })).filter(
-    (row): row is { key: RaceSimTrackKey; circuit: SimCircuit } => row.circuit != null,
-  );
 
   // Racing's full-day private-event guard — the whole screen, before the grid.
   const privateEvent = raceSimPrivateEventTitle(gridDate);
@@ -473,14 +490,18 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
   }
 
   return (
-    <div className="space-y-[28px]">
+    <div className="space-y-[32px]">
       {/* Header — racing's "Pick a Heat" + "product · date" line. */}
       <div className="text-center">
         <h2 className="k-display mb-[6px] text-[32px] tracking-widest text-white">
           {t("racesim.slot.heading")}
         </h2>
         <p className="text-[18px] text-white/50">
-          <span className="text-white/80">{productName}</span> · {displayDate}
+          <span className="text-white/80">
+            {productName}
+            {trackName ? ` · ${trackName}` : ""}
+          </span>{" "}
+          · {displayDate}
         </p>
       </div>
       {testShowingFutureDay && (
@@ -489,42 +510,65 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
         </div>
       )}
 
-      {/* This week's circuits — the legend that makes a three-letter chip on a
-          time card mean something. Specs come from the real venues. */}
-      {lineup.length > 0 && (
-        <div className="space-y-[10px]">
-          <p className="text-center text-[17px] text-white/45">{t("racesim.circuit.thisWeek")}</p>
-          <div className="grid grid-cols-3 gap-[14px]">
-            {lineup.map(({ key, circuit }) => (
-              <div
-                key={key}
-                className="rounded-[16px] border-2 px-[20px] py-[16px]"
-                style={{ borderColor: `${circuit.accent}66`, background: `${circuit.accent}14` }}
+      {/* Circuit tabs — racing's TrackInfoBanner (tinted card, display title,
+          ring when active, siblings dimmed); they filter the grid, picks stay.
+          Each carries the real venue's own stats, so the choice means
+          something to a guest who has never heard of the place. */}
+      <div className="space-y-[10px]">
+        <div className="grid grid-cols-3 gap-[16px]">
+          {RACE_SIM_TRACKS.map((track) => {
+            const active = item.trackKey === track.key;
+            const circuit = circuitForTrack(track.key, gridDate);
+            const tint = circuitAccent(track.key, gridDate);
+            return (
+              <button
+                key={track.key}
+                type="button"
+                aria-pressed={active}
+                disabled={holding != null}
+                onClick={() => switchTrack(track.key)}
+                className={`k-tap rounded-[16px] border-2 px-[24px] py-[18px] text-left ${
+                  item.trackKey && !active ? "opacity-40" : ""
+                }`}
+                style={{
+                  borderColor: active ? tint : `${tint}66`,
+                  background: `${tint}14`,
+                  boxShadow: active ? `0 0 0 4px ${tint}99` : "none",
+                }}
               >
                 <div
                   className="k-display text-[24px] leading-tight tracking-wide"
-                  style={{ color: circuit.accent }}
+                  style={{ color: tint }}
                 >
-                  {circuit.name}
+                  {circuitLabel(track.key, gridDate)}
                 </div>
-                <div className="mt-[4px] text-[16px] text-white/50">
-                  {locale === "es" ? circuit.es.eventName : circuit.eventName}
-                </div>
-                <div className="k-num mt-[8px] text-[15px] text-white/40">
-                  {t("racesim.circuit.stats", {
-                    length: circuit.lengthMi.toString(),
-                    turns: circuit.turns,
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
+                {circuit && (
+                  <>
+                    <div className="mt-[4px] text-[16px] text-white/50">
+                      {locale === "es" ? circuit.es.eventName : circuit.eventName}
+                    </div>
+                    <div className="k-num mt-[6px] text-[15px] text-white/40">
+                      {t("racesim.circuit.stats", {
+                        length: circuit.lengthMi.toString(),
+                        turns: circuit.turns,
+                      })}
+                    </div>
+                  </>
+                )}
+              </button>
+            );
+          })}
         </div>
-      )}
+        {trackName && (
+          <p className="text-center text-[16px] text-white/35">
+            {t("racesim.circuit.hint", { circuit: trackName })}
+          </p>
+        )}
+      </div>
 
       {/* Racer count summary — racing's "Booking for N racers" card, plus the
-          running pick count. */}
-      <div className="mx-auto max-w-[560px] rounded-[16px] border border-white/8 bg-white/[0.03] p-[16px] text-center">
+          running pick count across tracks. */}
+      <div className="mx-auto max-w-[520px] rounded-[16px] border border-white/8 bg-white/[0.03] p-[16px] text-center">
         <p className="text-[17px] text-white/50">
           {t("racesim.slot.bookingFor", { count: qty })}
           {pickedCount > 0 && (
@@ -537,7 +581,7 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
       </div>
 
       {holdError && !holding && (
-        <div className="mx-auto max-w-[560px] rounded-[16px] border border-red-500/30 bg-red-500/5 p-[16px] text-center text-[17px] text-red-300">
+        <div className="mx-auto max-w-[520px] rounded-[16px] border border-red-500/30 bg-red-500/5 p-[16px] text-center text-[17px] text-red-300">
           {holdError}
         </div>
       )}
@@ -562,44 +606,59 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
           {t("racesim.slot.empty")}
         </div>
       ) : (
-        /* The schedule — one flat earliest-first grid. Three columns rather
-           than racing's four: each block now carries its own circuit picker,
-           and the chips need the width to stay tappable. */
-        <div className="grid grid-cols-3 gap-[12px]">
-          {grid.map(({ start, block, synthetic: isSynthetic }) => {
-            const startMs = wallClockMs(start);
+        /* The grid — one flat earliest-first grid, racing's 4 columns. */
+        <div className="grid grid-cols-4 gap-[10px]">
+          {grid.map((entry) => {
+            const { block } = entry;
+            const synthetic = !!entry.synthetic;
+            const startMs = wallClockMs(block.start);
             const free = block.freeSpots;
             const cap = Math.max(1, block.capacity ?? free);
-            const picked = item.sessions.find((s) => s.slot === start);
+            const picked = item.sessions.find((s) => sameSession(s, item.trackKey, block.start));
             const isSelected = !!picked;
-            const isHolding = holding === start;
+            const isHolding = holding === block.start;
+            // The same start already picked on ANOTHER track — same rigs.
+            const ownOther = isSelected
+              ? null
+              : ownPickAtSameStart(item.sessions, block.start, item.trackKey);
+            // All four rigs run ONE circuit, so a session another reservation
+            // already committed cannot also run the circuit on this tab. BMI
+            // restricts which key may enter which slot, so mostly a key simply
+            // never proposes these; this catches the window where it can (the
+            // three keys still share one dayplanner) and keeps the schedule
+            // honest instead of taking a booking the rigs cannot run.
+            const lockedTo = isSelected ? null : lockedTrackKeyForSlot(lockIndex, block.start);
+            const runningOther = lockedTo && lockedTo !== item.trackKey ? lockedTo : null;
             // Racing's gates, in its order. Selected cards are never "full".
             const isEventReserved =
-              !isSelected && raceSimSlotEventReserved(gridDate, start, block.stop);
-            const isBeforeReopen = !isSelected && raceSimSlotBeforeReopen(gridDate, start);
+              !isSelected && raceSimSlotEventReserved(gridDate, block.start, block.stop);
+            const isBeforeReopen = !isSelected && raceSimSlotBeforeReopen(gridDate, block.start);
             const isCartConflict = !isSelected && raceSimSlotConflicts(startMs, cartOthers);
             const isExistingConflict =
               !isSelected && !isCartConflict && raceSimSlotConflicts(startMs, existing);
-            const isConflict = isCartConflict || isExistingConflict;
+            const isConflict = isCartConflict || isExistingConflict || !!ownOther || !!runningOther;
             const isLowCap = free < qty;
-            const isBlocked =
+            const isFull =
               !isSelected && (isLowCap || isConflict || isEventReserved || isBeforeReopen);
-
-            // The block's circuit, if someone already fixed it. Our own pick
-            // counts — that is what makes the chips collapse the moment the
-            // guest chooses, rather than a poll later.
-            const lockedTo = lockedTrackKeyForSlot(lockIndex, start);
 
             // Racing's status matrix, in its precedence.
             let statusKey: MessageKey;
             let statusVars: Record<string, string | number> = {};
             let statusClass: string;
-            if (isSelected && isSynthetic) {
+            if (isSelected && synthetic) {
               // Our own hold took the rigs — BMI has no live count to show.
               statusKey = "racesim.slot.picked";
               statusClass = "text-[#00E2E5]";
             } else if (isEventReserved || isBeforeReopen) {
               statusKey = "racesim.slot.reservedForEvent";
+              statusClass = "text-amber-400";
+            } else if (ownOther) {
+              statusKey = "racesim.circuit.pickedOther";
+              statusVars = { circuit: circuitLabel(ownOther.trackKey, gridDate) };
+              statusClass = "text-amber-400";
+            } else if (runningOther) {
+              statusKey = "racesim.circuit.runningOther";
+              statusVars = { circuit: circuitLabel(runningOther, gridDate) };
               statusClass = "text-amber-400";
             } else if (isExistingConflict) {
               statusKey = "racesim.slot.tooCloseExisting";
@@ -626,13 +685,13 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
 
             const cardClass = isSelected
               ? "border-[#00E2E5] bg-[#00E2E5]/15 ring-1 ring-[#00E2E5]/50"
-              : isBlocked
-                ? "border-white/5 bg-white/[0.03] opacity-40"
-                : "border-white/10 bg-white/5";
+              : isFull
+                ? "cursor-not-allowed border-white/5 bg-white/[0.03] opacity-40"
+                : "cursor-pointer border-white/10 bg-white/5";
             const amberBar = isConflict || isEventReserved || isBeforeReopen;
-            const fullBar = amberBar || (isSelected && isSynthetic);
+            const fullBar = amberBar || (isSelected && synthetic);
             const barClass =
-              isSelected && isSynthetic
+              isSelected && synthetic
                 ? "bg-[#00E2E5]/60"
                 : isLowCap
                   ? "bg-red-500"
@@ -642,18 +701,15 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
                       ? "bg-amber-400"
                       : "bg-emerald-400";
 
-            // Which circuits this block can still offer. Locked → only that
-            // one; otherwise every key that actually proposed this start.
-            const offered = (lockedTo ? [lockedTo] : TRACK_KEYS).filter(
-              (key) => isSelected || !!trackSlots[key]?.get(start),
-            );
-
             return (
-              // A DIV, not a button: the chips inside are the buttons now, and
-              // nesting them in one would be invalid and untappable.
-              <div
-                key={start}
-                className={`k-tap relative rounded-[16px] border p-[14px] text-left ${cardClass}`}
+              <button
+                key={block.start}
+                type="button"
+                disabled={isFull || holding != null}
+                // Tapping a picked card unpicks it (racing's deselect —
+                // releases its hold); an open card ADDS a session.
+                onClick={() => void (picked ? unpickSession(picked) : bookSlot(entry))}
+                className={`k-tap relative rounded-[16px] border p-[16px] text-left ${cardClass}`}
               >
                 {isHolding && (
                   <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-[6px] rounded-[16px] border border-[#00E2E5]/60 bg-[#000418]/85 backdrop-blur-sm">
@@ -664,70 +720,20 @@ const KioskRaceSimSlotStepComponent: StepDef<RaceSimItem>["Component"] = ({
                   </div>
                 )}
                 <div className="k-num mb-[2px] text-[24px] font-bold text-white">
-                  {slotLabel(start)}
+                  {slotLabel(block.start)}
                 </div>
-                {/* BMI's own block name — racing's heat picker shows this too,
-                    and once BMI restricts which key may enter which slot it is
-                    where the session's own identity comes from. */}
-                {block.name && (
-                  <div className="mb-[4px] text-[14px] font-medium text-white/50">{block.name}</div>
-                )}
-                <div className={`text-[15px] font-medium ${statusClass}`}>
+                <div className="mb-[10px]" />
+                <div className="mb-[4px] text-[15px] font-medium text-white/60">{block.name}</div>
+                <div className={`text-[16px] font-medium ${statusClass}`}>
                   {t(statusKey, statusVars)}
                 </div>
-                <div className="mt-[8px] h-[5px] overflow-hidden rounded-full bg-white/10">
+                <div className="mt-[10px] h-[5px] overflow-hidden rounded-full bg-white/10">
                   <div
                     className={`h-full rounded-full ${barClass}`}
                     style={{ width: fullBar ? "100%" : `${Math.min(100, (free / cap) * 100)}%` }}
                   />
                 </div>
-
-                {/* The circuit picker, on the block. Once the block has a
-                    circuit — from this cart or someone else's booking — the
-                    other circuits are gone, because all four rigs run it. */}
-                <div className="mt-[10px] space-y-[6px]">
-                  {lockedTo && !isSelected && (
-                    <p className="text-[13px] font-semibold uppercase tracking-wide text-amber-400/80">
-                      {t("racesim.circuit.locked")}
-                    </p>
-                  )}
-                  {offered.length === 0 ? (
-                    <p className="text-[14px] text-white/30">{t("racesim.circuit.none")}</p>
-                  ) : (
-                    offered.map((key) => {
-                      const circuit = circuitForTrack(key, gridDate);
-                      const chosen = picked?.trackKey === key;
-                      const accent = circuit?.accent ?? "#7dd3fc";
-                      const label =
-                        circuit?.shortName ??
-                        RACE_SIM_TRACKS.find((tr) => tr.key === key)?.conflictLabel ??
-                        key.toUpperCase();
-                      const disabled = holding != null || (!chosen && isBlocked);
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          aria-pressed={chosen}
-                          disabled={disabled}
-                          onClick={() =>
-                            void (chosen && picked ? unpickSession(picked) : bookSlot(key, start))
-                          }
-                          className={`k-tap w-full rounded-[10px] border-2 px-[10px] py-[8px] text-[16px] font-semibold ${
-                            disabled && !chosen ? "cursor-not-allowed opacity-40" : ""
-                          }`}
-                          style={{
-                            borderColor: chosen ? accent : `${accent}55`,
-                            background: chosen ? `${accent}33` : `${accent}0f`,
-                            color: chosen ? "#ffffff" : accent,
-                          }}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
+              </button>
             );
           })}
         </div>
